@@ -1,0 +1,46 @@
+[package]
+name = "uwb-play"
+version = "0.1.0"
+authors = ["Roman Isaikin <romix.lab@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embedded-hal = "0.2"
+nb = "0.1.2"
+cortex-m = "0.6"
+cortex-m-rt = "0.6"
+#panic-halt = "0.2"
+dw1000 = "0.4.0"
+embedded-timeout-macros = "0.2.0"
+#rtt-target = { version = "0.2.0", features = ["cortex-m"] }
+rtt-target = { path = "/Users/roman/git/rtt-target/rtt-target", version = "0.2.0", features = ["cortex-m"] }
+cortex-m-rtic = "0.5.3"
+heapless = "0.5.5"
+
+[dependencies.stm32f4xx-hal]
+version = "0.8"
+features = ["rt", "stm32f401"]
+
+[features]
+default = []
+tx = []
+rx = []
+
+[[bin]]
+name = "uwb-play"
+test = false
+bench = false
+
+[profile.dev]
+opt-level = 1
+codegen-units = 16
+debug = true
+lto = false
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+debug = true
+lto = true
