@@ -19,7 +19,7 @@ use rtic::app;
 use rtic::cyccnt::U32Ext;
 use stm32f4xx_hal as hal;
 use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::gpio::{PushPull, Output, Alternate, AF5};
+use stm32f4xx_hal::gpio::{PushPull, Output, Alternate, Edge, ExtiPin, AF5};
 use stm32f4xx_hal::gpio::{gpiob::{PB4, PB5, PB8, PB9}};
 use rtt_target::{rtt_init_print, rprintln, rprint};
 use cortex_m::asm::delay;
@@ -44,17 +44,17 @@ use dw1000::{DW1000, mac, configs::{
 use hal::gpio::{gpioa::{PA4, PA5, PA6, PA7}};
 
 pub enum DW1000State<SPI, CS> {
-    Ready(DW1000<SPI, CS, Ready>),
-    Sending(DW1000<SPI, CS, Sending>),
-    Receiving(DW1000<SPI, CS, Receiving>),
+    Ready(Option<DW1000<SPI, CS, Ready>>),
+    Sending(Option<DW1000<SPI, CS, Sending>>),
+    Receiving(Option<DW1000<SPI, CS, Receiving>>),
 }
 
-type DW1000_CLK = PA5<Alternate<AF5>>;
-type DW1000_MISO = PA6<Alternate<AF5>>;
-type DW1000_MOSI = PA7<Alternate<AF5>>;
-type DW1000_CS = PA4<Output<PushPull>>;
-type DW1000_SPI = hal::spi::Spi<hal::stm32::SPI1, (DW1000_CLK, DW1000_MISO, DW1000_MOSI)>;
-type UWBRadio = DW1000State<DW1000_SPI, DW1000_CS>;
+type Dw1000Clk = PA5<Alternate<AF5>>;
+type Dw1000Miso = PA6<Alternate<AF5>>;
+type Dw1000Mosi = PA7<Alternate<AF5>>;
+type Dw1000Cs = PA4<Output<PushPull>>;
+type Dw1000Spi = hal::spi::Spi<hal::stm32::SPI1, (Dw1000Clk, Dw1000Miso, Dw1000Mosi)>;
+type UWBRadio = DW1000State<Dw1000Spi, Dw1000Cs>;
 
 const PERIOD: u32 = 10_000_000;
 
@@ -88,6 +88,8 @@ const APP: () = {
         //let _flash = device.FLASH;
         let rcc = device.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(48.mhz()).freeze();
+        let mut syscfg = device.SYSCFG;
+        let mut exti = device.EXTI;
         //let mut delay = hal::delay::Delay::new(core.SYST, clocks);
 
         let gpioa = device.GPIOA.split();
@@ -111,15 +113,17 @@ const APP: () = {
         let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
         let dw1000_miso   = gpioa.pa6.into_alternate_af5();
         let _dw1000_wakeup = gpioc.pc5;
-        let _dw1000_irq    = gpioc.pc4;
+        let mut dw1000_irq    = gpioc.pc4.into_pull_down_input();
         let dw1000_spi_freq = 3.mhz();
         let dw1000_spi = Spi::spi1(
             device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
             MODE_0,
             dw1000_spi_freq.into(),
             clocks);
-        let mut dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
-        //let _:() = dw1000;
+        let dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
+        dw1000_irq.make_interrupt_source(&mut syscfg);
+        dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
+        dw1000_irq.enable_interrupt(&mut exti);
 
         dw1000_reset.set_low().ok();
         delay(clocks.sysclk().0 / 1000 * 2);
@@ -134,7 +138,7 @@ const APP: () = {
         let (p, c) = Q.split();
         rprintln!("init(): done");
         init::LateResources {
-            uwb: UWBRadio::Ready(dw1000),
+            uwb: UWBRadio::Ready(Some(dw1000)),
             led1_green, led1_red, led2_green, led2_red,
             p, c
         }
@@ -144,7 +148,7 @@ const APP: () = {
     fn idle(cx: idle::Context) -> ! {
         loop {
             if let Some(byte) = cx.resources.c.dequeue() {
-                rprintln!("dequeue: {}\n", byte);
+                rprintln!("dequeue: {}", byte);
             }
             atomic::compiler_fence(Ordering::SeqCst);
         }
@@ -172,48 +176,71 @@ const APP: () = {
         cx.schedule.blinker(cx.scheduled + PERIOD.cycles()).unwrap();
     }
 
-    #[task]
-    fn radio(_cx: radio::Context) {
-        //     loop {
-//         #[cfg(feature = "tx")] {
-//             let tx_config = TxConfig {
-//                 bitrate,
-//                 preamble_length: preamble,
-//                 sfd_sequence,
-//                 ..TxConfig::default()
-//             };
-//             let mut sending = dw1000.send(b"ping", mac::Address::broadcast(&mac::AddressMode::Short), None, tx_config).unwrap();
-//             let result = block!(sending.wait());
-//             rprintln!("tx:{:?}", result);
-//             dw1000 = sending.finish_sending().unwrap();
-//             led1_green.set_high().unwrap();
-//             delay.delay_ms(25_u32);
-//             led1_green.set_low().unwrap();
-//             delay.delay_ms(25_u32);
-//         }
-//         #[cfg(feature = "rx")] {
-//             let rx_config = RxConfig {
-//                 bitrate,
-//                 expected_preamble_length: preamble,
-//                 sfd_sequence,
-//                 ..RxConfig::default()
-//             };
-//             let mut receiving = dw1000.receive(rx_config).unwrap();
-//             let mut buffer = [0; 64];
-//             dw1000_timer.start(10.hz()); //1ms?
-//             let result = block_timeout!(&mut dw1000_timer, receiving.wait(&mut buffer));
-//             dw1000 = receiving.finish_receiving().unwrap();
-//             match result {
-//                 Ok(m) => {
-//                     let frame = m.frame;
-//                     rprintln!("dest:{:?}\tsource:{:?}\tseq:{}\tdata:{:?}", frame.header.destination, frame.header.source, frame.header.seq, frame.payload);
-//                     led1_green.set_high().unwrap();
-//                 },
-//                 Err(e) => {
-//                     rprintln!("rxE: {:?}", e);
-//                     led1_red.set_high().unwrap();
-//                 }
-//             }
+    #[task(resources = [uwb])]
+    fn radio(cx: radio::Context) {
+        let bitrate = BitRate::Kbps850;
+        let preamble_length = PreambleLength::Symbols256;
+        let sfd_sequence = SfdSequence::DecawaveAlt;
+
+        // cx.resources.uwb: &mut DW1000State<_, _>
+        *cx.resources.uwb = match cx.resources.uwb {
+            DW1000State::Ready(uwb) => {
+                let mut ready_radio = uwb.take().expect("DW1000 state machine fail");
+                let tx_config = TxConfig {
+                    bitrate,
+                    preamble_length,
+                    sfd_sequence,
+                    ..TxConfig::default()
+                };
+                ready_radio.enable_tx_interrupts();
+                DW1000State::Sending(Some(ready_radio.send(b"ping", mac::Address::broadcast(&mac::AddressMode::Short), None, tx_config).unwrap()))
+            },
+            DW1000State::Receiving(uwb) => {
+                let x = uwb.take().expect("DW1000 state machine fail");
+                DW1000State::Receiving(Some(x))
+            },
+            DW1000State::Sending(uwb) => {
+                let sending_radio = uwb.take().expect("DW1000 state machine fail");
+                DW1000State::Ready(Some(sending_radio.finish_sending().unwrap()))
+            }
+        };
+
+        // #[cfg(feature = "tx")] {
+        //     let tx_config = TxConfig {
+        //         bitrate,
+        //         preamble_length: preamble,
+        //         sfd_sequence,
+        //         ..TxConfig::default()
+        //     };
+        //     let mut sending = dw1000.send(b"ping", mac::Address::broadcast(&mac::AddressMode::Short), None, tx_config).unwrap();
+        //     let result = block!(sending.wait());
+        //     rprintln!("tx:{:?}", result);
+        //     dw1000 = sending.finish_sending().unwrap();
+        // }
+        // #[cfg(feature = "rx")] {
+        //     let rx_config = RxConfig {
+        //         bitrate,
+        //         expected_preamble_length: preamble,
+        //         sfd_sequence,
+        //         ..RxConfig::default()
+        //     };
+        //     let mut receiving = dw1000.receive(rx_config).unwrap();
+        //     let mut buffer = [0; 64];
+        //     dw1000_timer.start(10.hz()); //1ms?
+        //     let result = block_timeout!(&mut dw1000_timer, receiving.wait(&mut buffer));
+        //     dw1000 = receiving.finish_receiving().unwrap();
+        //     match result {
+        //         Ok(m) => {
+        //             let frame = m.frame;
+        //             rprintln!("dest:{:?}\tsource:{:?}\tseq:{}\tdata:{:?}", frame.header.destination, frame.header.source, frame.header.seq, frame.payload);
+        //             led1_green.set_high().unwrap();
+        //         },
+        //         Err(e) => {
+        //             rprintln!("rxE: {:?}", e);
+        //             led1_red.set_high().unwrap();
+        //         }
+        //     }
+        // }
     }
 
     extern "C" {
