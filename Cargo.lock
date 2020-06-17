@@ -51,6 +51,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfg-if"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
+
+[[package]]
 name = "cortex-m"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -111,8 +117,6 @@ dependencies = [
 [[package]]
 name = "dw1000"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b5b5250ed1e6b86ef1803605327c6d2e9f519e066c48e5af141ef58b257ad2"
 dependencies = [
  "embedded-hal",
  "ieee802154",
@@ -436,6 +440,7 @@ checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 name = "uwb-play"
 version = "0.1.0"
 dependencies = [
+ "cfg-if",
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
@@ -445,6 +450,8 @@ dependencies = [
  "heapless",
  "nb",
  "rtt-target",
+ "serde",
+ "ssmarshal",
  "stm32f4xx-hal",
 ]
 
