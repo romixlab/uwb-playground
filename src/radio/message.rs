@@ -82,14 +82,14 @@ impl<T> TxMessage<T> where T: Message {
 /// Data sent to each slave from master every GTS phase.
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
-struct GTSDownlinkData {
-    rpm: u32
+pub struct GTSDownlinkData {
+    pub rpm: u32
 }
 
 /// Data sent to master from each slave during GTS phase.
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
-struct GTSUplinkData {
+pub struct GTSUplinkData {
     tacho: u32,
     power_in: u32,
 }
@@ -97,7 +97,7 @@ struct GTSUplinkData {
 /// Guaranteed time slot for each slave.
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
-struct GTSEntry {
+pub struct GTSEntry {
     /// Delay in us from GTS packet reception until slave starts sending.
     delta: u16,
     /// Time slot duration allocated, one ore more packets can be sent during this interval.
@@ -106,11 +106,27 @@ struct GTSEntry {
     sync_no_ack_data: GTSDownlinkData,
 }
 
+impl GTSEntry {
+    pub fn new(delta: u16, window: u16, sync_no_ack_data: GTSDownlinkData) -> Self {
+        GTSEntry {
+            delta, window, sync_no_ack_data
+        }
+    }
+}
+
 /// Packet with GTS for all synchronous slaves.
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
-struct GTSStart {
+pub struct GTSStart {
     timeslots: [GTSEntry; 3]
+}
+
+impl GTSStart {
+    pub fn new(tr: GTSEntry, bl: GTSEntry, br: GTSEntry) -> Self {
+        GTSStart {
+            timeslots: [tr, bl, br]
+        }
+    }
 }
 
 impl Message for GTSStart {
@@ -121,7 +137,7 @@ impl Message for GTSStart {
 /// Packet from slave with it's data.
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
-struct GTSAnswer {
+pub struct GTSAnswer {
     data: GTSUplinkData
 }
 

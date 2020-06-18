@@ -21,4 +21,9 @@ pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
 
 /// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
 #[cfg(feature = "master")]
-pub const GTS_PERIOD_MS: u32 = 100;
+pub const GTS_PERIOD_MS: u32 = 20;
+
+/// Allocate at least this amount of GTS and signal a failure (to all slaves and to uplink)
+/// if one or more is missing for >= THRESH
+#[cfg(feature = "master")]
+pub const REQUIRED_SLAVE_COUNT: u8 = 3;

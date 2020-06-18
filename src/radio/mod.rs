@@ -5,25 +5,35 @@ use dw1000::{DW1000, Ready, Receiving, Sending};
 use crate::config;
 use stm32f4xx_hal as hal;
 
-pub enum DW1000State<SPI, CS> {
-    Ready(Option<DW1000<SPI, CS, Ready>>),
-    Sending(Option<DW1000<SPI, CS, Sending>>),
-    Receiving(Option<DW1000<SPI, CS, Receiving>>),
-}
+use heapless::spsc::{Queue, Producer, Consumer};
+use heapless::consts::*;
 
 pub type Dw1000Spi = hal::spi::Spi<hal::stm32::SPI1,
     (config::Dw1000Clk, config::Dw1000Miso, config::Dw1000Mosi)>;
-pub type UWBRadio = DW1000State<Dw1000Spi, config::Dw1000Cs>;
 
-#[derive(Debug, PartialEq)]
+pub type ReadyRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Ready>;
+pub type SendingRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Sending>;
+pub type ReceivingRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Receiving>;
+
 pub enum RadioState {
-    Idle,
+    Ready(Option<ReadyRadio>),
+
     #[cfg(feature = "master")]
-    GTSStart,
-    #[cfg(feature = "slave")]
-    GTSStartWait,
-    #[cfg(feature = "slave")]
-    GTSWindowWait,
+    GTSStartSending(Option<SendingRadio>),
     #[cfg(feature = "master")]
-    GTSAnswer(u8),
+    GTSAnswersReceiving((Option<ReceivingRadio>, u8)),
+
+    #[cfg(feature = "slave")]
+    GTSStartWaiting(Option<ReceivingRadio>),
+    #[cfg(feature = "slave")]
+    GTSAnswerSending(Option<SendingRadio>),
 }
+
+pub enum Command {
+    #[cfg(feature = "master")]
+    GTSStart(message::GTSStart)
+}
+
+pub type CommandQueue = Queue<Command, U8>;
+pub type CommandQueueP = Producer<'static, Command, U8>;
+pub type CommandQueueC = Consumer<'static, Command, U8>;

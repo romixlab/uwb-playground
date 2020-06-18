@@ -12,8 +12,7 @@ use dw1000::{
     mac
 };
 use radio::{
-    UWBRadio,
-    RadioState
+    RadioState,
 };
 
 use core::sync::atomic::{self, Ordering};
@@ -25,11 +24,7 @@ use stm32f4xx_hal::gpio::{PushPull, Output, Input, Edge, ExtiPin, PullDown};
 use stm32f4xx_hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB4, PB5, PB8, PB9}};
 use rtt_target::{rtt_init_print, rprintln, rprint};
 use cortex_m::peripheral::DWT;
-// use heapless::{
-//     consts::U4,
-//     i,
-//     spsc::{Consumer, Producer, Queue}
-// };
+
 use hal::{
     spi::Spi,
 };
@@ -38,20 +33,33 @@ use embedded_hal::spi::MODE_0;
 use embedded_hal::digital::v2::OutputPin;
 use stm32f4xx_hal::rcc::Clocks;
 
+// enum TracePin<O> {
+//     Dummy,
+//     Output(O)
+// }
+//
+// impl<O> TracePin<O>
+//     where O: OutputPin
+// {
+//
+// }
 
 #[app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         clocks: Clocks,
-        uwb: UWBRadio,
-        uwb_irq: PA0<Input<PullDown>>,
-        #[init(RadioState::Idle)]
+
         radio_state: RadioState,
+        radio_irq: PA0<Input<PullDown>>,
+        radio_trace: PA1<Output<PushPull>>,
+        radio_commands_p: radio::CommandQueueP,
+        radio_commands_c: radio::CommandQueueC,
+
         led1_red: PB4<Output<PushPull>>,
         led1_green: PB5<Output<PushPull>>,
         led2_red: PB8<Output<PushPull>>,
         led2_green: PB9<Output<PushPull>>,
-        gpio0: PA1<Output<PushPull>>,
+
         //gpio1: PA0<Input<PullDown>>,
         //p: Producer<'static, u8, U4>,
         //c: Consumer<'static, u8, U4>
@@ -59,7 +67,7 @@ const APP: () = {
 
     #[init(schedule = [], spawn = [radio_chrono, blinker])]
     fn init(cx: init::Context) -> init::LateResources {
-        //static mut Q: Queue<u8, U4> = Queue(i::Queue::new());
+        static mut RADIO_COMMANDS_QUEUE: radio::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
 
         rtt_init_print!(NoBlockSkip);
         rprintln!("\x1b[2J\x1b[0m");
@@ -74,7 +82,7 @@ const APP: () = {
         // device.DBGMCU.cr.modify(|_, w| w.dbg_sleep().set_bit());
         //let _flash = device.FLASH;
         let rcc = device.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(48.mhz()).freeze();
+        let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
         let mut syscfg = device.SYSCFG;
         let mut exti = device.EXTI;
 
@@ -129,12 +137,16 @@ const APP: () = {
 
         cx.spawn.blinker().unwrap();
         cx.spawn.radio_chrono().unwrap();
+        let (radio_commands_p, radio_commands_c) = RADIO_COMMANDS_QUEUE.split();
 
         init::LateResources {
             clocks,
-            uwb: UWBRadio::Ready(Some(dw1000)),
-            uwb_irq: gpio1,
-            gpio0,
+
+            radio_state: RadioState::Ready(Some(dw1000)),
+            radio_irq: gpio1,
+            radio_trace: gpio0,
+            radio_commands_p, radio_commands_c,
+
             led1_green, led1_red, led2_green, led2_red,
             //p, c
         }
@@ -188,23 +200,31 @@ const APP: () = {
     /// 2. if nothing, send alive packet periodically.
     /// 3. After GTS packet received wait for allocated time slot and send `slave noack info` back.
     /// `slave noack info`: tacho value, power_in, power_motor
-    #[task(priority = 2, resources = [&clocks, radio_state], schedule = [radio_chrono])]
+    #[task(priority = 2, resources = [&clocks, radio_commands_p], schedule = [radio_chrono])]
     fn radio_chrono(mut cx: radio_chrono::Context) {
-        use RadioState::*;
-        cx.resources.radio_state.lock(|state| {
-            if *state == Idle {
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "master")] {
-                        *state = GTSStart;
-                    } else if #[cfg(feature = "slave")] {
-                        *state = GTSStartWait;
-                    }
-                }
-            }
-        });
+        // use RadioState::*;
+        // cx.resources.radio_state.lock(|state| {
+        //     if *state == Idle {
+        //         cfg_if::cfg_if! {
+        //             if #[cfg(feature = "master")] {
+        //                 *state = GTSStart;
+        //             } else if #[cfg(feature = "slave")] {
+        //                 *state = GTSStartWait;
+        //             }
+        //         }
+        //     }
+        // });
+        use radio::Command;
+        use radio::message::*;
         cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
+                let tr = GTSEntry::new(5_000, 5_000, GTSDownlinkData{ rpm: 1234 });
+                let bl = GTSEntry::new(5_000, 5_000, GTSDownlinkData{ rpm: 1234 });
+                let br = GTSEntry::new(5_000, 5_000, GTSDownlinkData{ rpm: 1234 });
+                let gts_start = GTSStart::new(tr, bl, br);
+                let _result = cx.resources.radio_commands_p.enqueue(Command::GTSStart(gts_start));
                 cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS)).unwrap();
+                rprintln!("cmd_enqueue");
             } else if #[cfg(feature = "slave")] {
                 cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).unwrap();
             }
@@ -212,17 +232,29 @@ const APP: () = {
         rtic::pend(config::DW1000_IRQ_EXTI);
     }
 
-    #[task(binds = EXTI0, resources = [uwb, uwb_irq, radio_state, gpio0], priority = 3)]
+    #[task(binds = EXTI0, resources = [radio_state, radio_irq, radio_commands_c, radio_trace], priority = 3)]
     fn radio_irq(cx: radio_irq::Context) {
         static mut RX_BUFFER: [u8; 64] = [0u8; 64];
-        cx.resources.uwb_irq.clear_interrupt_pending_bit();
 
-        radio::state_machine::on_radio_event(
-            cx.resources.uwb,
+        //cx.resources.radio_trace.set_high().ok();
+        cx.resources.radio_irq.clear_interrupt_pending_bit();
+
+        radio::state_machine::advance(
             cx.resources.radio_state,
+            cx.resources.radio_commands_c,
             RX_BUFFER,
-            cx.resources.gpio0
+            cx.resources.radio_trace
         );
+        while cx.resources.radio_irq.is_high().unwrap() {
+            rprintln!("REIRQ");
+            radio::state_machine::advance(
+                cx.resources.radio_state,
+                cx.resources.radio_commands_c,
+                RX_BUFFER,
+                cx.resources.radio_trace
+            );
+        }
+        //cx.resources.radio_trace.set_low().ok();
     }
 
     extern "C" {
