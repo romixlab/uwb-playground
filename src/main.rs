@@ -2,17 +2,28 @@
 #![no_std]
 
 mod panic_handler;
-mod radio_message;
+mod radio;
+#[macro_use]
+mod util;
+mod config;
+
+use dw1000::{
+    DW1000,
+    mac
+};
+use radio::{
+    UWBRadio,
+    RadioState
+};
 
 use core::sync::atomic::{self, Ordering};
 use rtic::app;
 use rtic::cyccnt::U32Ext;
 use stm32f4xx_hal as hal;
 use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::gpio::{PushPull, Output, Input, Alternate, Edge, ExtiPin, AF5, PullDown};
+use stm32f4xx_hal::gpio::{PushPull, Output, Input, Edge, ExtiPin, PullDown};
 use stm32f4xx_hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB4, PB5, PB8, PB9}};
 use rtt_target::{rtt_init_print, rprintln, rprint};
-use hal::stm32::Interrupt;
 use cortex_m::peripheral::DWT;
 // use heapless::{
 //     consts::U4,
@@ -23,179 +34,9 @@ use hal::{
     spi::Spi,
 };
 use embedded_hal::spi::MODE_0;
-use dw1000::{DW1000, mac, configs::{
-                SfdSequence,
-                BitRate,
-                PreambleLength,
-                UwbChannel},
-             Ready, Receiving, Sending};
-use hal::gpio::{gpioa::{PA4, PA5, PA6, PA7}};
+
 use embedded_hal::digital::v2::OutputPin;
 use stm32f4xx_hal::rcc::Clocks;
-
-pub enum DW1000State<SPI, CS> {
-    Ready(Option<DW1000<SPI, CS, Ready>>),
-    Sending(Option<DW1000<SPI, CS, Sending>>),
-    Receiving(Option<DW1000<SPI, CS, Receiving>>),
-}
-
-type Dw1000Clk = PA5<Alternate<AF5>>;
-type Dw1000Miso = PA6<Alternate<AF5>>;
-type Dw1000Mosi = PA7<Alternate<AF5>>;
-type Dw1000Cs = PA4<Output<PushPull>>;
-type Dw1000Spi = hal::spi::Spi<hal::stm32::SPI1, (Dw1000Clk, Dw1000Miso, Dw1000Mosi)>;
-type UWBRadio = DW1000State<Dw1000Spi, Dw1000Cs>;
-
-fn on_radio_event<TP>(uwb: &mut UWBRadio, rx_buffer: &mut[u8], trace_pin: &mut TP)
-    where TP: OutputPin
-{
-    trace_pin.set_high().ok();
-
-    let bitrate = BitRate::Kbps850;
-    let preamble_length = PreambleLength::Symbols512;
-    let sfd_sequence = SfdSequence::DecawaveAlt;
-    let channel = UwbChannel::Channel5;
-
-    // cx.resources.uwb: &mut DW1000State<_, _>
-    *uwb = match uwb {
-        DW1000State::Ready(uwb) => {
-            let mut ready_radio = uwb.take().expect("DW1000 state machine fail");
-            //let sys_status = ready_radio.ll().sys_status().read();
-            //rprint!("ready {:?}", sys_status);
-
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "slave")] {
-                    use dw1000::configs::RxConfig;
-                    let rx_config = RxConfig {
-                        channel,
-                        bitrate,
-                        expected_preamble_length: preamble_length,
-                        sfd_sequence,
-                        frame_filtering: false,
-                        ..RxConfig::default()
-                    };
-                    ready_radio.enable_rx_interrupts();
-                    let mut receiving_radio = ready_radio.receive(rx_config).unwrap();
-                    //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                    trace_pin.set_low().ok();
-                    rprintln!("grx");
-                    DW1000State::Receiving(Some(receiving_radio))
-                } else if #[cfg(feature = "master")] {
-                    use dw1000::configs::TxConfig;
-                    let tx_config = TxConfig {
-                        channel,
-                        bitrate,
-                        preamble_length,
-                        sfd_sequence,
-                        ..TxConfig::default()
-                    };
-                    ready_radio.enable_tx_interrupts().unwrap();
-                    let sending_radio = ready_radio.send(b"ping", mac::Address::broadcast(&mac::AddressMode::Short), None, tx_config).unwrap();
-                    //let sys_status = sending_radio.ll().sys_status().read();
-                    //rprintln!(" {:?}", sys_status);
-                    trace_pin.set_low().ok();
-                    rprint!("gtx");
-                    DW1000State::Sending(Some(sending_radio))
-                }
-            }
-        },
-        DW1000State::Receiving(uwb) => {
-            let mut receiving_radio = uwb.take().expect("DW1000 state machine fail");
-            let sys_status = receiving_radio.ll().sys_status().read();
-            rprintln!("sys_status {:?}", sys_status);
-
-            match receiving_radio.wait(rx_buffer) {
-                Ok(message) => {
-                    let frame = message.frame;
-                    rprintln!("dest:{:?}\tsource:{:?}\tseq:{}\tdata:{:?}", frame.header.destination, frame.header.source, frame.header.seq, frame.payload);
-                    let ready_radio = receiving_radio.finish_receiving().unwrap();
-                    //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                    trace_pin.set_low().ok();
-
-                    rtic::pend(DW1000_IRQ_EXTI); // hacky rx restart
-                    DW1000State::Ready(Some(ready_radio))
-                },
-                Err(e) => {
-                    if let nb::Error::WouldBlock = e { // Still receiving
-                    rprintln!("blockon:{:?}", e);
-                        //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                        trace_pin.set_low().ok();
-                        DW1000State::Receiving(Some(receiving_radio))
-                    } else { // Actuall error while receiving
-                    rprintln!("RX error: {:?}", e);
-                        let ready_radio = receiving_radio.finish_receiving().unwrap();
-                        //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                        trace_pin.set_low().ok();
-                        rtic::pend(DW1000_IRQ_EXTI); // hacky rx restart
-                        DW1000State::Ready(Some(ready_radio))
-                    }
-                }
-            }
-        },
-        DW1000State::Sending(uwb) => {
-            let mut sending_radio = uwb.take().expect("DW1000 state machine fail");
-            //let sys_status = sending_radio.ll().sys_status().read().unwrap();
-            //rprint!("sending {:?}", sys_status);
-            match sending_radio.wait() {
-                Ok(_) => {
-                    rprintln!("TX ok");
-                    let ready_radio = sending_radio.finish_sending().unwrap();
-                    trace_pin.set_low().ok();
-                    //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                    DW1000State::Ready(Some(ready_radio))
-                },
-                Err(e) => {
-                    if let nb::Error::WouldBlock = e { // Still sending
-                    rprintln!("blockon:{:?}", e);
-                        trace_pin.set_low().ok();
-                        //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                        DW1000State::Sending(Some(sending_radio))
-                    } else { // Actuall error while sending
-                    rprintln!("TX error: {:?}", e);
-                        let ready_radio = sending_radio.finish_sending().unwrap();
-                        trace_pin.set_low().ok();
-                        //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-                        DW1000State::Ready(Some(ready_radio))
-                    }
-                }
-            }
-        }
-    };
-    //cx.resources.uwb_irq.clear_interrupt_pending_bit();
-}
-
-macro_rules! busywait {
-    (ms, $cx:ident, $amount:expr) => {
-        cortex_m::asm::delay($cx.resources.clocks.sysclk().0 / 1_000 * $amount);
-    };
-    (ms_alt, $clocks:ident, $amount:expr) => {
-        cortex_m::asm::delay($clocks.sysclk().0 / 1_000 * $amount);
-    };
-    (us, $cx:ident, $amount:expr) => {
-        cortex_m::asm::delay($cx.resources.clocks.sysclk().0 / 1_000_000 * $amount);
-    };
-}
-
-macro_rules! ms2cycles {
-    ($cx:ident, $amount:expr) => {
-        ($cx.resources.clocks.sysclk().0 / 1_000 * $amount).cycles()
-    };
-}
-
-/// Blink LED with specified period (alive indicator).
-const BLINK_PERIOD_MS: u32 = 500;
-
-/// Ignore IRQ and check state anyway with specified period.
-/// To ensure that endless lockup won't happen.
-const DW1000_CHECK_PERIOD_MS: u32 = 1000;
-
-/// Which EXTI line is used for DW1000 interrupt.
-/// Ensure that radio_irq task is coherent with this!
-const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
-
-/// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
-const SYNC_PERIOD_MS: u32 = 100;
-
 
 
 #[app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
@@ -204,6 +45,8 @@ const APP: () = {
         clocks: Clocks,
         uwb: UWBRadio,
         uwb_irq: PA0<Input<PullDown>>,
+        #[init(RadioState::Idle)]
+        radio_state: RadioState,
         led1_red: PB4<Output<PushPull>>,
         led1_green: PB5<Output<PushPull>>,
         led2_red: PB8<Output<PushPull>>,
@@ -284,8 +127,8 @@ const APP: () = {
         //let (p, c) = Q.split();
         rprintln!("init(): done {}", clocks.sysclk().0 / 1000 * 2);
 
-        cx.spawn.blinker();
-        cx.spawn.radio_chrono();
+        cx.spawn.blinker().unwrap();
+        cx.spawn.radio_chrono().unwrap();
 
         init::LateResources {
             clocks,
@@ -331,7 +174,7 @@ const APP: () = {
             *LED_STATE = true;
         }
 
-        cx.schedule.blinker(cx.scheduled + ms2cycles!(cx, BLINK_PERIOD_MS)).unwrap();
+        cx.schedule.blinker(cx.scheduled + ms2cycles!(cx, config::BLINK_PERIOD_MS)).unwrap();
     }
 
     /// Master states:
@@ -345,19 +188,41 @@ const APP: () = {
     /// 2. if nothing, send alive packet periodically.
     /// 3. After GTS packet received wait for allocated time slot and send `slave noack info` back.
     /// `slave noack info`: tacho value, power_in, power_motor
-    #[task(priority = 2, resources = [&clocks], schedule = [radio_chrono])]
-    fn radio_chrono(cx: radio_chrono::Context) {
-
-        rtic::pend(DW1000_IRQ_EXTI);
-        cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, DW1000_CHECK_PERIOD_MS)).unwrap();
+    #[task(priority = 2, resources = [&clocks, radio_state], schedule = [radio_chrono])]
+    fn radio_chrono(mut cx: radio_chrono::Context) {
+        use RadioState::*;
+        cx.resources.radio_state.lock(|state| {
+            if *state == Idle {
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "master")] {
+                        *state = GTSStart;
+                    } else if #[cfg(feature = "slave")] {
+                        *state = GTSStartWait;
+                    }
+                }
+            }
+        });
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "master")] {
+                cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS)).unwrap();
+            } else if #[cfg(feature = "slave")] {
+                cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).unwrap();
+            }
+        }
+        rtic::pend(config::DW1000_IRQ_EXTI);
     }
 
-    #[task(binds = EXTI0, resources = [uwb, uwb_irq, gpio0], priority = 3)]
+    #[task(binds = EXTI0, resources = [uwb, uwb_irq, radio_state, gpio0], priority = 3)]
     fn radio_irq(cx: radio_irq::Context) {
         static mut RX_BUFFER: [u8; 64] = [0u8; 64];
         cx.resources.uwb_irq.clear_interrupt_pending_bit();
 
-        on_radio_event(cx.resources.uwb, RX_BUFFER, cx.resources.gpio0);
+        radio::state_machine::on_radio_event(
+            cx.resources.uwb,
+            cx.resources.radio_state,
+            RX_BUFFER,
+            cx.resources.gpio0
+        );
     }
 
     extern "C" {

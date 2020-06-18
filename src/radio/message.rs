@@ -1,4 +1,4 @@
-use core::mem::size_of;
+//use core::mem::size_of;
 use serde::{
     Serialize, Deserialize
 };
@@ -16,7 +16,8 @@ use embedded_hal::{
     digital::v2::OutputPin,
 };
 
-/// Any message is size is <= than this number (checked in send()).
+/// Any message size is <= than this number (checked in send()).
+#[allow(unused)] // Actually used, lint bug?
 const MAXIMUM_MESSAGE_SIZE: usize = 64;
 
 /// An outgoing message (dw1000 incoming implementation is reused as is)
