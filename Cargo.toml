@@ -24,6 +24,13 @@ cfg-if = "0.1.10"
 [dependencies.stm32f4xx-hal]
 version = "0.8"
 features = ["rt", "stm32f401"]
+optional = true
+
+[dependencies.stm32l4xx-hal]
+path = "../stm32l4xx-hal"
+version = "0.5.0"
+features = ["rt", "stm32l4x6"]
+optional = true
 
 [dependencies.serde]
 version = "1.0.105"
@@ -38,6 +45,8 @@ default-features = false
 default = []
 master = []
 slave = []
+pozyx-board = ["stm32f4xx-hal"]
+dragonfly-board = ["stm32l4xx-hal"]
 
 [[bin]]
 name = "uwb-play"

@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 
+mod board;
 mod panic_handler;
 mod radio;
 #[macro_use]
@@ -18,10 +19,16 @@ use radio::{
 use core::sync::atomic::{self, Ordering};
 use rtic::app;
 use rtic::cyccnt::U32Ext;
-use stm32f4xx_hal as hal;
-use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::gpio::{PushPull, Output, Input, Edge, ExtiPin, PullDown};
-use stm32f4xx_hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB4, PB5, PB8, PB9}};
+use crate::board::hal;
+use hal::prelude::*;
+use hal::gpio::{PushPull, Output, Input, PullDown};
+#[cfg(feature = "pozyx-board")]
+use hal::gpio::{Edge, ExtiPin};
+#[cfg(feature = "pozyx-board")]
+use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB4, PB5, PB8, PB9}};
+#[cfg(feature = "dragonfly-board")]
+use hal::gpio::{gpiob::{PB12, PB13, PB14, PB15}, gpioc::{PC8, PC9, PC10, }, };
+
 use rtt_target::{rtt_init_print, rprintln, rprint};
 use cortex_m::peripheral::DWT;
 
@@ -31,7 +38,7 @@ use hal::{
 use embedded_hal::spi::MODE_0;
 
 use embedded_hal::digital::v2::OutputPin;
-use stm32f4xx_hal::rcc::Clocks;
+use hal::rcc::Clocks;
 
 // enum TracePin<O> {
 //     Dummy,
@@ -44,25 +51,34 @@ use stm32f4xx_hal::rcc::Clocks;
 //
 // }
 
-#[app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
+#[cfg(feature = "pozyx-board")]
+type LedBlinkyPin = PB5<Output<PushPull>>;
+#[cfg(feature = "dragonfly-board")]
+type LedBlinkyPin = PC10<Output<PushPull>>;
+
+#[cfg(feature = "pozyx-board")]
+type RadioIrqPin = PA0<Input<PullDown>>;
+#[cfg(feature = "dragonfly-board")]
+type RadioIrqPin = PC9<Input<PullDown>>;
+
+#[cfg(feature = "pozyx-board")]
+type RadioTracePin = PA1<Output<PushPull>>;
+#[cfg(feature = "dragonfly-board")]
+type RadioTracePin = PC8<Output<PushPull>>;
+
+
+#[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         clocks: Clocks,
 
         radio_state: RadioState,
-        radio_irq: PA0<Input<PullDown>>,
-        radio_trace: PA1<Output<PushPull>>,
+        radio_irq: RadioIrqPin,
+        radio_trace: RadioTracePin,
         radio_commands_p: radio::CommandQueueP,
         radio_commands_c: radio::CommandQueueC,
 
-        led1_red: PB4<Output<PushPull>>,
-        led1_green: PB5<Output<PushPull>>,
-        led2_red: PB8<Output<PushPull>>,
-        led2_green: PB9<Output<PushPull>>,
-
-        //gpio1: PA0<Input<PullDown>>,
-        //p: Producer<'static, u8, U4>,
-        //c: Consumer<'static, u8, U4>
+        led_blinky: LedBlinkyPin
     }
 
     #[init(schedule = [], spawn = [radio_chrono, blinker])]
@@ -78,62 +94,108 @@ const APP: () = {
         DWT::unlock();
         core.DWT.enable_cycle_counter();
 
-        let device: stm32f4xx_hal::stm32::Peripherals = cx.device;
-        // device.DBGMCU.cr.modify(|_, w| w.dbg_sleep().set_bit());
+        let device: hal::stm32::Peripherals = cx.device;
         //let _flash = device.FLASH;
-        let rcc = device.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
+        let mut rcc = device.RCC.constrain();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pozyx-board")] {
+                let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
+            } else if #[cfg(feature = "dragonfly-board")] {
+                let mut flash = device.FLASH.constrain();
+                let mut pwr = device.PWR.constrain(&mut rcc.apb1r1);
+                let clocks = rcc.cfgr.sysclk(72.mhz()).freeze(&mut flash.acr, &mut pwr);
+            }
+        }
         let mut syscfg = device.SYSCFG;
         let mut exti = device.EXTI;
 
-        let gpioa = device.GPIOA.split();
-        let gpiob = device.GPIOB.split();
-        let gpioc = device.GPIOC.split();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pozyx-board")] {
+                let gpioa = device.GPIOA.split();
+                let gpiob = device.GPIOB.split();
+                let gpioc = device.GPIOC.split();
+            } else if #[cfg(feature = "dragonfly-board")] {
+                let mut gpioa = device.GPIOA.split(&mut rcc.ahb2);
+                let mut gpiob = device.GPIOB.split(&mut rcc.ahb2);
+                let mut gpioc = device.GPIOC.split(&mut rcc.ahb2);
+            }
+        }
 
-        let mut led1_red = gpiob.pb4.into_push_pull_output();
-        let mut led1_green = gpiob.pb5.into_push_pull_output();
-        let mut led2_red = gpiob.pb8.into_push_pull_output();
-        let mut led2_green = gpiob.pb9.into_push_pull_output();
-        led1_green.set_low().ok();
-        led1_red.set_low().ok();
-        led2_green.set_high().ok();
-        led2_red.set_low().ok();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pozyx-board")] {
+                let mut led1_red = gpiob.pb4.into_push_pull_output();
+                let mut led_blinky = gpiob.pb5.into_push_pull_output();
+                let mut led2_red = gpiob.pb8.into_push_pull_output();
+                let mut led2_green = gpiob.pb9.into_push_pull_output();
+                led1_red.set_low().ok();
+                led2_green.set_high().ok();
+                led2_red.set_low().ok();
+            } else if #[cfg(feature = "dragonfly-board")] {
+                let mut led_blinky = gpioc.pc10.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+            }
+        }
+        led_blinky.set_low().ok();
 
-        let gpio0 = gpioa.pa1.into_push_pull_output();
-        let mut gpio1 = gpioa.pa0.into_pull_down_input();
-        gpio1.make_interrupt_source(&mut syscfg);
-        gpio1.trigger_on_edge(&mut exti, Edge::RISING);
-        gpio1.enable_interrupt(&mut exti);
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pozyx-board")] {
+                let trace_pin = gpioa.pa1.into_push_pull_output(); // Header pin 1
+                let mut dw1000_irq = gpioa.pa0.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
+                dw1000_irq.make_interrupt_source(&mut syscfg);
+                dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
+                dw1000_irq.enable_interrupt(&mut exti);
+            } else if #[cfg(feature = "dragonfly-board")] {
+                let trace_pin = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+                let mut dw1000_irq = gpioc.pc9.into_pull_down_input(&mut gpioc.moder, &mut gpioc.pupdr);
+            }
+        }
 
         // DW1000
-        let mut dw1000_reset  = gpiob.pb0.into_open_drain_output(); // open drain, do not pull high
-        let mut dw1000_cs = gpioa.pa4.into_push_pull_output();
-        dw1000_cs.set_high().ok();
-        let dw1000_clk    = gpioa.pa5.into_alternate_af5();
-        let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
-        let dw1000_miso   = gpioa.pa6.into_alternate_af5();
-        let _dw1000_wakeup = gpioc.pc5;
-        //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input();
         let dw1000_spi_freq = 1.mhz();
-        let dw1000_spi = Spi::spi1(
-            device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
-            MODE_0,
-            dw1000_spi_freq.into(),
-            clocks);
+
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pozyx-board")] {
+                let mut dw1000_reset  = gpiob.pb0.into_open_drain_output(); // open drain, do not pull high
+                let mut dw1000_cs = gpioa.pa4.into_push_pull_output();
+                let dw1000_clk    = gpioa.pa5.into_alternate_af5();
+                let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
+                let dw1000_miso   = gpioa.pa6.into_alternate_af5();
+                let _dw1000_wakeup = gpioc.pc5;
+                //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input(); // IRQ never ends with this
+                let dw1000_spi = Spi::spi1(
+                    device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
+                    MODE_0,
+                    dw1000_spi_freq.into(),
+                    clocks
+                );
+            } else if #[cfg(feature = "dragonfly-board")] {
+                let mut dw1000_reset  = gpioc.pc11.into_open_drain_output(&mut gpioc.moder, &mut gpioc.otyper); // open drain, do not pull high
+                let mut dw1000_cs = gpioa.pa8.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+                let dw1000_clk    = gpiob.pb3.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+                let dw1000_mosi   = gpiob.pb5.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+                let dw1000_miso   = gpiob.pb4.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+                //let _dw1000_wakeup = gpioc.pc5;
+                let mut dw1000_spi = Spi::spi1(
+                    device.SPI1,
+                    (dw1000_clk, dw1000_miso, dw1000_mosi),
+                    MODE_0,
+                    dw1000_spi_freq,
+                    clocks,
+                    &mut rcc.apb2,
+                );
+            }
+        }
+        dw1000_cs.set_high().ok();
+
         dw1000_reset.set_low().ok();
         busywait!(ms_alt, clocks, 2);
         dw1000_reset.set_high().ok();
         busywait!(ms_alt, clocks, 5);
 
         let dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
-        //dw1000_irq.make_interrupt_source(&mut syscfg);
-        //dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
-        //dw1000_irq.enable_interrupt(&mut exti);
         let mut dw1000 = dw1000.init().unwrap();
         dw1000.set_address(mac::PanId(0x0d57), mac::ShortAddress(0xaabb)).unwrap();
 
-        //let (p, c) = Q.split();
-        rprintln!("init(): done {}", clocks.sysclk().0 / 1000 * 2);
+        rprintln!("init(): done");
 
         cx.spawn.blinker().unwrap();
         cx.spawn.radio_chrono().unwrap();
@@ -143,16 +205,15 @@ const APP: () = {
             clocks,
 
             radio_state: RadioState::Ready(Some(dw1000)),
-            radio_irq: gpio1,
-            radio_trace: gpio0,
+            radio_irq: dw1000_irq,
+            radio_trace: trace_pin,
             radio_commands_p, radio_commands_c,
 
-            led1_green, led1_red, led2_green, led2_red,
-            //p, c
+            led_blinky
         }
     }
 
-    #[idle(resources = [led2_red])]
+    #[idle(resources = [])]
     fn idle(_cx: idle::Context) -> ! {
         loop {
             //if let Some(_) = cx.resources.c.dequeue() {
@@ -166,7 +227,7 @@ const APP: () = {
         }
     }
 
-    #[task(resources = [led1_green, &clocks], schedule = [blinker])]
+    #[task(resources = [led_blinky, &clocks], schedule = [blinker])]
     fn blinker(cx: blinker::Context) {
         static mut LED_STATE: bool = false;
         static mut DOT_COUNTER: u8 = 0;
@@ -179,10 +240,10 @@ const APP: () = {
         //cx.resources.p.enqueue(*DOT_COUNTER).unwrap();
 
         if *LED_STATE {
-            cx.resources.led1_green.set_low().ok();
+            cx.resources.led_blinky.set_low().ok();
             *LED_STATE = false;
         } else {
-            cx.resources.led1_green.set_high().ok();
+            cx.resources.led_blinky.set_high().ok();
             *LED_STATE = true;
         }
 

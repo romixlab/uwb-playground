@@ -3,7 +3,7 @@ pub mod state_machine;
 
 use dw1000::{DW1000, Ready, Receiving, Sending};
 use crate::config;
-use stm32f4xx_hal as hal;
+use crate::board::hal;
 
 use heapless::spsc::{Queue, Producer, Consumer};
 use heapless::consts::*;

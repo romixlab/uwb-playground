@@ -391,6 +391,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "stm32l4"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f58fc9ed772b4d742ed566cc14e224497c179d15c594d6108bebddd8d6a9452"
+dependencies = [
+ "bare-metal",
+ "cortex-m",
+ "cortex-m-rt",
+ "vcell",
+]
+
+[[package]]
+name = "stm32l4xx-hal"
+version = "0.5.0"
+dependencies = [
+ "as-slice",
+ "cast",
+ "cortex-m",
+ "embedded-hal",
+ "generic-array 0.13.2",
+ "nb",
+ "stable_deref_trait",
+ "stm32l4",
+ "void",
+]
+
+[[package]]
 name = "syn"
 version = "0.13.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -453,6 +480,7 @@ dependencies = [
  "serde",
  "ssmarshal",
  "stm32f4xx-hal",
+ "stm32l4xx-hal",
 ]
 
 [[package]]

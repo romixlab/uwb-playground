@@ -1,11 +1,33 @@
-use stm32f4xx_hal::gpio::{PushPull, Output, Alternate, AF5};
-use stm32f4xx_hal::gpio::{gpioa::{PA4, PA5, PA6, PA7}};
-use stm32f4xx_hal::stm32::Interrupt;
+use crate::board::hal;
+use hal::stm32::Interrupt;
 
+#[cfg(feature = "pozyx-board")]
+use hal::gpio::{PushPull, Output, Alternate, AF5};
+#[cfg(feature = "pozyx-board")]
+use hal::gpio::{gpioa::{PA4, PA5, PA6, PA7}};
+
+#[cfg(feature = "pozyx-board")]
 pub type Dw1000Clk = PA5<Alternate<AF5>>;
+#[cfg(feature = "pozyx-board")]
 pub type Dw1000Miso = PA6<Alternate<AF5>>;
+#[cfg(feature = "pozyx-board")]
 pub type Dw1000Mosi = PA7<Alternate<AF5>>;
+#[cfg(feature = "pozyx-board")]
 pub type Dw1000Cs = PA4<Output<PushPull>>;
+
+#[cfg(feature = "dragonfly-board")]
+use hal::gpio::{PushPull, Input, Output, PullDown, Alternate, Floating, AF5};
+#[cfg(feature = "dragonfly-board")]
+use hal::gpio::{gpioa::{PA8}, gpiob::{PB3, PB4, PB5}};
+
+#[cfg(feature = "dragonfly-board")]
+pub type Dw1000Clk = PB3<Alternate<AF5, Input<Floating>>>;
+#[cfg(feature = "dragonfly-board")]
+pub type Dw1000Miso = PB4<Alternate<AF5, Input<Floating>>>;
+#[cfg(feature = "dragonfly-board")]
+pub type Dw1000Mosi = PB5<Alternate<AF5, Input<Floating>>>;
+#[cfg(feature = "dragonfly-board")]
+pub type Dw1000Cs = PA8<Output<PushPull>>;
 
 /// Blink LED with specified period (alive indicator).
 pub const BLINK_PERIOD_MS: u32 = 500;

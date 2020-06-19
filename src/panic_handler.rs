@@ -1,11 +1,12 @@
 use core::panic::PanicInfo;
 use rtt_target::{rprintln};
+use cortex_m::asm::delay;
+use embedded_hal::digital::v2::OutputPin;
 
+#[cfg(feature = "pozyx-board")]
 fn blink_led_angrily() {
-    use stm32f4xx_hal::stm32::Peripherals;
-    use stm32f4xx_hal::gpio::GpioExt;
-    use cortex_m::asm::delay;
-    use embedded_hal::digital::v2::OutputPin;
+    use crate::board::hal::stm32::Peripherals;
+    use crate::board::hal::gpio::GpioExt;
 
     let device = unsafe { Peripherals::steal() };
     let gpiob = device.GPIOB.split();
@@ -18,6 +19,25 @@ fn blink_led_angrily() {
         delay(72_000_000 / 1_000 * 50);
         led1_red.set_low().ok();
         led2_red.set_low().ok();
+        delay(72_000_000 / 1_000 * 50);
+    }
+}
+
+#[cfg(feature = "dragonfly-board")]
+fn blink_led_angrily() {
+    use crate::board::hal::stm32::Peripherals;
+    use crate::board::hal::gpio::GpioExt;
+    use stm32l4xx_hal::rcc::RccExt;
+
+    let device = unsafe { Peripherals::steal() };
+    let mut rcc = device.RCC.constrain();
+    let mut gpiob = device.GPIOB.split(&mut rcc.ahb2);
+    let mut led_red = gpiob.pb2.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
+
+    for _ in 0..20 {
+        led_red.set_high().ok();
+        delay(72_000_000 / 1_000 * 50);
+        led_red.set_low().ok();
         delay(72_000_000 / 1_000 * 50);
     }
 }
