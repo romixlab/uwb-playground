@@ -90,8 +90,8 @@ pub struct GTSDownlinkData {
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
 pub struct GTSUplinkData {
-    tacho: u32,
-    power_in: u32,
+    pub tacho: u32,
+    pub power_in: u32,
 }
 
 /// Guaranteed time slot for each slave.
@@ -99,11 +99,11 @@ pub struct GTSUplinkData {
 #[repr(C)]
 pub struct GTSEntry {
     /// Delay in us from GTS packet reception until slave starts sending.
-    delta: u16,
+    pub delta: u16,
     /// Time slot duration allocated, one ore more packets can be sent during this interval.
-    window: u16,
+    pub window: u16,
     /// Multicast data to all slaves, no retransmissions for this.
-    sync_no_ack_data: GTSDownlinkData,
+    pub sync_no_ack_data: GTSDownlinkData,
 }
 
 impl GTSEntry {
@@ -118,7 +118,7 @@ impl GTSEntry {
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
 pub struct GTSStart {
-    timeslots: [GTSEntry; 3]
+    pub timeslots: [GTSEntry; 3]
 }
 
 impl GTSStart {
@@ -138,7 +138,7 @@ impl Message for GTSStart {
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
 pub struct GTSAnswer {
-    data: GTSUplinkData
+    pub data: GTSUplinkData
 }
 
 impl Message for GTSAnswer {

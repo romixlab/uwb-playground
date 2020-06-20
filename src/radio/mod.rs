@@ -31,7 +31,7 @@ pub enum RadioState {
 
 pub enum Command {
     #[cfg(feature = "master")]
-    GTSStart(message::GTSStart)
+    GTSStart(message::GTSStart),
 }
 
 pub type CommandQueue = Queue<Command, U8>;

@@ -16,16 +16,16 @@ use radio::{
     RadioState,
 };
 
-use core::sync::atomic::{self, Ordering};
-use rtic::app;
-use rtic::cyccnt::U32Ext;
+// use core::sync::atomic::{self, Ordering};
+use rtic::{app};
+use rtic::cyccnt::{U32Ext};
 use crate::board::hal;
 use hal::prelude::*;
 use hal::gpio::{PushPull, Output, Input, PullDown};
 #[cfg(feature = "pozyx-board")]
 use hal::gpio::{Edge, ExtiPin};
 #[cfg(feature = "pozyx-board")]
-use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB4, PB5, PB8, PB9}};
+use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB5,}};
 #[cfg(feature = "dragonfly-board")]
 use hal::gpio::{gpiob::{PB12, PB13, PB14, PB15}, gpioc::{PC8, PC9, PC10, }, };
 
@@ -39,6 +39,7 @@ use embedded_hal::spi::MODE_0;
 
 use embedded_hal::digital::v2::OutputPin;
 use hal::rcc::Clocks;
+use core::num::Wrapping;
 
 // enum TracePin<O> {
 //     Dummy,
@@ -58,6 +59,7 @@ type LedBlinkyPin = PC10<Output<PushPull>>;
 
 #[cfg(feature = "pozyx-board")]
 type RadioIrqPin = PA0<Input<PullDown>>;
+//type RadioIrqPin = PC4<Input<PullDown>>;
 #[cfg(feature = "dragonfly-board")]
 type RadioIrqPin = PC9<Input<PullDown>>;
 
@@ -78,7 +80,10 @@ const APP: () = {
         radio_commands_p: radio::CommandQueueP,
         radio_commands_c: radio::CommandQueueC,
 
-        led_blinky: LedBlinkyPin
+        led_blinky: LedBlinkyPin,
+
+        idle_counter: Wrapping<u32>,
+        exti: hal::stm32::EXTI,
     }
 
     #[init(schedule = [], spawn = [radio_chrono, blinker])]
@@ -96,7 +101,7 @@ const APP: () = {
 
         let device: hal::stm32::Peripherals = cx.device;
         //let _flash = device.FLASH;
-        let mut rcc = device.RCC.constrain();
+        let rcc = device.RCC.constrain();
         cfg_if::cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
                 let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
@@ -136,19 +141,6 @@ const APP: () = {
         }
         led_blinky.set_low().ok();
 
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pozyx-board")] {
-                let trace_pin = gpioa.pa1.into_push_pull_output(); // Header pin 1
-                let mut dw1000_irq = gpioa.pa0.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
-                dw1000_irq.make_interrupt_source(&mut syscfg);
-                dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
-                dw1000_irq.enable_interrupt(&mut exti);
-            } else if #[cfg(feature = "dragonfly-board")] {
-                let trace_pin = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
-                let mut dw1000_irq = gpioc.pc9.into_pull_down_input(&mut gpioc.moder, &mut gpioc.pupdr);
-            }
-        }
-
         // DW1000
         let dw1000_spi_freq = 1.mhz();
 
@@ -160,7 +152,13 @@ const APP: () = {
                 let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
                 let dw1000_miso   = gpioa.pa6.into_alternate_af5();
                 let _dw1000_wakeup = gpioc.pc5;
+                let mut dw1000_irq = gpioa.pa0.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
                 //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input(); // IRQ never ends with this
+                let trace_pin = gpioa.pa1.into_push_pull_output(); // Header pin 1
+                dw1000_irq.make_interrupt_source(&mut syscfg);
+                dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
+                dw1000_irq.enable_interrupt(&mut exti);
+
                 let dw1000_spi = Spi::spi1(
                     device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
                     MODE_0,
@@ -174,6 +172,8 @@ const APP: () = {
                 let dw1000_mosi   = gpiob.pb5.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
                 let dw1000_miso   = gpiob.pb4.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
                 //let _dw1000_wakeup = gpioc.pc5;
+                let trace_pin = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+                let mut dw1000_irq = gpioc.pc9.into_pull_down_input(&mut gpioc.moder, &mut gpioc.pupdr);
                 let mut dw1000_spi = Spi::spi1(
                     device.SPI1,
                     (dw1000_clk, dw1000_miso, dw1000_mosi),
@@ -209,21 +209,18 @@ const APP: () = {
             radio_trace: trace_pin,
             radio_commands_p, radio_commands_c,
 
-            led_blinky
+            led_blinky,
+            idle_counter: Wrapping(0u32),
+            exti
         }
     }
 
-    #[idle(resources = [])]
-    fn idle(_cx: idle::Context) -> ! {
+    #[idle(resources = [idle_counter])]
+    fn idle(mut cx: idle::Context) -> ! {
         loop {
-            //if let Some(_) = cx.resources.c.dequeue() {
-                //rprintln!("dequeue: {}", byte);
-            //}
-            //cx.resources.gpio1.set_high().ok();
-            //delay(100);
-            //cx.resources.gpio1.set_low().ok();
-            //delay(100);
-            atomic::compiler_fence(Ordering::SeqCst);
+            cx.resources.idle_counter.lock(|counter| *counter += Wrapping(1u32));
+            cortex_m::asm::delay(20_000_000);
+            //atomic::compiler_fence(Ordering::SeqCst);
         }
     }
 
@@ -262,30 +259,21 @@ const APP: () = {
     /// 3. After GTS packet received wait for allocated time slot and send `slave noack info` back.
     /// `slave noack info`: tacho value, power_in, power_motor
     #[task(priority = 2, resources = [&clocks, radio_commands_p], schedule = [radio_chrono])]
-    fn radio_chrono(mut cx: radio_chrono::Context) {
-        // use RadioState::*;
-        // cx.resources.radio_state.lock(|state| {
-        //     if *state == Idle {
-        //         cfg_if::cfg_if! {
-        //             if #[cfg(feature = "master")] {
-        //                 *state = GTSStart;
-        //             } else if #[cfg(feature = "slave")] {
-        //                 *state = GTSStartWait;
-        //             }
-        //         }
-        //     }
-        // });
-        use radio::Command;
-        use radio::message::*;
+    fn radio_chrono(cx: radio_chrono::Context) {
+        //use radio::Command;
+        //use radio::message::*;
         cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
-                let tr = GTSEntry::new(5_000, 5_000, GTSDownlinkData{ rpm: 1234 });
-                let bl = GTSEntry::new(5_000, 5_000, GTSDownlinkData{ rpm: 1234 });
-                let br = GTSEntry::new(5_000, 5_000, GTSDownlinkData{ rpm: 1234 });
+                let now = DWT::get_cycle_count();
+
+                use crate::radio::message::{GTSEntry, GTSStart, GTSDownlinkData};
+                use crate::radio::{Command};
+                let tr = GTSEntry::new(0, 1_000, GTSDownlinkData{ rpm: now });
+                let bl = GTSEntry::new(16_000, 2_000, GTSDownlinkData{ rpm: now + 1 });
+                let br = GTSEntry::new(22_000, 3_000, GTSDownlinkData{ rpm: now + 2 });
                 let gts_start = GTSStart::new(tr, bl, br);
                 let _result = cx.resources.radio_commands_p.enqueue(Command::GTSStart(gts_start));
                 cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS)).unwrap();
-                rprintln!("cmd_enqueue");
             } else if #[cfg(feature = "slave")] {
                 cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).unwrap();
             }
@@ -293,9 +281,24 @@ const APP: () = {
         rtic::pend(config::DW1000_IRQ_EXTI);
     }
 
-    #[task(binds = EXTI0, resources = [radio_state, radio_irq, radio_commands_c, radio_trace], priority = 3)]
+    #[task(binds = EXTI0, resources = [radio_state, radio_irq, radio_commands_c, radio_trace, idle_counter, exti], priority = 3)]
     fn radio_irq(cx: radio_irq::Context) {
         static mut RX_BUFFER: [u8; 64] = [0u8; 64];
+        static mut LAST_IDLE_COUNTER: Wrapping<u32> = Wrapping(0u32);
+        static mut LAST_IDLE_INSTANT: i32 = 0i32;
+
+        let now = DWT::get_cycle_count() as i32;
+        let dt = now.wrapping_sub(*LAST_IDLE_INSTANT);
+        if dt < 0 {
+            *LAST_IDLE_INSTANT = now;
+        } else if dt > 72_000_000 * 2 {
+            if *LAST_IDLE_COUNTER == *cx.resources.idle_counter {
+                rprintln!("IRQ lockup detected!");
+                cx.resources.radio_irq.disable_interrupt(cx.resources.exti);
+            }
+            *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
+            *LAST_IDLE_INSTANT = now;
+        }
 
         //cx.resources.radio_trace.set_high().ok();
         cx.resources.radio_irq.clear_interrupt_pending_bit();
@@ -306,20 +309,23 @@ const APP: () = {
             RX_BUFFER,
             cx.resources.radio_trace
         );
-        while cx.resources.radio_irq.is_high().unwrap() {
-            rprintln!("REIRQ");
-            radio::state_machine::advance(
-                cx.resources.radio_state,
-                cx.resources.radio_commands_c,
-                RX_BUFFER,
-                cx.resources.radio_trace
-            );
+        for _ in 0..100 {
+            if cx.resources.radio_irq.is_high().unwrap() {
+                radio::state_machine::advance(
+                    cx.resources.radio_state,
+                    cx.resources.radio_commands_c,
+                    RX_BUFFER,
+                    cx.resources.radio_trace
+                );
+            } else {
+                break;
+            }
         }
         //cx.resources.radio_trace.set_low().ok();
     }
 
     extern "C" {
-        fn EXTI2();
         fn EXTI1();
+        fn EXTI2();
     }
 };

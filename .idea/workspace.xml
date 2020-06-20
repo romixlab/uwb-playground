@@ -31,14 +31,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="bc4657c7-b1de-4277-b77d-1b087b3e0639" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/board.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/panic_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/panic_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/radio/message.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/message.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/radio/state_machine.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/state_machine.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -80,7 +79,7 @@
     <property name="settings.editor.selected.configurable" value="terminal" />
     <property name="show.migrate.to.gradle.popup" value="false" />
   </component>
-  <component name="RunManager" selected="Cargo Command.Check master [dragonfly]">
+  <component name="RunManager" selected="Cargo Command.Run release Master">
     <configuration name="Check master [dragonfly]" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="check --release --features &quot;master dragonfly-board&quot;" />
@@ -109,7 +108,7 @@
     </configuration>
     <configuration name="Check slave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="check --release --features slave" />
+      <option name="command" value="check --release  --features &quot;slave tr pozyx-board&quot;" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -122,7 +121,7 @@
     </configuration>
     <configuration name="Run release Master" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release --features master -- USB 820102657" />
+      <option name="command" value="run --release  --features &quot;master pozyx-board&quot; -- USB 801016389" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -133,9 +132,9 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Run release Slave 1" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <configuration name="Run release Slave BL" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release --features slave -- USB 801016375" />
+      <option name="command" value="run --release  --features &quot;slave bl pozyx-board&quot; -- USB 801016393" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -146,9 +145,22 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Run release Slave 2" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <configuration name="Run release Slave BR" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release --features slave -- USB 801016389" />
+      <option name="command" value="run --release  --features &quot;slave br pozyx-board&quot; -- USB 801016375" />
+      <option name="allFeatures" value="false" />
+      <option name="nocapture" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run release Slave TR" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="DEFAULT" />
+      <option name="command" value="run --release  --features &quot;slave tr pozyx-board&quot; -- USB 820102657" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -164,8 +176,9 @@
       <item itemvalue="Cargo Command.Check master [dragonfly]" />
       <item itemvalue="Cargo Command.Check slave" />
       <item itemvalue="Cargo Command.Run release Master" />
-      <item itemvalue="Cargo Command.Run release Slave 1" />
-      <item itemvalue="Cargo Command.Run release Slave 2" />
+      <item itemvalue="Cargo Command.Run release Slave TR" />
+      <item itemvalue="Cargo Command.Run release Slave BL" />
+      <item itemvalue="Cargo Command.Run release Slave BR" />
     </list>
   </component>
   <component name="RustProjectSettings">
@@ -211,11 +224,11 @@
     <option name="LAST_COMMIT_MESSAGE" value="Impl radio state machine, handle IRQ, add radio message types." />
   </component>
   <component name="WindowStateProjectService">
-    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1592556180195">
+    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1592671040762">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="424" y="213" key="#com.intellij.execution.impl.EditConfigurationsDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141203945" />
-    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592556180195" />
+    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671040762" />
     <state x="2216" y="213" key="#com.intellij.execution.impl.EditConfigurationsDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592311929359" />
     <state x="2565" y="274" key="#com.intellij.ide.util.MemberChooser" timestamp="1592409770446">
       <screen x="1792" y="23" width="1920" height="1057" />
@@ -230,30 +243,46 @@
     </state>
     <state x="142" y="210" width="734" height="663" key="EnvironmentVariablesDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141097561" />
     <state x="1934" y="210" key="EnvironmentVariablesDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592212535440" />
-    <state width="1878" height="290" key="GridCell.Tab.0.bottom" timestamp="1592564477190">
+    <state width="1878" height="290" key="GridCell.Tab.0.bottom" timestamp="1592671357363">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="939" height="290" key="GridCell.Tab.0.bottom/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528054" />
-    <state width="1878" height="290" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592564477190" />
+    <state width="1878" height="290" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671357363" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="290" key="GridCell.Tab.0.center" timestamp="1592564477189">
+    <state width="1878" height="290" key="GridCell.Tab.0.center" timestamp="1592671357362">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="939" height="290" key="GridCell.Tab.0.center/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528053" />
-    <state width="1878" height="290" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592564477189" />
+    <state width="1878" height="290" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671357362" />
     <state width="939" height="290" key="GridCell.Tab.0.center/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="290" key="GridCell.Tab.0.left" timestamp="1592564477188">
+    <state width="1878" height="290" key="GridCell.Tab.0.left" timestamp="1592671357362">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="939" height="290" key="GridCell.Tab.0.left/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528052" />
-    <state width="1878" height="290" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592564477188" />
+    <state width="1878" height="290" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671357362" />
     <state width="939" height="290" key="GridCell.Tab.0.left/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749242" />
-    <state width="1878" height="290" key="GridCell.Tab.0.right" timestamp="1592564477189">
+    <state width="1878" height="290" key="GridCell.Tab.0.right" timestamp="1592671357363">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="939" height="290" key="GridCell.Tab.0.right/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528053" />
-    <state width="1878" height="290" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592564477189" />
+    <state width="1878" height="290" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671357363" />
     <state width="939" height="290" key="GridCell.Tab.0.right/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
+    <state width="1878" height="358" key="GridCell.Tab.1.bottom" timestamp="1592649555342">
+      <screen x="1792" y="23" width="1920" height="1057" />
+    </state>
+    <state width="1878" height="358" key="GridCell.Tab.1.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592649555342" />
+    <state width="1878" height="358" key="GridCell.Tab.1.center" timestamp="1592649555339">
+      <screen x="1792" y="23" width="1920" height="1057" />
+    </state>
+    <state width="1878" height="358" key="GridCell.Tab.1.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592649555339" />
+    <state width="1878" height="358" key="GridCell.Tab.1.left" timestamp="1592649555338">
+      <screen x="1792" y="23" width="1920" height="1057" />
+    </state>
+    <state width="1878" height="358" key="GridCell.Tab.1.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592649555338" />
+    <state width="1878" height="358" key="GridCell.Tab.1.right" timestamp="1592649555340">
+      <screen x="1792" y="23" width="1920" height="1057" />
+    </state>
+    <state width="1878" height="358" key="GridCell.Tab.1.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592649555340" />
     <state x="469" y="190" key="SettingsEditor" timestamp="1592141072123">
       <screen x="0" y="23" width="1920" height="1057" />
     </state>
