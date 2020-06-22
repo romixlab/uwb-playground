@@ -32,6 +32,21 @@ pub enum RadioState {
 pub enum Command {
     #[cfg(feature = "master")]
     GTSStart(message::GTSStart),
+    /// Fired when all GTS should finish on master and slave, after that rpms are sent to MCs.
+    GTSEnd,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone,)]
+pub struct NanoSeconds(pub u32);
+
+#[derive(Debug)]
+pub enum Event {
+    #[cfg(feature = "master")]
+    GTSAnswerReceived(dw1000::mac::ShortAddress, message::GTSAnswer),
+    #[cfg(feature = "slave")]
+    /// .0 - when GTS end
+    GTSStartReceived(NanoSeconds, message::GTSDownlinkData),
+    GTSEnded,
 }
 
 pub type CommandQueue = Queue<Command, U8>;

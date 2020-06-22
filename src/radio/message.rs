@@ -80,18 +80,18 @@ impl<T> TxMessage<T> where T: Message {
 }
 
 /// Data sent to each slave from master every GTS phase.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 #[repr(C)]
 pub struct GTSDownlinkData {
-    pub rpm: u32
+    pub rpm: i32
 }
 
 /// Data sent to master from each slave during GTS phase.
 #[derive(Debug, Deserialize, Serialize)]
 #[repr(C)]
 pub struct GTSUplinkData {
-    pub tacho: u32,
-    pub power_in: u32,
+    pub tacho: i32,
+    pub power_in: f32,
 }
 
 /// Guaranteed time slot for each slave.

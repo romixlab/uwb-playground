@@ -24,7 +24,12 @@ use crate::radio::message::TxMessage;
 use crate::radio::Dw1000Spi;
 use crate::config::Dw1000Cs;
 
-pub fn advance<TP>(radio_state: &mut RadioState, commands: &mut super::CommandQueueC, rx_buffer: &mut[u8], trace_pin: &mut TP)
+pub fn advance<TP>(
+    radio_state: &mut RadioState,
+    commands: &mut super::CommandQueueC,
+    rx_buffer: &mut[u8],
+    spawn: &crate::radio_irq::Spawn,
+    trace_pin: &mut TP)
     where TP: OutputPin
 {
     use RadioState::*;
@@ -44,12 +49,12 @@ pub fn advance<TP>(radio_state: &mut RadioState, commands: &mut super::CommandQu
         GTSAnswersReceiving(sd) => {
             let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
             let answers_received = sd.1;
-            advance_gts_answers_receiving(receiving_radio, answers_received, rx_buffer, commands, trace_pin)
+            advance_gts_answers_receiving(receiving_radio, answers_received, rx_buffer, commands, spawn, trace_pin)
         }
         #[cfg(feature = "slave")]
         GTSStartWaiting(sd) => {
             let receiving_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_gts_start_waiting(receiving_radio, rx_buffer, trace_pin)
+            advance_gts_start_waiting(receiving_radio, rx_buffer, spawn, trace_pin)
         }
         #[cfg(feature = "slave")]
         GTSAnswerSending(sd) => {
@@ -104,7 +109,7 @@ fn advance_gts_start_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &mu
     match sending_radio.wait() {
         Ok(_) => {
             trace_pin.set_low().ok();
-            rprintln!("\nGTSStart sent, listening...");
+            rprintln!(=>1,"\nGTSStart sent, listening...");
             let ready_radio = sending_radio.finish_sending().unwrap();
             let receiving_radio = enable_receiver(ready_radio, trace_pin);
             trace_pin.set_high().ok();
@@ -112,10 +117,10 @@ fn advance_gts_start_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &mu
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still sending
-                //rprintln!("blockon:{:?}", e);
+                //rprintln!(=>1,"blockon:{:?}", e);
                 RadioState::GTSStartSending(Some(sending_radio))
             } else { // Actuall error while sending
-                rprintln!("GTSStart send error: {:?}", e);
+                rprintln!(=>1,"GTSStart send error: {:?}", e);
                 let ready_radio = sending_radio.finish_sending().unwrap();
                 trace_pin.set_low().ok();
                 RadioState::Ready(Some(ready_radio))
@@ -129,6 +134,7 @@ fn process_messages_gts_answers_receiving<TP>(
     receiving_radio: ReceivingRadio,
     message: dw1000::hl::Message,
     answers_received: u8,
+    spawn: &crate::radio_irq::Spawn,
     trace_pin: &mut TP
 ) -> RadioState
     where TP: OutputPin
@@ -144,10 +150,14 @@ fn process_messages_gts_answers_receiving<TP>(
         Ok(gts_answer) => {
             match gts_answer {
                 Some(gts_answer) => {
-                    rprintln!("GTSAnswer: tacho: {} pwr_in: {}", gts_answer.payload.data.tacho, gts_answer.payload.data.power_in);
+                    //rprintln!(=>1,"GTSAnswer: tacho: {} pwr_in: {}", gts_answer.payload.data.tacho, gts_answer.payload.data.power_in);
+                    if let dw1000::mac::Address::Short(_, src) = message.frame.header.source {
+                        spawn.radio_event(super::Event::GTSAnswerReceived(src, gts_answer.payload)).ok(); // TODO: count errors
+                    }
                     // Continue listening for GTSAnswer's
                     let answers_received = answers_received + 1;
                     if answers_received == config::REQUIRED_SLAVE_COUNT {
+                        spawn.radio_event(super::Event::GTSEnded);
                         RadioState::Ready(Some(ready_radio))
                     } else {
                         let receiving_radio = enable_receiver(ready_radio, trace_pin);
@@ -156,14 +166,14 @@ fn process_messages_gts_answers_receiving<TP>(
 
                 },
                 None => {
-                    rprintln!("Unkown message"); // TODO: Process other messages
+                    rprintln!(=>1,"Unkown message"); // TODO: Process other messages
                     let receiving_radio = enable_receiver(ready_radio, trace_pin);
                     RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
                 }
             }
         },
         Err(e) => {
-            rprintln!("Message decode error: {:?}", e);
+            rprintln!(=>1,"Message decode error: {:?}", e);
             let receiving_radio = enable_receiver(ready_radio, trace_pin);
             RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
         }
@@ -176,31 +186,39 @@ fn advance_gts_answers_receiving<TP>(
     answers_received: u8,
     rx_buffer: &mut[u8],
     commands: &mut super::CommandQueueC,
+    spawn: &crate::radio_irq::Spawn,
     trace_pin: &mut TP
 ) -> RadioState
     where TP: OutputPin
 {
     use super::Command::*;
     match commands.peek() {
-        Some(GTSStart(_)) => { // One or more GTS answer is missing, ignore and continue
-            let ready_radio = receiving_radio.finish_receiving().unwrap();
-            return advance_ready(ready_radio, commands, trace_pin);
+        Some(cmd) => {
+            match cmd {
+                //  ┌─ One or more GTS answer is missing, ignore and continue, should not happen?
+                //  │            ┌─ Valid GTS termination from radio_chrono
+                GTSStart(_) | GTSEnd => {
+                    let ready_radio = receiving_radio.finish_receiving().unwrap();
+                    spawn.radio_event(super::Event::GTSEnded);
+                    return advance_ready(ready_radio, commands, trace_pin);
+                }
+            }
         },
         _ => { }
     }
     match receiving_radio.wait(rx_buffer) {
         Ok(message) => {
             trace_pin.set_low().ok();
-            process_messages_gts_answers_receiving(receiving_radio, message, answers_received, trace_pin)
+            process_messages_gts_answers_receiving(receiving_radio, message, answers_received, spawn, trace_pin)
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still receiving
-                //rprintln!("blockon:{:?}", e);
+                //rprintln!(=>1,"blockon:{:?}", e);
                 //let sys_status = receiving_radio.ll().sys_status().read();
-                //rprintln!("sstY {:?}", sys_status);
+                //rprintln!(=>1,"sstY {:?}", sys_status);
                 RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
             } else { // Actuall error while receiving
-            rprintln!("GTSAnswer receive error: {:?}", e);
+            rprintln!(=>1,"GTSAnswer receive error: {:?}", e);
                 let ready_radio = receiving_radio.finish_receiving().unwrap();
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, trace_pin);
@@ -238,7 +256,11 @@ fn advance_ready<TP>(ready_radio: ReadyRadio, _commands: &mut super::CommandQueu
 }
 
 #[cfg(feature = "slave")]
-fn process_messages_gts_start_waiting<TP>(receiving_radio: ReceivingRadio, message: dw1000::hl::Message, trace_pin: &mut TP)
+fn process_messages_gts_start_waiting<TP>(
+    receiving_radio: ReceivingRadio,
+    message: dw1000::hl::Message,
+    spawn: &crate::radio_irq::Spawn,
+    trace_pin: &mut TP)
     -> RadioState
     where TP: OutputPin
 {
@@ -254,12 +276,15 @@ fn process_messages_gts_start_waiting<TP>(receiving_radio: ReceivingRadio, messa
         Ok(gts_start) => {
             match gts_start {
                 Some(gts_start) => {
-                    //rprintln!("dest:{:?}\tgts_start:{:?}", frame.header.destination, gts_start);
+                    //rprintln!(=>1,"dest:{:?}\tgts_start:{:?}", frame.header.destination, gts_start);
                     let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
                     let downlink_data = &timeslot.sync_no_ack_data;
-                    rprintln!("GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
-                    let uplink_data = GTSUplinkData { tacho: config::SLAVE_ID as u32, power_in: 2560 };
+                    rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
+                    let uplink_data = GTSUplinkData { tacho: config::SLAVE_ID as i32, power_in: 0.0f32 };
                     let gts_answer = GTSAnswer { data: uplink_data };
+                    let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
+                    let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
+                    spawn.radio_event(super::Event::GTSStartReceived(gts_end_dt, *downlink_data));
 
                     let tx_time = if timeslot.delta == 0 {
                         None
@@ -281,14 +306,14 @@ fn process_messages_gts_start_waiting<TP>(receiving_radio: ReceivingRadio, messa
                     RadioState::GTSAnswerSending(Some(sending_radio))
                 },
                 None => {
-                    rprintln!("Unkown message");
+                    rprintln!(=>1,"Unkown message");
                     let receiving_radio = enable_receiver(ready_radio, trace_pin);
                     RadioState::GTSStartWaiting(Some(receiving_radio))
                 }
             }
         },
         Err(e) => {
-            rprintln!("Message decode error: {:?}", e);
+            rprintln!(=>1,"Message decode error: {:?}", e);
             let receiving_radio = enable_receiver(ready_radio, trace_pin);
             RadioState::GTSStartWaiting(Some(receiving_radio))
         }
@@ -296,26 +321,31 @@ fn process_messages_gts_start_waiting<TP>(receiving_radio: ReceivingRadio, messa
 }
 
 #[cfg(feature = "slave")]
-fn advance_gts_start_waiting<TP>(mut receiving_radio: ReceivingRadio, rx_buffer: &mut[u8], trace_pin: &mut TP) -> RadioState
+fn advance_gts_start_waiting<TP>(
+    mut receiving_radio: ReceivingRadio,
+    rx_buffer: &mut[u8],
+    spawn: &crate::radio_irq::Spawn,
+    trace_pin: &mut TP
+) -> RadioState
     where TP: OutputPin
 {
     //let sys_status = receiving_radio.ll().sys_status().read();
-    //rprintln!("sstX {:?}", sys_status);
+    //rprintln!(=>1,"sstX {:?}", sys_status);
 
     match receiving_radio.wait(rx_buffer) {
         Ok(message) => {
             //trace_pin.set_high().ok();
 
-            process_messages_gts_start_waiting(receiving_radio, message, trace_pin)
+            process_messages_gts_start_waiting(receiving_radio, message, spawn, trace_pin)
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still receiving
-                //rprintln!("blockon:{:?}", e);
+                //rprintln!(=>1,"blockon:{:?}", e);
                 //let sys_status = receiving_radio.ll().sys_status().read();
-                //rprintln!("sstY {:?}", sys_status);
+                //rprintln!(=>1,"sstY {:?}", sys_status);
                 RadioState::GTSStartWaiting(Some(receiving_radio))
             } else { // Actuall error while receiving
-                rprintln!("RX error: {:?}", e);
+                rprintln!(=>1,"RX error: {:?}", e);
                 let ready_radio = receiving_radio.finish_receiving().unwrap();
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, trace_pin);
@@ -331,7 +361,7 @@ fn advance_gts_answer_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &m
 {
     match sending_radio.wait() {
         Ok(_) => {
-            rprintln!("GTS answer sent");
+            rprintln!(=>1,"GTS answer sent");
             let ready_radio = sending_radio.finish_sending().unwrap();
             trace_pin.set_high().ok();
             cortex_m::asm::delay(30);
@@ -342,10 +372,10 @@ fn advance_gts_answer_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &m
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // GTSAnswer is still sending
-                //rprintln!("blockon:{:?}", e);
+                //rprintln!(=>1,"blockon:{:?}", e);
                 RadioState::GTSAnswerSending(Some(sending_radio))
             } else { // Actuall error while sending
-                rprintln!("GTS ans send error: {:?}", e);
+                rprintln!(=>1,"GTS ans send error: {:?}", e);
                 let ready_radio = sending_radio.finish_sending().unwrap();
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, trace_pin);

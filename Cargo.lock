@@ -36,6 +36,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bbqueue"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27d38cf39fda7785da8cf182cff9b2195f8b85b0d2d578a4c5d7f322b2158e82"
+dependencies = [
+ "generic-array 0.13.2",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -113,6 +122,12 @@ dependencies = [
  "rtic-syntax",
  "syn 1.0.31",
 ]
+
+[[package]]
+name = "crc16"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
 
 [[package]]
 name = "dw1000"
@@ -467,13 +482,16 @@ checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 name = "uwb-play"
 version = "0.1.0"
 dependencies = [
+ "bbqueue",
  "cfg-if",
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
+ "crc16",
  "dw1000",
  "embedded-hal",
  "embedded-timeout-macros",
+ "generic-array 0.13.2",
  "heapless",
  "nb",
  "rtt-target",
