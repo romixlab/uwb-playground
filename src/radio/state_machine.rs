@@ -57,6 +57,11 @@ pub fn advance<TP>(
             advance_gts_start_waiting(receiving_radio, rx_buffer, spawn, trace_pin)
         }
         #[cfg(feature = "slave")]
+        GTSWaitingForUplinkData(sd) => {
+            let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
+            advance_gts_waiting_for_uplink_data(ready_radio, rx_buffer, commands)
+        }
+        #[cfg(feature = "slave")]
         GTSAnswerSending(sd) => {
             let sending_radio = sd.take().expect(SM_FAIL_MESSAGE);
             advance_gts_answer_sending(sending_radio, trace_pin)
@@ -157,7 +162,7 @@ fn process_messages_gts_answers_receiving<TP>(
                     // Continue listening for GTSAnswer's
                     let answers_received = answers_received + 1;
                     if answers_received == config::REQUIRED_SLAVE_COUNT {
-                        spawn.radio_event(super::Event::GTSEnded);
+                        spawn.radio_event(super::Event::GTSEnded).ok(); // TODO: count errors;
                         RadioState::Ready(Some(ready_radio))
                     } else {
                         let receiving_radio = enable_receiver(ready_radio, trace_pin);
@@ -199,7 +204,7 @@ fn advance_gts_answers_receiving<TP>(
                 //  │            ┌─ Valid GTS termination from radio_chrono
                 GTSStart(_) | GTSEnd => {
                     let ready_radio = receiving_radio.finish_receiving().unwrap();
-                    spawn.radio_event(super::Event::GTSEnded);
+                    spawn.radio_event(super::Event::GTSEnded).ok(); // TODO: count errors
                     return advance_ready(ready_radio, commands, trace_pin);
                 }
             }
@@ -277,33 +282,19 @@ fn process_messages_gts_start_waiting<TP>(
             match gts_start {
                 Some(gts_start) => {
                     //rprintln!(=>1,"dest:{:?}\tgts_start:{:?}", frame.header.destination, gts_start);
-                    let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
-                    let downlink_data = &timeslot.sync_no_ack_data;
-                    rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
-                    let uplink_data = GTSUplinkData { tacho: config::SLAVE_ID as i32, power_in: 0.0f32 };
-                    let gts_answer = GTSAnswer { data: uplink_data };
-                    let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
-                    let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
-                    spawn.radio_event(super::Event::GTSStartReceived(gts_end_dt, *downlink_data));
+                    //rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
 
+                    let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
+                    let downlink_data = timeslot.sync_no_ack_data;
                     let tx_time = if timeslot.delta == 0 {
                         None
                     } else {
                         Some(gts_start.rx_time + Duration::from_nanos(timeslot.delta as u32 * 1_000))
                     };
-                    let tx_message = TxMessage {
-                        recipient: mac::Address::broadcast(&mac::AddressMode::Short),
-                        tx_time,
-                        payload: gts_answer
-                    };
-                    let tx_config = get_txconfig();
-                    //trace_pin.set_high().ok();
-                    if timeslot.delta == 0 {
-                        trace_pin.set_high().ok();
-                    }
-                    ready_radio.enable_tx_interrupts().unwrap();
-                    let sending_radio = tx_message.send(ready_radio, tx_config).unwrap();
-                    RadioState::GTSAnswerSending(Some(sending_radio))
+                    let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
+                    let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
+                    spawn.radio_event(super::Event::GTSStartReceived(tx_time, gts_end_dt, *timeslot));
+                    RadioState::GTSWaitingForUplinkData(Some(ready_radio))
                 },
                 None => {
                     rprintln!(=>1,"Unkown message");
@@ -352,6 +343,42 @@ fn advance_gts_start_waiting<TP>(
                 RadioState::GTSStartWaiting(Some(receiving_radio))
             }
         }
+    }
+}
+
+#[cfg(feature = "slave")]
+fn advance_gts_waiting_for_uplink_data(
+    mut ready_radio: ReadyRadio,
+    rx_buffer: &mut[u8],
+    commands: &mut super::CommandQueueC,
+) -> RadioState
+{
+    use super::Command::*;
+    use dw1000::time::Duration;
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "master")] {
+            let receiving_radio = enable_receiver(ready_radio, trace_pin);
+            return RadioState::GTSStartWaiting(Some(receiving_radio));
+        }
+    }
+    match commands.dequeue() {
+        Some(cmd) => {
+            match cmd {
+                GTSSendAnswer(instant, gts_answer) => {
+                    let tx_message = TxMessage {
+                        recipient: mac::Address::broadcast(&mac::AddressMode::Short), // TODO: Send to PAN, not broadcast
+                        tx_time: instant,
+                        payload: gts_answer
+                    };
+                    let tx_config = get_txconfig();
+                    ready_radio.enable_tx_interrupts().unwrap();
+                    let sending_radio = tx_message.send(ready_radio, tx_config).unwrap();
+                    RadioState::GTSAnswerSending(Some(sending_radio))
+                },
+                _ => { RadioState::GTSWaitingForUplinkData(Some(ready_radio)) } // TODO: Do NOT eat other commands?
+            }
+        },
+        _ => { RadioState::GTSWaitingForUplinkData(Some(ready_radio)) }
     }
 }
 

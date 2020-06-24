@@ -31,10 +31,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="bc4657c7-b1de-4277-b77d-1b087b3e0639" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/crc_framer.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/message.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/message.rs" afterDir="false" />
@@ -81,7 +78,20 @@
     <property name="settings.editor.selected.configurable" value="terminal" />
     <property name="show.migrate.to.gradle.popup" value="false" />
   </component>
-  <component name="RunManager" selected="Cargo Command.Run release Slave BL">
+  <component name="RunManager" selected="Cargo Command.Run release Master">
+    <configuration name="Check dev" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="DEFAULT" />
+      <option name="command" value="check --release --features &quot;slave devnode pozyx-board&quot;" />
+      <option name="allFeatures" value="false" />
+      <option name="nocapture" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Check master [dragonfly]" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="check --release --features &quot;master dragonfly-board&quot;" />
@@ -121,9 +131,22 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
+    <configuration name="Run release Dev" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="DEFAULT" />
+      <option name="command" value="run --release  --features &quot;slave devnode pozyx-board&quot;" />
+      <option name="allFeatures" value="false" />
+      <option name="nocapture" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Run release Master" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release  --features &quot;master pozyx-board&quot; -- USB 801016389" />
+      <option name="command" value="run --release  --features &quot;master pozyx-board&quot;" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -136,7 +159,7 @@
     </configuration>
     <configuration name="Run release Slave BL" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release  --features &quot;slave bl pozyx-board&quot; -- USB 801016393" />
+      <option name="command" value="run --release  --features &quot;slave bl pozyx-board&quot;" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -149,7 +172,7 @@
     </configuration>
     <configuration name="Run release Slave BR" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release  --features &quot;slave br pozyx-board&quot; -- USB 801016375" />
+      <option name="command" value="run --release  --features &quot;slave br pozyx-board&quot;" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -162,7 +185,7 @@
     </configuration>
     <configuration name="Run release Slave TR" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release  --features &quot;slave tr pozyx-board&quot; -- USB 820102657" />
+      <option name="command" value="run --release  --features &quot;slave tr pozyx-board&quot;" />
       <option name="allFeatures" value="false" />
       <option name="nocapture" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -188,8 +211,10 @@
     <list>
       <item itemvalue="Cargo Command.Check master [pozyx]" />
       <item itemvalue="Cargo Command.Check master [dragonfly]" />
+      <item itemvalue="Cargo Command.Check dev" />
       <item itemvalue="Cargo Command.Check slave" />
       <item itemvalue="Cargo Command.Run release Master" />
+      <item itemvalue="Cargo Command.Run release Dev" />
       <item itemvalue="Cargo Command.Run release Slave TR" />
       <item itemvalue="Cargo Command.Run release Slave BL" />
       <item itemvalue="Cargo Command.Run release Slave BR" />
@@ -211,7 +236,7 @@
       <option name="presentableId" value="Default" />
       <updated>1592117205061</updated>
       <workItem from="1592209318241" duration="63180000" />
-      <workItem from="1592724663788" duration="53293000" />
+      <workItem from="1592724663788" duration="74252000" />
     </task>
     <task id="LOCAL-00001" summary="Impl radio state machine, handle IRQ, add radio message types.">
       <created>1592412333190</created>
@@ -227,7 +252,14 @@
       <option name="project" value="LOCAL" />
       <updated>1592671766337</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Forward rpms, tacho, vesc request, lift control, add SlaveState, MecanumWheels, partial override, sync rpm sending from GTSStart.">
+      <created>1592855570872</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1592855570873</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -245,12 +277,14 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Impl radio state machine, handle IRQ, add radio message types." />
     <MESSAGE value="Implement two way GTS communication, GTS answers, trace message delays." />
-    <option name="LAST_COMMIT_MESSAGE" value="Implement two way GTS communication, GTS answers, trace message delays." />
+    <MESSAGE value="Forward rpms, tacho, vesc request, lift control, add SlaveState, MecanumWheels, partial override, sync rpm sending from GTSStart." />
+    <option name="LAST_COMMIT_MESSAGE" value="Forward rpms, tacho, vesc request, lift control, add SlaveState, MecanumWheels, partial override, sync rpm sending from GTSStart." />
   </component>
   <component name="WindowStateProjectService">
-    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1592837794178">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state x="721" y="163" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1593003704895">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state x="721" y="163" key="#com.intellij.execution.impl.EditConfigurationsDialog/0.23.1792.1097@0.23.1792.1097" timestamp="1593003704895" />
     <state x="424" y="213" key="#com.intellij.execution.impl.EditConfigurationsDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141203945" />
     <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592730890149" />
     <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592837794178" />
@@ -272,42 +306,47 @@
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2288" y="297" key="#com.intellij.structuralsearch.plugin.ui.StructuralSearchDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592748908410" />
-    <state x="2359" y="127" key="CommitChangelistDialog2" timestamp="1592671766105">
+    <state x="2359" y="127" key="CommitChangelistDialog2" timestamp="1592855570702">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671766105" />
+    <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592855570702" />
     <state x="1934" y="210" width="734" height="663" key="EnvironmentVariablesDialog" timestamp="1592212535440">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="142" y="210" width="734" height="663" key="EnvironmentVariablesDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141097561" />
     <state x="1934" y="210" key="EnvironmentVariablesDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592212535440" />
-    <state width="1878" height="288" key="GridCell.Tab.0.bottom" timestamp="1592854108087">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1750" height="301" key="GridCell.Tab.0.bottom" timestamp="1593028192101">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state width="1750" height="301" key="GridCell.Tab.0.bottom/0.23.1792.1097@0.23.1792.1097" timestamp="1593028192101" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528054" />
     <state width="1878" height="290" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
-    <state width="1878" height="288" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592854108087" />
+    <state width="1878" height="288" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592902139311" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="288" key="GridCell.Tab.0.center" timestamp="1592854108086">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1750" height="301" key="GridCell.Tab.0.center" timestamp="1593028192100">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state width="1750" height="301" key="GridCell.Tab.0.center/0.23.1792.1097@0.23.1792.1097" timestamp="1593028192100" />
     <state width="939" height="290" key="GridCell.Tab.0.center/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528053" />
     <state width="1878" height="290" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
-    <state width="1878" height="288" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592854108086" />
+    <state width="1878" height="288" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592902139310" />
     <state width="939" height="290" key="GridCell.Tab.0.center/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="288" key="GridCell.Tab.0.left" timestamp="1592854108086">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1750" height="301" key="GridCell.Tab.0.left" timestamp="1593028192099">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state width="1750" height="301" key="GridCell.Tab.0.left/0.23.1792.1097@0.23.1792.1097" timestamp="1593028192099" />
     <state width="939" height="290" key="GridCell.Tab.0.left/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528052" />
     <state width="1878" height="290" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
-    <state width="1878" height="288" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592854108086" />
+    <state width="1878" height="288" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592902139310" />
     <state width="939" height="290" key="GridCell.Tab.0.left/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749242" />
-    <state width="1878" height="288" key="GridCell.Tab.0.right" timestamp="1592854108086">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1750" height="301" key="GridCell.Tab.0.right" timestamp="1593028192100">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state width="1750" height="301" key="GridCell.Tab.0.right/0.23.1792.1097@0.23.1792.1097" timestamp="1593028192100" />
     <state width="939" height="290" key="GridCell.Tab.0.right/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528053" />
     <state width="1878" height="290" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
-    <state width="1878" height="288" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592854108086" />
+    <state width="1878" height="288" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592902139311" />
     <state width="939" height="290" key="GridCell.Tab.0.right/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
     <state width="1878" height="358" key="GridCell.Tab.1.bottom" timestamp="1592724221915">
       <screen x="1792" y="23" width="1920" height="1057" />
@@ -329,10 +368,11 @@
       <screen x="0" y="23" width="1920" height="1057" />
     </state>
     <state x="469" y="190" key="SettingsEditor/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141072123" />
-    <state x="2352" y="291" key="Vcs.Push.Dialog.v2" timestamp="1592671768713">
+    <state x="2352" y="291" key="Vcs.Push.Dialog.v2" timestamp="1592855572977">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2352" y="291" key="Vcs.Push.Dialog.v2/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671768713" />
+    <state x="2352" y="291" key="Vcs.Push.Dialog.v2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592855572977" />
     <state x="2543" y="472" key="com.intellij.openapi.vcs.update.UpdateOrStatusOptionsDialogupdate-v2" timestamp="1592751033732">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
@@ -343,13 +383,15 @@
     </state>
     <state x="3712" y="-211" width="1080" height="1897" key="dock-window-1/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592812242086" />
     <state x="3712" y="-211" width="1080" height="1897" maximized="true" key="dock-window-1/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592818502133" />
-    <state x="2458" y="282" width="588" height="538" key="find.popup" timestamp="1592814736630">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state x="622" y="292" width="917" height="729" key="find.popup" timestamp="1593005322323">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state x="622" y="292" width="917" height="729" key="find.popup/0.23.1792.1097@0.23.1792.1097" timestamp="1593005322323" />
     <state x="2458" y="282" width="588" height="538" key="find.popup/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592814736630" />
-    <state x="2417" y="258" width="670" height="676" key="search.everywhere.popup" timestamp="1592818462677">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state x="583" y="267" width="670" height="702" key="search.everywhere.popup" timestamp="1593005460370">
+      <screen x="0" y="23" width="1792" height="1097" />
     </state>
+    <state x="583" y="267" width="670" height="702" key="search.everywhere.popup/0.23.1792.1097@0.23.1792.1097" timestamp="1593005460370" />
     <state x="2417" y="258" width="670" height="676" key="search.everywhere.popup/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592748878413" />
     <state x="2417" y="258" width="670" height="676" key="search.everywhere.popup/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592818462677" />
     <state x="2417" y="258" width="670" height="676" key="search.everywhere.popup/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314062824" />

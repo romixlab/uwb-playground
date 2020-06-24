@@ -84,6 +84,7 @@ const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
 const VESC_SETRPM_FRAME_ID: u8 = 8;
 const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
 const VESC_LIFT_FRAME_ID: u8 = 88;
+const VESC_RESET_ALL: u8 = 89;
 const VESC_REQUESTED_VALUES: u32 = (1 << 13) | (1 << 3) | (1 << 8); // tacho + i_in + v_in
 
 use hal::gpio::gpioa::{PA2, PA3};
@@ -127,6 +128,7 @@ pub struct MCData {
     tokens: u8,
     rpm: Rpm,
     tacho: Tachometer,
+    tacho_shift: i32,
     power_in: f32,
 }
 
@@ -174,9 +176,14 @@ pub enum MotorControlEvent {
     /// Displace and ingore heading change caused by rotation (drifting car).
     /// Calculate rpms fromm displacement and do the same as SetRpmArray.
     MoveIgnoreHeading(XYThetaMove),
-    /// Commit SET_RPM frame to resources.vesc_bbbuffer_p bip buffer. Pend vesc_serial task to
+    /// Commit SET_RPM frame to vesc send bip buffer. Pend vesc_serial task to
     /// actually start sending it.
     SetRpm(Rpm),
+    /// Commit GET_VALUES_SELECTIVE to vesc send bip buffer. Pend vesc_serial task to
+    /// actually start sending it.
+    RequestTelemetry,
+    /// Quick hack
+    ResetTacho // TODO: forward messages untouched and implement real reset
 }
 
 #[derive(Default)]
@@ -210,6 +217,13 @@ enum LiftControlCommand {
     AllUpLong,
     AllDownLong,
     Stop
+}
+
+#[derive(Default)]
+pub struct Stat {
+    pub tr_gts_answers: u32,
+    pub bl_gts_answers: u32,
+    pub br_gts_answers: u32,
 }
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
@@ -246,6 +260,9 @@ const APP: () = {
 
         idle_counter: Wrapping<u32>,
         exti: hal::stm32::EXTI,
+
+        #[cfg(feature = "master")]
+        stat: Stat,
     }
 
     #[init(schedule = [], spawn = [radio_chrono, blinker])]
@@ -431,7 +448,9 @@ const APP: () = {
 
                     led_blinky,
                     idle_counter: Wrapping(0u32),
-                    exti
+                    exti,
+
+                    stat: Stat::default()
                 }
             } else if #[cfg(feature = "slave")] {
                 init::LateResources {
@@ -462,16 +481,45 @@ const APP: () = {
         }
     }
 
-    #[idle(resources = [idle_counter])]
+    #[idle(resources = [idle_counter, stat, mecanum_wheels])]
     fn idle(mut cx: idle::Context) -> ! {
         loop {
             cx.resources.idle_counter.lock(|counter| *counter += Wrapping(1u32));
             cortex_m::asm::delay(20_000_000);
+
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "master")] {
+                    rprintln!(=> 8, "\x1b[2J\x1b[0m");
+                    let (tr_gts_answers, bl_gts_answers, br_gts_answers) = cx.resources.stat.lock(|s|
+                        (
+                            s.tr_gts_answers,
+                            s.bl_gts_answers,
+                            s.br_gts_answers,
+                        )
+                    );
+                    rprintln!(=> 8, "TR: {}\n", tr_gts_answers);
+                    rprintln!(=> 8, "BL: {}\n", bl_gts_answers);
+                    rprintln!(=> 8, "BR: {}\n", br_gts_answers);
+
+                    let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
+                        (
+                            wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
+                            wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
+                            wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
+                            wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
+                        )
+                    });
+                    rprintln!(=> 8, "TL: {}\tTR: {}", tacho_tl, tacho_tr);
+                    rprintln!(=> 8, "BL: {}\tBR: {}", tacho_bl, tacho_br)
+                }
+            }
+
+
             //atomic::compiler_fence(Ordering::SeqCst);
         }
     }
 
-    #[task(resources = [led_blinky, &clocks], schedule = [blinker], spawn = [lift_control])]
+    #[task(resources = [led_blinky, &clocks], schedule = [blinker])]
     fn blinker(cx: blinker::Context) {
         static mut LED_STATE: bool = false;
         static mut DOT_COUNTER: u8 = 0;
@@ -491,7 +539,7 @@ const APP: () = {
             *LED_STATE = true;
         }
 
-        cx.spawn.lift_control(LiftControlCommand::AllUp);
+        //cx.spawn.lift_control(LiftControlCommand::AllUp);
         cx.schedule.blinker(cx.scheduled + ms2cycles!(cx, config::BLINK_PERIOD_MS)).unwrap();
     }
 
@@ -538,8 +586,10 @@ const APP: () = {
                         Idle
                     }
                 }
-            } else if #[cfg(feature = "slave")] {
+            } else if #[cfg(all(feature = "slave", not(feature = "devnode")))] {
                 cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok(); // TODO: count errors
+            } else if #[cfg(feature = "devnode")] {
+
             }
         }
         rtic::pend(config::DW1000_IRQ_EXTI);
@@ -589,30 +639,57 @@ const APP: () = {
         //cx.resources.radio_trace.set_low().ok();
     }
 
-    #[task(priority = 4, capacity = 16, resources = [&clocks, wheel, mecanum_wheels], spawn = [motor_control, ctrl_link_control], schedule = [radio_event])]
+    #[task(
+        priority = 4,
+        capacity = 16,
+        resources = [&clocks, wheel, mecanum_wheels, radio_commands_p, stat],
+        spawn = [motor_control, ctrl_link_control],
+        schedule = [radio_event]
+    )]
     fn radio_event(mut cx: radio_event::Context, e: radio::Event) {
         rprintln!("radio_event: {:?}", e);
         use radio::Event::*;
         match e {
             #[cfg(feature = "master")]
             GTSAnswerReceived(from, answer) => {
+                let stat = cx.resources.stat;
                 cx.resources.mecanum_wheels.lock(|wheels| {
                     if from == config::TR_UWB_ADDR {
                         wheels.top_right.tacho = Tachometer(answer.data.tacho);
                         wheels.top_right.power_in = answer.data.power_in;
+                        stat.tr_gts_answers += 1;
                     } else if from == config::BL_UWB_ADDR {
                         wheels.bottom_left.tacho = Tachometer(answer.data.tacho);
                         wheels.bottom_left.power_in = answer.data.power_in;
+                        stat.bl_gts_answers += 1;
                     } else if from == config::BR_UWB_ADDR {
                         wheels.bottom_right.tacho = Tachometer(answer.data.tacho);
                         wheels.bottom_right.power_in = answer.data.power_in;
+                        stat.br_gts_answers += 1;
                     }
                 });
             },
-            #[cfg(feature = "slave")]
-            GTSStartReceived(gts_end_dt, downlink_data) => {
-                let rpm = Rpm(downlink_data.rpm);
+            #[cfg(feature = "devnode")]
+            GTSAnswerReceived(from, answer) => {
+                rprintln!("GTS answer rx from: {:?}, tacho: {}, pwr: {}", from, answer.data.tacho, answer.data.power_in);
+            },
+            #[cfg(all(feature = "slave", not(feature = "devnode")))]
+            GTSStartReceived(tx_time, gts_end_dt, gts_entry) => {
+                // Prepare telemetry for sending in a given slot
+                let tacho = cx.resources.wheel.tacho;
+                let power_in = cx.resources.wheel.power_in;
+                let uplink_data = radio::message::GTSUplinkData { tacho: tacho.0, power_in };
+                let gts_answer = radio::message::GTSAnswer { data: uplink_data };
+                cx.resources.radio_commands_p.lock(|commands|
+                    commands.enqueue(radio::Command::GTSSendAnswer(tx_time, gts_answer))).ok(); // TODO: Count errors
+                // Schedule an rpm sending after all GTS, so that each MC receive the command at the same time
+                let rpm = Rpm(gts_entry.sync_no_ack_data.rpm);
                 cx.resources.wheel.rpm = rpm;
+                cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 / 1000), radio::Event::GTSEnded);
+            },
+            #[cfg(feature = "devnode")]
+            GTSStartReceived(tx_time, gts_end_dt, gts_entry) => {
+                rprintln!("GTS start received");
                 cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 / 1000), radio::Event::GTSEnded);
             },
             GTSEnded => {
@@ -625,6 +702,7 @@ const APP: () = {
                     }
                 }
                 cx.spawn.motor_control(MotorControlEvent::SetRpm(rpm));
+                cx.spawn.motor_control(MotorControlEvent::RequestTelemetry);
             }
         }
     }
@@ -635,18 +713,18 @@ const APP: () = {
             if #[cfg(feature = "master")] {
                 let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
                     (
-                        wheels.top_left.tacho,
-                        wheels.top_right.tacho,
-                        wheels.bottom_left.tacho,
-                        wheels.bottom_right.tacho
+                        wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
+                        wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
+                        wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
+                        wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
                     )
                 });
                 let mut tacho_arr_frame = [0u8; 17];
                 tacho_arr_frame[0] = VESC_TACHO_ARRAY_FRAME_ID;
-                tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.0.to_be_bytes());
-                tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.0.to_be_bytes());
-                tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.0.to_be_bytes());
-                tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.0.to_be_bytes());
+                tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.to_be_bytes());
+                tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.to_be_bytes());
+                tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
+                tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
                 cx.resources.ctrl_bbbuffer_p.lock(|bb| {
                     crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb).ok(); // TODO: count errors
                 });
@@ -657,6 +735,7 @@ const APP: () = {
 
     #[task(priority = 2, capacity = 4, resources = [mecanum_wheels, vesc_bbbuffer_p])]
     fn motor_control(mut cx: motor_control::Context, e: MotorControlEvent) {
+        static mut STOPPED: bool = false;
         rprintln!("mc_event: {:?}", e);
         use MotorControlEvent::*;
         match e {
@@ -678,11 +757,38 @@ const APP: () = {
 
             },
             SetRpm(rpm) => {
-                let mut setrpm_frame = [0u8; 5];
-                setrpm_frame[0] = VESC_SETRPM_FRAME_ID;
-                setrpm_frame[1..=4].copy_from_slice(&rpm.0.to_be_bytes());
-                crc_framer::CrcFramerSer::commit_frame(&setrpm_frame, cx.resources.vesc_bbbuffer_p).ok(); // TODO: count errors
+                if rpm.0 != 0 || !*STOPPED {
+                    let mut setrpm_frame = [0u8; 5];
+                    setrpm_frame[0] = VESC_SETRPM_FRAME_ID;
+                    setrpm_frame[1..=4].copy_from_slice(&rpm.0.to_be_bytes());
+                    crc_framer::CrcFramerSer::commit_frame(&setrpm_frame, cx.resources.vesc_bbbuffer_p).ok(); // TODO: count errors
+                    rtic::pend(VESC_IRQ_EXTI);
+                    if rpm.0 == 0 {
+                        *STOPPED = true;
+                    } else {
+                        *STOPPED = false;
+                    }
+                }
+
+            },
+            RequestTelemetry => {
+                let mut request = [0u8; 5];
+                request[0] = VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID;
+                request[1..=4].copy_from_slice(&VESC_REQUESTED_VALUES.to_be_bytes());
+                crc_framer::CrcFramerSer::commit_frame(&request, cx.resources.vesc_bbbuffer_p).ok(); // TODO: count errors
                 rtic::pend(VESC_IRQ_EXTI);
+            },
+            ResetTacho => {
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "master")] {
+                        cx.resources.mecanum_wheels.lock(|wheels| {
+                            wheels.top_left.tacho_shift = wheels.top_left.tacho.0;
+                            wheels.top_right.tacho_shift = wheels.top_right.tacho.0;
+                            wheels.bottom_left.tacho_shift = wheels.bottom_left.tacho.0;
+                            wheels.bottom_right.tacho_shift = wheels.bottom_right.tacho.0;
+                        });
+                    }
+                }
             }
         }
     }
@@ -699,37 +805,38 @@ const APP: () = {
                     let framer = cx.resources.vesc_framer;
                     //let bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
                     cfg_if::cfg_if! {
-                    if #[cfg(feature = "master")] {
-                        let mut wheels = cx.resources.mecanum_wheels;
-                    } else if  #[cfg(feature = "slave")] {
-                        let mut wheel = cx.resources.wheel;
+                        if #[cfg(feature = "master")] {
+                            let mut wheels = cx.resources.mecanum_wheels;
+                        } else if  #[cfg(feature = "slave")] {
+                            let mut wheel = cx.resources.wheel;
+                        }
                     }
-                }
-                    rprintln!(=> 5, "{} {:02x}\n", byte, byte);
+                    //rprintln!(=> 5, "{} {:02x}\n", byte, byte);
                     framer.eat_byte(byte, |frame| {
-                        rprintln!(=> 5, "frame vesc: {} {}\n", frame[0], frame.len());
-                        if frame[0] == VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID && frame.len() == 11 {
-                            let current_in = i32::from_be_bytes(frame[1..=4].try_into().unwrap());
+                        //rprintln!(=> 5, "frame vesc: {} {}\n", frame[0], frame.len());
+                        if frame[0] == VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID && frame.len() == 15 {
+                            let current_in = i32::from_be_bytes(frame[5..=8].try_into().unwrap());
                             let current_in = (current_in as f32) / 100.0f32;
-                            let voltage_in = i16::from_be_bytes(frame[5..=6].try_into().unwrap());
+                            let voltage_in = i16::from_be_bytes(frame[9..=10].try_into().unwrap());
                             let voltage_in = voltage_in as f32;
                             let power_in = current_in * voltage_in;
-                            let tacho = i32::from_be_bytes(frame[7..=10].try_into().unwrap());
+                            let tacho = i32::from_be_bytes(frame[11..=14].try_into().unwrap());
                             let tacho = Tachometer(tacho);
+                            //rprintln!(=> 5, "i_in:{} v_in:{} tacho:{}", current_in, voltage_in, tacho.0);
 
                             cfg_if::cfg_if! {
-                            if #[cfg(feature = "master")] {
-                                wheels.lock(|wheels| {
-                                    wheels.top_left.tacho = tacho;
-                                    wheels.top_left.power_in = power_in;
-                                });
-                            } else if  #[cfg(feature = "slave")] {
-                                wheel.lock(|wheel| {
-                                    wheel.tacho = tacho;
-                                    wheel.power_in = power_in;
-                                });
+                                if #[cfg(feature = "master")] {
+                                    wheels.lock(|wheels| {
+                                        wheels.top_left.tacho = tacho;
+                                        wheels.top_left.power_in = power_in;
+                                    });
+                                } else if  #[cfg(feature = "slave")] {
+                                    wheel.lock(|wheel| {
+                                        wheel.tacho = tacho;
+                                        wheel.power_in = power_in;
+                                    });
+                                }
                             }
-                        }
                         }
                     });
                 },
@@ -823,6 +930,9 @@ const APP: () = {
                                     'd' => { spawner.lift_control(RightUp).ok(); },
                                     _ => {}
                                 };
+                            } else if frame[0] == VESC_RESET_ALL {
+                                rprintln!(=>5, "\n\nRESET TACHO\n\n");
+                                spawner.motor_control(MotorControlEvent::ResetTacho);
                             }
                             //crc_framer::CrcFramerSer::commit_frame(frame, bbbuffer_p);
                             //rtic::pend(VESC_IRQ_EXTI);

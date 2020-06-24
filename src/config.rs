@@ -34,7 +34,7 @@ pub const BLINK_PERIOD_MS: u32 = 500;
 /// Ignore IRQ and check state anyway with specified period.
 /// To ensure that endless lockup won't happen.
 #[cfg(feature = "slave")]
-pub const DW1000_CHECK_PERIOD_MS: u32 = 1000;
+pub const DW1000_CHECK_PERIOD_MS: u32 = 10;
 
 use hal::stm32::Interrupt;
 /// Which EXTI line is used for DW1000 interrupt.
@@ -43,7 +43,7 @@ pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
 
 /// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
 #[cfg(feature = "master")]
-pub const GTS_PERIOD_MS: u32 = 100;
+pub const GTS_PERIOD_MS: u32 = 50;
 
 use dw1000::mac::{PanId, ShortAddress};
 pub const PAN_ID: PanId = PanId(0x666);
@@ -75,6 +75,6 @@ pub const SLAVE_ID: usize = 2;
 pub const UWB_ADDR: ShortAddress = BR_UWB_ADDR;
 
 #[cfg(feature = "devnode")]
-pub const SLAVE_ID: usize = 3;
+pub const SLAVE_ID: usize = REQUIRED_SLAVE_COUNT as usize - 1;
 #[cfg(feature = "devnode")]
 pub const UWB_ADDR: ShortAddress = DEV_UWB_ADDR;

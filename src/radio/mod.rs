@@ -26,6 +26,8 @@ pub enum RadioState {
     #[cfg(feature = "slave")]
     GTSStartWaiting(Option<ReceivingRadio>),
     #[cfg(feature = "slave")]
+    GTSWaitingForUplinkData(Option<ReadyRadio>),
+    #[cfg(feature = "slave")]
     GTSAnswerSending(Option<SendingRadio>),
 }
 
@@ -33,6 +35,8 @@ pub enum Command {
     #[cfg(feature = "master")]
     GTSStart(message::GTSStart),
     /// Fired when all GTS should finish on master and slave, after that rpms are sent to MCs.
+    #[cfg(feature = "slave")]
+    GTSSendAnswer(Option<dw1000::time::Instant>, message::GTSAnswer),
     GTSEnd,
 }
 
@@ -41,11 +45,11 @@ pub struct NanoSeconds(pub u32);
 
 #[derive(Debug)]
 pub enum Event {
-    #[cfg(feature = "master")]
+    #[cfg(any(feature = "master", feature = "devnode"))]
     GTSAnswerReceived(dw1000::mac::ShortAddress, message::GTSAnswer),
     #[cfg(feature = "slave")]
-    /// .0 - when GTS end
-    GTSStartReceived(NanoSeconds, message::GTSDownlinkData),
+    /// .0 - tx_time in dw1000 counts; .1 - time till GTS end.
+    GTSStartReceived(Option<dw1000::time::Instant>, NanoSeconds, message::GTSEntry),
     GTSEnded,
 }
 

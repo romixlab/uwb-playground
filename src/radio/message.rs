@@ -95,7 +95,7 @@ pub struct GTSUplinkData {
 }
 
 /// Guaranteed time slot for each slave.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 #[repr(C)]
 pub struct GTSEntry {
     /// Delay in us from GTS packet reception until slave starts sending.
