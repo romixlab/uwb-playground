@@ -19,3 +19,15 @@ macro_rules! ms2cycles {
         ($cx.resources.clocks.sysclk().0 / 1_000 * $amount).cycles()
     };
 }
+
+macro_rules! ms2cycles_raw {
+    ($cx:ident, $amount:expr) => {
+        $cx.resources.clocks.sysclk().0 / 1_000 * $amount
+    };
+}
+
+macro_rules! cycles2ms {
+    ($cx:ident, $amount:expr) => {
+        (($amount as u64) * 1000) / $cx.resources.clocks.sysclk().0 as u64
+    };
+}

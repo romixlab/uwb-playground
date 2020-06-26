@@ -97,8 +97,8 @@ fn advance_ready<TP>(mut ready_radio: ReadyRadio, commands: &mut super::CommandQ
             };
             let tx_config = get_txconfig();
             trace_pin.set_high().ok();
-            ready_radio.enable_tx_interrupts().unwrap();
-            let sending_radio = tx_message.send(ready_radio, tx_config).unwrap();
+            ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
+            let sending_radio = tx_message.send(ready_radio, tx_config).expect("DW1000 internal failure?");
             RadioState::GTSStartSending(Some(sending_radio))
         },
         _ => {
@@ -115,7 +115,7 @@ fn advance_gts_start_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &mu
         Ok(_) => {
             trace_pin.set_low().ok();
             rprintln!(=>1,"\nGTSStart sent, listening...");
-            let ready_radio = sending_radio.finish_sending().unwrap();
+            let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
             let receiving_radio = enable_receiver(ready_radio, trace_pin);
             trace_pin.set_high().ok();
             RadioState::GTSAnswersReceiving((Some(receiving_radio), 0))
@@ -126,7 +126,7 @@ fn advance_gts_start_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &mu
                 RadioState::GTSStartSending(Some(sending_radio))
             } else { // Actuall error while sending
                 rprintln!(=>1,"GTSStart send error: {:?}", e);
-                let ready_radio = sending_radio.finish_sending().unwrap();
+                let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 trace_pin.set_low().ok();
                 RadioState::Ready(Some(ready_radio))
             }
@@ -147,7 +147,7 @@ fn process_messages_gts_answers_receiving<TP>(
     use super::message::{GTSAnswer};
     use dw1000::ranging::{Message, RxMessage};
 
-    let ready_radio = receiving_radio.finish_receiving().unwrap();
+    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
 
     //let frame = message.frame;
     let gts_answer: Result<Option<RxMessage<GTSAnswer>>, dw1000::hl::Error<Dw1000Spi, Dw1000Cs>> = GTSAnswer::decode(&message);
@@ -203,7 +203,7 @@ fn advance_gts_answers_receiving<TP>(
                 //  ┌─ One or more GTS answer is missing, ignore and continue, should not happen?
                 //  │            ┌─ Valid GTS termination from radio_chrono
                 GTSStart(_) | GTSEnd => {
-                    let ready_radio = receiving_radio.finish_receiving().unwrap();
+                    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                     spawn.radio_event(super::Event::GTSEnded).ok(); // TODO: count errors
                     return advance_ready(ready_radio, commands, trace_pin);
                 }
@@ -224,7 +224,7 @@ fn advance_gts_answers_receiving<TP>(
                 RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
             } else { // Actuall error while receiving
             rprintln!(=>1,"GTSAnswer receive error: {:?}", e);
-                let ready_radio = receiving_radio.finish_receiving().unwrap();
+                let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, trace_pin);
                 RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
@@ -248,8 +248,8 @@ fn enable_receiver<TP>(mut ready_radio: ReadyRadio, _trace_pin: &mut TP) -> Rece
         frame_filtering: false,
         ..RxConfig::default()
     };
-    ready_radio.enable_rx_interrupts().unwrap();
-    ready_radio.receive(rx_config).unwrap()
+    ready_radio.enable_rx_interrupts().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+    ready_radio.receive(rx_config).expect("dw1000 crate or spi failure") // TODO: try to re-init and recover
 }
 
 #[cfg(feature = "slave")]
@@ -265,15 +265,15 @@ fn process_messages_gts_start_waiting<TP>(
     receiving_radio: ReceivingRadio,
     message: dw1000::hl::Message,
     spawn: &crate::radio_irq::Spawn,
-    trace_pin: &mut TP)
-    -> RadioState
+    trace_pin: &mut TP
+) -> RadioState
     where TP: OutputPin
 {
     use super::message::{GTSStart, GTSUplinkData, GTSAnswer};
     use dw1000::ranging::{Message, RxMessage};
     use dw1000::time::Duration;
 
-    let mut ready_radio = receiving_radio.finish_receiving().unwrap();
+    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
 
     //let frame = message.frame;
     let gts_start: Result<Option<RxMessage<GTSStart>>, dw1000::hl::Error<Dw1000Spi, Dw1000Cs>> = GTSStart::decode(&message);
@@ -285,7 +285,7 @@ fn process_messages_gts_start_waiting<TP>(
                     //rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
 
                     let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
-                    let downlink_data = timeslot.sync_no_ack_data;
+                    //let downlink_data = timeslot.sync_no_ack_data;
                     let tx_time = if timeslot.delta == 0 {
                         None
                     } else {
@@ -293,7 +293,7 @@ fn process_messages_gts_start_waiting<TP>(
                     };
                     let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
                     let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
-                    spawn.radio_event(super::Event::GTSStartReceived(tx_time, gts_end_dt, *timeslot));
+                    spawn.radio_event(super::Event::GTSStartReceived(tx_time, gts_end_dt, *timeslot)).ok(); // TODO: count errors
                     RadioState::GTSWaitingForUplinkData(Some(ready_radio))
                 },
                 None => {
@@ -337,7 +337,7 @@ fn advance_gts_start_waiting<TP>(
                 RadioState::GTSStartWaiting(Some(receiving_radio))
             } else { // Actuall error while receiving
                 rprintln!(=>1,"RX error: {:?}", e);
-                let ready_radio = receiving_radio.finish_receiving().unwrap();
+                let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, trace_pin);
                 RadioState::GTSStartWaiting(Some(receiving_radio))
@@ -349,7 +349,7 @@ fn advance_gts_start_waiting<TP>(
 #[cfg(feature = "slave")]
 fn advance_gts_waiting_for_uplink_data(
     mut ready_radio: ReadyRadio,
-    rx_buffer: &mut[u8],
+    _rx_buffer: &mut[u8],
     commands: &mut super::CommandQueueC,
 ) -> RadioState
 {
@@ -371,8 +371,8 @@ fn advance_gts_waiting_for_uplink_data(
                         payload: gts_answer
                     };
                     let tx_config = get_txconfig();
-                    ready_radio.enable_tx_interrupts().unwrap();
-                    let sending_radio = tx_message.send(ready_radio, tx_config).unwrap();
+                    ready_radio.enable_tx_interrupts().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                    let sending_radio = tx_message.send(ready_radio, tx_config).expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                     RadioState::GTSAnswerSending(Some(sending_radio))
                 },
                 _ => { RadioState::GTSWaitingForUplinkData(Some(ready_radio)) } // TODO: Do NOT eat other commands?
@@ -389,7 +389,7 @@ fn advance_gts_answer_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &m
     match sending_radio.wait() {
         Ok(_) => {
             rprintln!(=>1,"GTS answer sent");
-            let ready_radio = sending_radio.finish_sending().unwrap();
+            let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
             trace_pin.set_high().ok();
             cortex_m::asm::delay(30);
             trace_pin.set_low().ok();
@@ -403,7 +403,7 @@ fn advance_gts_answer_sending<TP>(mut sending_radio: SendingRadio, trace_pin: &m
                 RadioState::GTSAnswerSending(Some(sending_radio))
             } else { // Actuall error while sending
                 rprintln!(=>1,"GTS ans send error: {:?}", e);
-                let ready_radio = sending_radio.finish_sending().unwrap();
+                let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, trace_pin);
                 RadioState::GTSStartWaiting(Some(receiving_radio))

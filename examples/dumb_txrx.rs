@@ -110,9 +110,9 @@ fn main() -> ! {
             let result = block!(sending.wait());
             rprintln!("tx:{:?}", result);
             dw1000 = sending.finish_sending().unwrap();
-            led1_green.set_high().unwrap();
+            led1_green.set_high().ok();
             delay.delay_ms(25_u32);
-            led1_green.set_low().unwrap();
+            led1_green.set_low().ok();
             delay.delay_ms(25_u32);
         }
         #[cfg(feature = "slave")] {

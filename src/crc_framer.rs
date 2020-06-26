@@ -1,7 +1,7 @@
 use generic_array::{GenericArray, ArrayLength};
 use core::convert::TryInto;
 use crc16;
-use rtt_target::{rprintln};
+//use rtt_target::{rprintln};
 use core::ops::Range;
 
 pub struct CrcFramerDe<N: ArrayLength<u8>> {
@@ -54,7 +54,7 @@ impl<N: generic_array::ArrayLength<u8>> CrcFramerDe<N> {
         }
         // Search for frame boundary when unsynchronised or just check crc and emit valid frames
         let mut lookahead_len = bytes_pending;
-        for offset in self.read_idx..self.read_idx + bytes_pending {
+        for _ in self.read_idx..self.read_idx + bytes_pending {
             //rprintln!("___");
             let result = self.decode_frame(lookahead_len);
             match result {
@@ -182,8 +182,14 @@ pub enum CrcFramerError {
 }
 
 impl CrcFramerSer {
-    pub fn commit_frame<N>(frame: &[u8], producer: &mut bbqueue::Producer<'static, N>) -> core::result::Result<(), CrcFramerError>
-        where N: generic_array::ArrayLength<u8>
+    pub fn commit_frame<N, I>(
+        frame: &[u8],
+        producer: &mut bbqueue::Producer<'static, N>,
+        consumer_irq: I
+    ) -> core::result::Result<(), CrcFramerError>
+        where
+            N: generic_array::ArrayLength<u8>,
+            I: cortex_m::interrupt::Nr
     {
         let (bytes_required, first_byte) = if frame.len() <= 255 {
             (2 + frame.len() + 3, 2u8)
@@ -208,6 +214,7 @@ impl CrcFramerSer {
         wgr[crc_start_idx ..= crc_start_idx + 1].copy_from_slice(&crc.to_be_bytes());
         wgr[crc_start_idx + 2] = 3;
         wgr.commit(bytes_required);
+        rtic::pend(consumer_irq);
         Ok(())
     }
 }

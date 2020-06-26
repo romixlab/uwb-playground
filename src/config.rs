@@ -57,6 +57,7 @@ pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
 pub const TR_UWB_ADDR: ShortAddress = ShortAddress(0xaa_00); // 43520
 pub const BL_UWB_ADDR: ShortAddress = ShortAddress(0xaa_01); // 43521
 pub const BR_UWB_ADDR: ShortAddress = ShortAddress(0xaa_02); // 43522
+#[cfg(feature = "devnode")]
 pub const DEV_UWB_ADDR: ShortAddress = ShortAddress(0x777);
 
 #[cfg(feature = "tr")]
@@ -78,3 +79,10 @@ pub const UWB_ADDR: ShortAddress = BR_UWB_ADDR;
 pub const SLAVE_ID: usize = REQUIRED_SLAVE_COUNT as usize - 1;
 #[cfg(feature = "devnode")]
 pub const UWB_ADDR: ShortAddress = DEV_UWB_ADDR;
+
+pub mod motor_control {
+    /// How often timing checks are performed.
+    pub const TIMING_CHECK_INTERVAL_MS: u32 = 100;
+    /// Turn off all motors if no move commands received for this amount of time.
+    pub const STOP_TIMEOUT_MS: u32 = 500;
+}

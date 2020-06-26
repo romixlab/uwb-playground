@@ -11,7 +11,7 @@ mod crc_framer;
 
 use dw1000::{
     DW1000,
-    mac
+    //mac
 };
 use radio::{
     RadioState,
@@ -82,6 +82,7 @@ const VESC_IRQ_EXTI: Interrupt = Interrupt::USART1;
 const VESC_RPM_ARRAY_FRAME_ID: u8 = 86;
 const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
 const VESC_SETRPM_FRAME_ID: u8 = 8;
+const VESC_SETCURRENT_FRAME_ID: u8 = 6;
 const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
 const VESC_LIFT_FRAME_ID: u8 = 88;
 const VESC_RESET_ALL: u8 = 89;
@@ -99,6 +100,7 @@ const CTRL_IRQ_EXTI: Interrupt = Interrupt::USART2;
 use hal::gpio::gpioc::{PC6};
 use hal::gpio::AF8;
 use stm32f4xx_hal::serial::NoRx;
+
 type LiftTxPin = PC6<Alternate<AF8>>;
 type LiftSerial = hal::serial::Serial<hal::stm32::USART6, (LiftTxPin, NoRx)>;
 
@@ -132,6 +134,12 @@ pub struct MCData {
     power_in: f32,
 }
 
+impl MCData {
+    pub fn stop(&mut self) {
+        self.rpm = Rpm(0);
+    }
+}
+
 #[derive(Default)]
 pub struct MecanumWheels {
     top_left: MCData,
@@ -140,12 +148,30 @@ pub struct MecanumWheels {
     bottom_right: MCData
 }
 
+impl MecanumWheels {
+    pub fn all_stop(&mut self) {
+        self.top_left.rpm = Rpm(0);
+        self.top_right.rpm = Rpm(0);
+        self.bottom_left.rpm = Rpm(0);
+        self.bottom_right.rpm = Rpm(0);
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct RpmArray {
     top_left: Rpm,
     top_right: Rpm,
     bottom_left: Rpm,
     bottom_right: Rpm
+}
+
+impl RpmArray {
+    pub fn is_all_zero(&self) -> bool {
+        self.top_left.0 == 0 &&
+            self.top_right.0 == 0 &&
+            self.bottom_left.0 == 0 &&
+            self.bottom_right.0 == 0
+    }
 }
 
 #[derive(Debug)]
@@ -182,8 +208,23 @@ pub enum MotorControlEvent {
     /// Commit GET_VALUES_SELECTIVE to vesc send bip buffer. Pend vesc_serial task to
     /// actually start sending it.
     RequestTelemetry,
+    /// Check if too much time passed since last command and turn off the motors.
+    TimingCheck,
     /// Quick hack
     ResetTacho // TODO: forward messages untouched and implement real reset
+}
+
+impl MotorControlEvent {
+    /// Checks if the event is related to RPM change
+    pub fn is_move_event(&self) -> bool {
+        use MotorControlEvent::*;
+        match self {
+            #[cfg(feature = "master")]
+            SetRpmArray(_) | MovePreserveHeading(_) | MoveIgnoreHeading(_) => { true },
+            SetRpm(_) => { true },
+            _ => { false }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -214,9 +255,9 @@ enum LiftControlCommand {
     RightDown,
     AllUp,
     AllDown,
-    AllUpLong,
-    AllDownLong,
-    Stop
+    //AllUpLong,
+    //AllDownLong,
+    //Stop
 }
 
 #[derive(Default)]
@@ -224,6 +265,7 @@ pub struct Stat {
     pub tr_gts_answers: u32,
     pub bl_gts_answers: u32,
     pub br_gts_answers: u32,
+
 }
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
@@ -371,7 +413,11 @@ const APP: () = {
         dw1000_reset.set_high().ok();
         busywait!(ms_alt, clocks, 5);
         let dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
-        let mut dw1000 = dw1000.init().unwrap();
+        let mut dw1000 = dw1000.init();
+        let mut dw1000 = match dw1000 {
+            Ok(dw1000) => { dw1000 },
+            Err(e) => { panic!("DW1000 init error"); }
+        };
         dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
 
         // To VESC
@@ -402,7 +448,7 @@ const APP: () = {
         let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = CTRL_BBBUFFER.try_split().unwrap();
 
         let usart6_tx = gpioc.pc6.into_alternate_af8();
-        let mut lift_serial = Serial::usart6(
+        let lift_serial = Serial::usart6(
             device.USART6,
             (usart6_tx, NoRx),
             Config::default().baudrate(115_200.bps()),
@@ -420,8 +466,8 @@ const APP: () = {
 
         rprintln!("init(): done");
 
-        cx.spawn.blinker().unwrap();
-        cx.spawn.radio_chrono().ok(); // TODO: error out
+        cx.spawn.blinker().expect("RTIC failure?");
+        cx.spawn.radio_chrono().expect("RTIC failure?");
         let (radio_commands_p, radio_commands_c) = RADIO_COMMANDS_QUEUE.split();
 
         cfg_if::cfg_if! {
@@ -540,7 +586,7 @@ const APP: () = {
         }
 
         //cx.spawn.lift_control(LiftControlCommand::AllUp);
-        cx.schedule.blinker(cx.scheduled + ms2cycles!(cx, config::BLINK_PERIOD_MS)).unwrap();
+        cx.schedule.blinker(cx.scheduled + ms2cycles!(cx, config::BLINK_PERIOD_MS)).ok(); // TODO: count errors
     }
 
     /// Master states:
@@ -562,7 +608,7 @@ const APP: () = {
         //use radio::message::*;
         cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
-                let now = DWT::get_cycle_count();
+                //let now = DWT::get_cycle_count();
 
                 use crate::radio::message::{GTSEntry, GTSStart, GTSDownlinkData};
                 use crate::radio::{Command};
@@ -575,13 +621,13 @@ const APP: () = {
                         let br = GTSEntry::new(22_000, 6_000, GTSDownlinkData{ rpm: wheels.bottom_right.rpm.0 });
                         let gts_start = GTSStart::new(tr, bl, br);
                         cx.resources.radio_commands_p.enqueue(Command::GTSStart(gts_start)).ok(); // TODO: Count errors
-                        cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, GTS_END_MS)).unwrap();
+                        cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, GTS_END_MS)).ok(); // TODO: Count errors
                         //
                         RadioChronoState::GTSInProgress
                     },
                     GTSInProgress => {
                         cx.resources.radio_commands_p.enqueue(Command::GTSEnd).ok(); // TODO: Count errors
-                        cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS - GTS_END_MS)).unwrap();
+                        cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS - GTS_END_MS)).ok(); // TODO: Count errors
                         //
                         Idle
                     }
@@ -685,7 +731,7 @@ const APP: () = {
                 // Schedule an rpm sending after all GTS, so that each MC receive the command at the same time
                 let rpm = Rpm(gts_entry.sync_no_ack_data.rpm);
                 cx.resources.wheel.rpm = rpm;
-                cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 / 1000), radio::Event::GTSEnded);
+                cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 / 1000), radio::Event::GTSEnded).ok(); // TODO: count errors;
             },
             #[cfg(feature = "devnode")]
             GTSStartReceived(tx_time, gts_end_dt, gts_entry) => {
@@ -696,13 +742,14 @@ const APP: () = {
                 cfg_if::cfg_if! {
                     if #[cfg(feature = "master")] {
                         let rpm = cx.resources.mecanum_wheels.lock(|wheels| wheels.top_left.rpm);
-                        cx.spawn.ctrl_link_control();
+                        cx.spawn.ctrl_link_control().ok(); // TODO: count errors;
                     } else if  #[cfg(feature = "slave")] {
                         let rpm = cx.resources.wheel.rpm;
+                        cx.spawn.motor_control(MotorControlEvent::SetRpm(rpm)).ok(); // TODO: count errors
                     }
                 }
-                cx.spawn.motor_control(MotorControlEvent::SetRpm(rpm));
-                cx.spawn.motor_control(MotorControlEvent::RequestTelemetry);
+                //cx.spawn.motor_control(MotorControlEvent::SetRpm(rpm)).ok(); // TODO: count errors
+                cx.spawn.motor_control(MotorControlEvent::RequestTelemetry).ok(); // TODO: count errors
             }
         }
     }
@@ -726,57 +773,107 @@ const APP: () = {
                 tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
                 tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
                 cx.resources.ctrl_bbbuffer_p.lock(|bb| {
-                    crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb).ok(); // TODO: count errors
+                    crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, CTRL_IRQ_EXTI).ok(); // TODO: count errors
                 });
-                rtic::pend(CTRL_IRQ_EXTI);
             }
         }
     }
 
-    #[task(priority = 2, capacity = 4, resources = [mecanum_wheels, vesc_bbbuffer_p])]
+    #[task(
+        priority = 2,
+        capacity = 4,
+        resources = [&clocks, mecanum_wheels, wheel, vesc_bbbuffer_p, stat],
+        schedule = [motor_control],
+        spawn = [motor_control]
+    )]
     fn motor_control(mut cx: motor_control::Context, e: MotorControlEvent) {
+        static mut LAST_COMMAND_INSTANT: Option<rtic::cyccnt::Instant> = None;
         static mut STOPPED: bool = false;
-        rprintln!("mc_event: {:?}", e);
+        //rprintln!(=> 9, "mc_event: {:?}\n", e);
         use MotorControlEvent::*;
+        // Schedule timing check when first move event is received
+        if e.is_move_event() {
+            if LAST_COMMAND_INSTANT.is_none() {
+                cx.schedule.motor_control(
+                    cx.scheduled + ms2cycles!(cx, config::motor_control::TIMING_CHECK_INTERVAL_MS),
+                    MotorControlEvent::TimingCheck
+                ).ok(); // TODO: count errors, totally fail at this probably
+            }
+            *LAST_COMMAND_INSTANT = Some(rtic::cyccnt::Instant::now());
+        }
         match e {
             #[cfg(feature = "master")]
             SetRpmArray(rpms) => {
+                rprintln!(=> 9, "SetRpmArray: t:{:?} {:?}\n", rtic::cyccnt::Instant::now(), rpms);
                 cx.resources.mecanum_wheels.lock(|wheels| {
                     wheels.top_left.rpm = rpms.top_left;
                     wheels.top_right.rpm = rpms.top_right;
                     wheels.bottom_left.rpm = rpms.bottom_left;
                     wheels.bottom_right.rpm = rpms.bottom_right;
                 });
+                cx.spawn.motor_control( // TODO: schedule at the of GTS to send in sync with slaves
+                    MotorControlEvent::SetRpm(rpms.top_left)
+                ).ok(); // TODO: count errors
             },
             #[cfg(feature = "master")]
-            MovePreserveHeading(xyt) => {
+            MovePreserveHeading(_xyt) => {
 
             },
             #[cfg(feature = "master")]
-            MoveIgnoreHeading(xyt) => {
+            MoveIgnoreHeading(_xyt) => {
 
             },
             SetRpm(rpm) => {
-                if rpm.0 != 0 || !*STOPPED {
+                rprintln!(=> 9, "SetRpm t:{:?} {}\n", rtic::cyccnt::Instant::now(), rpm.0);
+                if rpm.0 != 0 {
                     let mut setrpm_frame = [0u8; 5];
                     setrpm_frame[0] = VESC_SETRPM_FRAME_ID;
                     setrpm_frame[1..=4].copy_from_slice(&rpm.0.to_be_bytes());
-                    crc_framer::CrcFramerSer::commit_frame(&setrpm_frame, cx.resources.vesc_bbbuffer_p).ok(); // TODO: count errors
-                    rtic::pend(VESC_IRQ_EXTI);
-                    if rpm.0 == 0 {
-                        *STOPPED = true;
-                    } else {
-                        *STOPPED = false;
-                    }
+                    crc_framer::CrcFramerSer::commit_frame(&setrpm_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok(); // TODO: count errors
+                    *STOPPED = false;
+                } else if rpm.0 == 0 && !*STOPPED {
+                    let mut setcurrent_frame = [0u8; 5];
+                    setcurrent_frame[0] = VESC_SETCURRENT_FRAME_ID;
+                    crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok(); // TODO: count errors
+                    crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok();
+                    crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok();
+                    *STOPPED = true; // do not send 0 all the time, or tacho will count for some reason
+                    rprintln!(=> 9, "SetI = 0\n");
                 }
-
             },
             RequestTelemetry => {
                 let mut request = [0u8; 5];
                 request[0] = VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID;
                 request[1..=4].copy_from_slice(&VESC_REQUESTED_VALUES.to_be_bytes());
-                crc_framer::CrcFramerSer::commit_frame(&request, cx.resources.vesc_bbbuffer_p).ok(); // TODO: count errors
-                rtic::pend(VESC_IRQ_EXTI);
+                crc_framer::CrcFramerSer::commit_frame(&request, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok(); // TODO: count errors
+            },
+            TimingCheck => {
+                let dt = LAST_COMMAND_INSTANT.expect("motor_control::TimingCheck fail").elapsed();
+
+                let stop_timeout_cycles: u32 = ms2cycles_raw!(cx, config::motor_control::STOP_TIMEOUT_MS);
+                rprintln!(=> 9, "TimingCheck dt:{} thresh:{}\n", dt.as_cycles(), stop_timeout_cycles,);
+
+                if dt.as_cycles() >= stop_timeout_cycles {
+                    rprintln!(=> 9, "ALL STOP {}\n", cycles2ms!(cx, dt.as_cycles()));
+                    cfg_if::cfg_if! {
+                        if #[cfg(feature = "master")] {
+                            cx.resources.mecanum_wheels.lock(|wheels| wheels.all_stop() );
+                        } else if #[cfg(feature = "slave")] {
+                            cx.resources.wheel.lock(|wheel| wheel.stop() );
+                        }
+                    }
+                    let mut setcurrent_frame = [0u8; 5];
+                    setcurrent_frame[0] = VESC_SETCURRENT_FRAME_ID;
+                    crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok(); // TODO: count errors
+                    crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok();
+                    crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, VESC_IRQ_EXTI).ok();
+                    *STOPPED = true; // do not send 0 all the time, or tacho will count for some reason
+                }
+
+                cx.schedule.motor_control(
+                    cx.scheduled + ms2cycles!(cx, config::motor_control::TIMING_CHECK_INTERVAL_MS),
+                    MotorControlEvent::TimingCheck
+                ).ok(); // TODO: count errors, totally fail at this probably
             },
             ResetTacho => {
                 cfg_if::cfg_if! {
@@ -794,7 +891,7 @@ const APP: () = {
     }
 
     #[task(binds = USART1, priority = 3, resources = [vesc_serial, vesc_framer, vesc_bbbuffer_c, mecanum_wheels, wheel])]
-    fn vesc_serial_irq(mut cx: vesc_serial_irq::Context) {
+    fn vesc_serial_irq(cx: vesc_serial_irq::Context) {
         static mut SENDING: Option<bbqueue::GrantR<'static, VescBBBufferSize>> = None;
         static mut SENDING_IDX: usize = 0;
         use core::convert::TryInto;
@@ -893,8 +990,8 @@ const APP: () = {
         static mut SENDING: Option<bbqueue::GrantR<'static, CtrlBBBufferSize>> = None;
         static mut SENDING_IDX: usize = 0;
 
-        use core::convert::TryInto;
         let serial = cx.resources.ctrl_serial;
+        use core::convert::TryInto;
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
@@ -916,7 +1013,7 @@ const APP: () = {
                                     bottom_left: bl_rpm,
                                     bottom_right: br_rpm
                                 };
-                                spawner.motor_control(MotorControlEvent::SetRpmArray(rpm_array));
+                                spawner.motor_control(MotorControlEvent::SetRpmArray(rpm_array)).ok(); // TODO: count errors;
                                 //rprintln!("{} {} {} {}", tl_rpm, tr_rpm, bl_rpm, br_rpm);
                             } else if frame[0] == VESC_LIFT_FRAME_ID && frame.len() == 2 {
                                 rprintln!(=>5, "lift cmd: {}", frame[1] as char);
@@ -932,7 +1029,7 @@ const APP: () = {
                                 };
                             } else if frame[0] == VESC_RESET_ALL {
                                 rprintln!(=>5, "\n\nRESET TACHO\n\n");
-                                spawner.motor_control(MotorControlEvent::ResetTacho);
+                                spawner.motor_control(MotorControlEvent::ResetTacho).ok(); // TODO: count errors;
                             }
                             //crc_framer::CrcFramerSer::commit_frame(frame, bbbuffer_p);
                             //rtic::pend(VESC_IRQ_EXTI);
@@ -1003,31 +1100,31 @@ const APP: () = {
 
         rprintln!(=> 6, "{:?} {}", command, *TOKENS);
         use LiftControlCommand::*;
-        if let Continue = command {
-            if *TOKENS != 0 {
-                cx.resources.lift_serial.write(*CURRENT_SYMBOL).ok();
-                cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx, 10), Continue).ok();
-                *TOKENS -= 1;
-            }
-        } else if let Stop = command {
-            *TOKENS = 0;
-        } else {
-            let prev_tokens = *TOKENS;
-            match command {
-                LeftUp => {      *CURRENT_SYMBOL = 'a' as u8; *TOKENS = ABORT_TOKENS; },
-                LeftDown => {    *CURRENT_SYMBOL = 'q' as u8; *TOKENS = ABORT_TOKENS; },
-                RightUp => {     *CURRENT_SYMBOL = 'd' as u8; *TOKENS = ABORT_TOKENS; },
-                RightDown => {   *CURRENT_SYMBOL = 'e' as u8; *TOKENS = ABORT_TOKENS; },
-                AllUp => {       *CURRENT_SYMBOL = 's' as u8; *TOKENS = ABORT_TOKENS; },
-                AllDown => {     *CURRENT_SYMBOL = 'w' as u8; *TOKENS = ABORT_TOKENS; },
-                AllUpLong => {   *CURRENT_SYMBOL = 's' as u8; *TOKENS = ALL_UP_LONG_TOKENS; },
-                AllDownLong => { *CURRENT_SYMBOL = 'w' as u8; *TOKENS = ALL_DOWN_LONG_TOKENS; },
-                _ => { unreachable!() },
-            }
-            if prev_tokens == 0 {
-                cx.resources.lift_serial.write(*CURRENT_SYMBOL).ok();
-                cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx, 10), Continue).ok();
-            }
+
+        let prev_tokens = *TOKENS;
+        match command {
+            Continue => {
+                if *TOKENS != 0 {
+                    cx.resources.lift_serial.write(*CURRENT_SYMBOL).ok();
+                    cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx, 10), Continue).ok();
+                    *TOKENS -= 1;
+                }
+            },
+            LeftUp => {      *CURRENT_SYMBOL = 'a' as u8; *TOKENS = ABORT_TOKENS; },
+            LeftDown => {    *CURRENT_SYMBOL = 'q' as u8; *TOKENS = ABORT_TOKENS; },
+            RightUp => {     *CURRENT_SYMBOL = 'd' as u8; *TOKENS = ABORT_TOKENS; },
+            RightDown => {   *CURRENT_SYMBOL = 'e' as u8; *TOKENS = ABORT_TOKENS; },
+            AllUp => {       *CURRENT_SYMBOL = 's' as u8; *TOKENS = ABORT_TOKENS; },
+            AllDown => {     *CURRENT_SYMBOL = 'w' as u8; *TOKENS = ABORT_TOKENS; },
+            AllUpLong => {   *CURRENT_SYMBOL = 's' as u8; *TOKENS = ALL_UP_LONG_TOKENS; },
+            AllDownLong => { *CURRENT_SYMBOL = 'w' as u8; *TOKENS = ALL_DOWN_LONG_TOKENS; },
+            Stop => {
+                *TOKENS = 0;
+            },
+        }
+        if prev_tokens == 0 {
+            cx.resources.lift_serial.write(*CURRENT_SYMBOL).ok();
+            cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx, 10), Continue).ok();
         }
     }
 
