@@ -34,7 +34,7 @@ pub const BLINK_PERIOD_MS: u32 = 500;
 /// Ignore IRQ and check state anyway with specified period.
 /// To ensure that endless lockup won't happen.
 #[cfg(feature = "slave")]
-pub const DW1000_CHECK_PERIOD_MS: u32 = 10;
+pub const DW1000_CHECK_PERIOD_MS: u32 = 3000;
 
 use hal::stm32::Interrupt;
 /// Which EXTI line is used for DW1000 interrupt.

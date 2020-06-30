@@ -134,7 +134,9 @@ name = "dw1000"
 version = "0.4.0"
 dependencies = [
  "embedded-hal",
+ "fixed",
  "ieee802154",
+ "micromath",
  "nb",
  "serde",
  "ssmarshal",
@@ -165,6 +167,15 @@ name = "encode_unicode"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
+
+[[package]]
+name = "fixed"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f32ca1abdbb21d63a3e02a658a9e3001b172f13c8b46724299e21190c5ee5041"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "generic-array"
@@ -235,6 +246,12 @@ checksum = "c398b2b113b55809ceb9ee3e753fcbac793f1956663f3c36549c1346015c2afe"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "micromath"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cedf8513604f9696e9ed523511dd27e7ccb5502e414958f1669e492c7d85dcf1"
 
 [[package]]
 name = "nb"

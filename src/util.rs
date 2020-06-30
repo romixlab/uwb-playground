@@ -28,6 +28,12 @@ macro_rules! ms2cycles_raw {
 
 macro_rules! cycles2ms {
     ($cx:ident, $amount:expr) => {
-        (($amount as u64) * 1000) / $cx.resources.clocks.sysclk().0 as u64
+        (($amount as u64) * 1_000) / $cx.resources.clocks.sysclk().0 as u64
+    };
+}
+
+macro_rules! cycles2us {
+    ($cx:ident, $amount:expr) => {
+        (($amount as u64) * 1_000_000) / $cx.resources.clocks.sysclk().0 as u64
     };
 }

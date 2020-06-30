@@ -315,7 +315,9 @@ const APP: () = {
 
         rtt_init_print!(NoBlockSkip);
         rprintln!("\x1b[2J\x1b[0m");
-        rprintln!("init()");
+        rprint!("UWB v");
+        rprintln!(env!("CARGO_PKG_VERSION"));
+        rprintln!("\x1b[1;36;40minit()\x1b[0m ");
 
         let mut core/*: cortex_m::Peripherals */= cx.core;
         core.DCB.enable_trace();
@@ -365,7 +367,8 @@ const APP: () = {
         led_blinky.set_low().ok();
 
         // DW1000
-        let dw1000_spi_freq = 1.mhz();
+        let dw1000_spi_freq = 2.mhz();
+        let dw1000_spi_freq_hi = 20.mhz();
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
@@ -418,7 +421,28 @@ const APP: () = {
             Ok(dw1000) => { dw1000 },
             Err(e) => { panic!("DW1000 init error"); }
         };
+        for _ in 0..3 {
+            let sys_status = dw1000.ll().sys_status().read().unwrap();
+            if sys_status.clkpll_ll() == 0b0 {
+                rprint!("SPI speed bump to: {}MHz, ", dw1000_spi_freq_hi.0);
+                dw1000.ll().access_spi(|spi| {
+                    let (old_spi, pins) = spi.free();
+                    Spi::spi1(
+                        old_spi, pins,
+                        MODE_0,
+                        dw1000_spi_freq_hi.into(),
+                        clocks
+                    )
+                });
+                rprintln!("done.");
+                break;
+            } else {
+                rprintln!("clkpll_ll = 1, waiting");
+                busywait!(ms_alt, clocks, 1);
+            }
+        }
         dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
+        dw1000.configure_leds(false, false, true, true, 1);
 
         // To VESC
         use hal::serial::{Serial, Event, config::Config};
@@ -434,18 +458,33 @@ const APP: () = {
         let vesc_framer = crc_framer::CrcFramerDe::new();
         let (vesc_bbbuffer_p, vesc_bbbuffer_c) = VESC_BBBUFFER.try_split().unwrap();
 
-        // To Ctrl
+        // To Ctrl or lidar
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "master")] {
+                let ctrl_baudrate = 115_200.bps();
+            } else {
+                let ctrl_baudrate = 256_000.bps();
+            }
+        }
         let usart2_tx = gpioa.pa2.into_alternate_af7();
         let usart2_rx = gpioa.pa3.into_alternate_af7();
         let mut ctrl_serial = Serial::usart2(
             device.USART2,
             (usart2_tx, usart2_rx),
-            Config::default().baudrate(115_200.bps()),
+            Config::default().baudrate(ctrl_baudrate),
             clocks
         ).unwrap();
         ctrl_serial.listen(Event::Rxne);
         let ctrl_framer = crc_framer::CrcFramerDe::new();
-        let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = CTRL_BBBUFFER.try_split().unwrap();
+        let (mut ctrl_bbbuffer_p, ctrl_bbbuffer_c) = CTRL_BBBUFFER.try_split().unwrap();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "br")] {
+                let mut wgr = ctrl_bbbuffer_p.grant_exact(2).unwrap();
+                wgr.copy_from_slice(&[0xa5, 0x20]);
+                wgr.commit(2);
+                rtic::pend(CTRL_IRQ_EXTI);
+            }
+        }
 
         let usart6_tx = gpioc.pc6.into_alternate_af8();
         let lift_serial = Serial::usart6(
@@ -635,13 +674,13 @@ const APP: () = {
             } else if #[cfg(all(feature = "slave", not(feature = "devnode")))] {
                 cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok(); // TODO: count errors
             } else if #[cfg(feature = "devnode")] {
-
+                cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok(); // TODO: count errors
             }
         }
         rtic::pend(config::DW1000_IRQ_EXTI);
     }
 
-    #[task(binds = EXTI0, priority = 6, resources = [radio_state, radio_irq, radio_commands_c, radio_trace, idle_counter, exti], spawn = [radio_event])]
+    #[task(binds = EXTI0, priority = 6, resources = [&clocks, radio_state, radio_irq, radio_commands_c, radio_trace, idle_counter, exti], spawn = [radio_event])]
     fn radio_irq(cx: radio_irq::Context) {
         static mut RX_BUFFER: [u8; 64] = [0u8; 64];
         static mut LAST_IDLE_COUNTER: Wrapping<u32> = Wrapping(0u32);
@@ -649,18 +688,17 @@ const APP: () = {
 
         let now = DWT::get_cycle_count() as i32;
         let dt = now.wrapping_sub(*LAST_IDLE_INSTANT);
-        if dt < 0 {
-            *LAST_IDLE_INSTANT = now;
-        } else if dt > 72_000_000 * 2 {
+        *LAST_IDLE_INSTANT = now;
+        if dt > 72_000_000 * 2 {
             if *LAST_IDLE_COUNTER == *cx.resources.idle_counter {
                 rprintln!("IRQ lockup detected!");
                 cx.resources.radio_irq.disable_interrupt(cx.resources.exti);
             }
             *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
-            *LAST_IDLE_INSTANT = now;
         }
-        //cx.resources.radio_trace.set_high().ok();
+        cx.resources.radio_trace.set_high().ok();
         cx.resources.radio_irq.clear_interrupt_pending_bit();
+        //rprintln!("IRQ: {}us", cycles2us!(cx, dt));
 
         radio::state_machine::advance(
             cx.resources.radio_state,
@@ -669,8 +707,9 @@ const APP: () = {
             &cx.spawn,
             cx.resources.radio_trace
         );
-        for _ in 0..100 {
+        for _ in 0..1000 {
             if cx.resources.radio_irq.is_high().unwrap() {
+                cx.resources.radio_trace.toggle().ok();
                 radio::state_machine::advance(
                     cx.resources.radio_state,
                     cx.resources.radio_commands_c,
@@ -682,7 +721,7 @@ const APP: () = {
                 break;
             }
         }
-        //cx.resources.radio_trace.set_low().ok();
+        cx.resources.radio_trace.set_low().ok();
     }
 
     #[task(
@@ -1037,6 +1076,8 @@ const APP: () = {
                     },
                     _ => {}
                 }
+            } else if #[cfg(feature = "br")] {
+
             }
         }
 
