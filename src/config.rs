@@ -1,9 +1,9 @@
 use crate::board::hal;
 
+use hal::gpio::{PushPull, Output, Alternate, Input, PullDown, Floating, };
+
 #[cfg(feature = "pozyx-board")]
-use hal::gpio::{PushPull, Output, Alternate, AF5};
-#[cfg(feature = "pozyx-board")]
-use hal::gpio::{gpioa::{PA4, PA5, PA6, PA7}};
+use hal::gpio::{AF5, gpioa::{PA4, PA5, PA6, PA7}};
 
 #[cfg(feature = "pozyx-board")]
 pub type Dw1000Clk = PA5<Alternate<AF5>>;
@@ -15,7 +15,7 @@ pub type Dw1000Mosi = PA7<Alternate<AF5>>;
 pub type Dw1000Cs = PA4<Output<PushPull>>;
 
 #[cfg(feature = "dragonfly-board")]
-use hal::gpio::{PushPull, Input, Output, PullDown, Alternate, Floating, AF5};
+use hal::gpio::{AF5};
 #[cfg(feature = "dragonfly-board")]
 use hal::gpio::{gpioa::{PA8}, gpiob::{PB3, PB4, PB5}};
 
@@ -51,6 +51,10 @@ pub const PAN_ID: PanId = PanId(0x666);
 /// Allocate at least this amount of GTS and signal a failure (to all slaves and to uplink)
 /// if one or more is missing for >= THRESH
 pub const REQUIRED_SLAVE_COUNT: u8 = 3;
+
+/// Maximum number of nodes in a PAN
+pub type TOTAL_NODE_COUNT = typenum::consts::U5;
+
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
 
@@ -86,3 +90,56 @@ pub mod motor_control {
     /// Turn off all motors if no move commands received for this amount of time.
     pub const STOP_TIMEOUT_MS: u32 = 500;
 }
+
+#[cfg(feature = "pozyx-board")]
+use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB5}};
+#[cfg(feature = "pozyx-board")]
+pub type LedBlinkyPin = PB5<Output<PushPull>>;
+#[cfg(feature = "dragonfly-board")]
+pub type LedBlinkyPin = PC10<Output<PushPull>>;
+
+#[cfg(feature = "pozyx-board")]
+pub type RadioIrqPin = PA0<Input<PullDown>>;
+//type RadioIrqPin = PC4<Input<PullDown>>;
+#[cfg(feature = "dragonfly-board")]
+pub type RadioIrqPin = PC9<Input<PullDown>>;
+
+#[cfg(feature = "pozyx-board")]
+pub type RadioTracePin = PA1<Output<PushPull>>;
+#[cfg(feature = "dragonfly-board")]
+pub type RadioTracePin = PC8<Output<PushPull>>;
+
+use hal::gpio::gpiob::{PB6, PB7};
+use hal::gpio::AF7;
+
+pub type VescTxPin = PB6<Alternate<AF7>>;
+pub type VescRxPin = PB7<Alternate<AF7>>;
+pub type VescSerial = hal::serial::Serial<hal::stm32::USART1, (VescTxPin, VescRxPin)>;
+pub type VescBBBufferSize = generic_array::typenum::consts::U512;
+pub type VescBBBufferP = bbqueue::Producer<'static, VescBBBufferSize>;
+pub type VescBBBufferC = bbqueue::Consumer<'static, VescBBBufferSize>;
+pub const VESC_IRQ_EXTI: Interrupt = Interrupt::USART1;
+pub const VESC_RPM_ARRAY_FRAME_ID: u8 = 86;
+pub const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
+pub const VESC_SETRPM_FRAME_ID: u8 = 8;
+pub const VESC_SETCURRENT_FRAME_ID: u8 = 6;
+pub const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
+pub const VESC_LIFT_FRAME_ID: u8 = 88;
+pub const VESC_RESET_ALL: u8 = 89;
+pub const VESC_REQUESTED_VALUES: u32 = (1 << 13) | (1 << 3) | (1 << 8); // tacho + i_in + v_in
+
+use hal::gpio::gpioa::{PA2, PA3};
+pub type CtrlTxPin = PA2<Alternate<AF7>>;
+pub type CtrlRxPin = PA3<Alternate<AF7>>;
+pub type CtrlSerial = hal::serial::Serial<hal::stm32::USART2, (CtrlTxPin, CtrlRxPin)>;
+pub type CtrlBBBufferSize = generic_array::typenum::consts::U512;
+pub type CtrlBBBufferP = bbqueue::Producer<'static, CtrlBBBufferSize>;
+pub type CtrlBBBufferC = bbqueue::Consumer<'static, CtrlBBBufferSize>;
+pub const CTRL_IRQ_EXTI: Interrupt = Interrupt::USART2;
+
+use hal::gpio::gpioc::{PC6};
+use hal::gpio::AF8;
+use stm32f4xx_hal::serial::NoRx;
+
+pub type LiftTxPin = PC6<Alternate<AF8>>;
+pub type LiftSerial = hal::serial::Serial<hal::stm32::USART6, (LiftTxPin, NoRx)>;

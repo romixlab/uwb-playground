@@ -56,3 +56,32 @@ pub enum Event {
 pub type CommandQueue = Queue<Command, U8>;
 pub type CommandQueueP = Producer<'static, Command, U8>;
 pub type CommandQueueC = Consumer<'static, Command, U8>;
+
+/// Lost -> smth received -> Active(0)
+/// slot missed -> Active(+1), threshold reached -> Lost
+
+
+struct Window {
+    shift: u16,
+    window: u16
+}
+
+use crate::units::MilliSeconds;
+struct Node {
+    address: dw1000::mac::ShortAddress,
+    last_seen: MilliSeconds,
+    granted_window: Option<Window>
+    //#[cfg(feature = "stats")]
+    // stats: NodeStatistics
+}
+
+pub enum NodeState {
+    Disconnected,
+    Active(Node),
+}
+
+use typenum::marker_traits::Unsigned;
+struct Radio {
+    nodes: [NodeState; config::TOTAL_NODE_COUNT::USIZE],
+    //address_map: heapless::FnvIndexMap<dw1000::mac::ShortAddress, usize, config::TOTAL_NODE_COUNT>,
+}

@@ -214,7 +214,7 @@ fn advance_gts_answers_receiving<TP>(
     match receiving_radio.wait(rx_buffer) {
         Ok(message) => {
             trace_pin.set_low().ok();
-            process_messages_gts_answers_receiving(receiving_radio, message, answers_received, spawn, trace_pin)
+            process_messages_gts_answers_receiving(receiving_radio, message.0, answers_received, spawn, trace_pin)
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still receiving
