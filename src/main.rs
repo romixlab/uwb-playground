@@ -12,28 +12,11 @@ mod units;
 mod tasks;
 mod motion;
 
-// use core::sync::atomic::{self, Ordering};
-use rtic::{app};
-use rtic::cyccnt::{U32Ext};
-use crate::board::hal;
-use hal::prelude::*;
-use hal::gpio::{PushPull, Output, Input, PullDown};
-
-use rtt_target::{rtt_init_print, rprintln, rprint};
-use cortex_m::peripheral::DWT;
-
-use embedded_hal::digital::v2::OutputPin;
-use hal::rcc::Clocks;
+use board::hal;
 use core::num::Wrapping;
+use rtic::{app};
+use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
-
-#[derive(Default)]
-pub struct Stat {
-    pub tr_gts_answers: u32,
-    pub bl_gts_answers: u32,
-    pub br_gts_answers: u32,
-
-}
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -69,7 +52,7 @@ const APP: () = {
         exti: hal::stm32::EXTI,
 
         #[cfg(feature = "master")]
-        stat: Stat,
+        stat: crate::radio::Stat,
     }
 
     #[init(
@@ -98,7 +81,7 @@ const APP: () = {
             mecanum_wheels,
         ]
     )]
-    fn idle(mut cx: idle::Context) -> ! {
+    fn idle(cx: idle::Context) -> ! {
         tasks::idle::idle(cx);
     }
 
@@ -171,7 +154,7 @@ const APP: () = {
             radio_event,
         ]
     )]
-    fn radio_event(mut cx: radio_event::Context, e: radio::Event) {
+    fn radio_event(cx: radio_event::Context, e: radio::Event) {
         tasks::radio::radio_event(cx, e);
     }
 
@@ -183,7 +166,7 @@ const APP: () = {
             ctrl_bbbuffer_p,
         ]
     )]
-    fn ctrl_link_control(mut cx: ctrl_link_control::Context) {
+    fn ctrl_link_control(cx: ctrl_link_control::Context) {
         tasks::ctrl_link::ctrl_link_control(cx);
     }
 
@@ -214,7 +197,7 @@ const APP: () = {
         schedule = [motor_control],
         spawn = [motor_control]
     )]
-    fn motor_control(mut cx: motor_control::Context, e: motion::MotorControlEvent) {
+    fn motor_control(cx: motor_control::Context, e: motion::MotorControlEvent) {
         static mut LAST_COMMAND_INSTANT: Option<rtic::cyccnt::Instant> = None;
         static mut STOPPED: bool = false;
         tasks::motion::motor_control(cx, e, LAST_COMMAND_INSTANT, STOPPED);

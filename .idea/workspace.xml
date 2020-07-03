@@ -31,24 +31,21 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="bc4657c7-b1de-4277-b77d-1b087b3e0639" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/motion/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/blinker.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/ctrl_link.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/idle.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/init.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/lift.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/motion.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/tasks/radio.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/units.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/dumb_txrx.rs" beforeDir="false" afterPath="$PROJECT_DIR$/examples/dumb_txrx.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/motion/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/motion/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/radio/message.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/message.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/state_machine.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/state_machine.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/blinker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/blinker.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/ctrl_link.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/ctrl_link.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/idle.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/idle.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/init.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/init.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/lift.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/lift.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/motion.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/motion.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/radio.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/radio.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/util.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/util.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -90,7 +87,7 @@
     <property name="settings.editor.selected.configurable" value="terminal" />
     <property name="show.migrate.to.gradle.popup" value="false" />
   </component>
-  <component name="RunManager" selected="Cargo Command.Check slave">
+  <component name="RunManager" selected="Cargo Command.Check master [pozyx]">
     <configuration name="Check dev" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="check --release --features &quot;slave devnode pozyx-board&quot;" />
@@ -267,7 +264,7 @@
       <option name="presentableId" value="Default" />
       <updated>1592117205061</updated>
       <workItem from="1592209318241" duration="63180000" />
-      <workItem from="1592724663788" duration="139419000" />
+      <workItem from="1592724663788" duration="141537000" />
     </task>
     <task id="LOCAL-00001" summary="Impl radio state machine, handle IRQ, add radio message types.">
       <created>1592412333190</created>
@@ -311,7 +308,21 @@
       <option name="project" value="LOCAL" />
       <updated>1593531794986</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Modify example for UWB timing measurements.">
+      <created>1593783248363</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1593783248363</updated>
+    </task>
+    <task id="LOCAL-00008" summary="Refactor tasks to another module.">
+      <created>1593783298810</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1593783298810</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -333,7 +344,9 @@
     <MESSAGE value="Implement GTSWaitingForUplinkData, add reset tacho command, add basic stats, devnode mode pieces." />
     <MESSAGE value="Remove some unwrap's(), enforce interrupt pending on crc_framer::commit_frame()." />
     <MESSAGE value="SPI speedup to 20MHz, move flash origin." />
-    <option name="LAST_COMMIT_MESSAGE" value="SPI speedup to 20MHz, move flash origin." />
+    <MESSAGE value="Modify example for UWB timing measurements." />
+    <MESSAGE value="Refactor tasks to another module." />
+    <option name="LAST_COMMIT_MESSAGE" value="Refactor tasks to another module." />
   </component>
   <component name="WindowStateProjectService">
     <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1593686601872">
@@ -361,48 +374,48 @@
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2288" y="297" key="#com.intellij.structuralsearch.plugin.ui.StructuralSearchDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592748908410" />
-    <state x="2359" y="127" key="CommitChangelistDialog2" timestamp="1593531794852">
+    <state x="2359" y="127" key="CommitChangelistDialog2" timestamp="1593783298701">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="341" y="131" key="CommitChangelistDialog2/0.23.1792.1097@0.23.1792.1097" timestamp="1593196140832" />
     <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671766105" />
-    <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593531794852" />
+    <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593783298701" />
     <state x="1934" y="210" width="734" height="663" key="EnvironmentVariablesDialog" timestamp="1592212535440">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="142" y="210" width="734" height="663" key="EnvironmentVariablesDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141097561" />
     <state x="1934" y="210" key="EnvironmentVariablesDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592212535440" />
-    <state width="1878" height="287" key="GridCell.Tab.0.bottom" timestamp="1593783017807">
+    <state width="1878" height="287" key="GridCell.Tab.0.bottom" timestamp="1593785197840">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.bottom/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528054" />
     <state width="1878" height="290" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
-    <state width="1878" height="287" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593783017807" />
+    <state width="1878" height="287" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593785197840" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="287" key="GridCell.Tab.0.center" timestamp="1593783017806">
+    <state width="1878" height="287" key="GridCell.Tab.0.center" timestamp="1593785197839">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.center/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.center/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528053" />
     <state width="1878" height="290" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
-    <state width="1878" height="287" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593783017806" />
+    <state width="1878" height="287" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593785197839" />
     <state width="939" height="290" key="GridCell.Tab.0.center/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="287" key="GridCell.Tab.0.left" timestamp="1593783017806">
+    <state width="1878" height="287" key="GridCell.Tab.0.left" timestamp="1593785197839">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.left/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142459" />
     <state width="939" height="290" key="GridCell.Tab.0.left/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528052" />
     <state width="1878" height="290" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
-    <state width="1878" height="287" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593783017806" />
+    <state width="1878" height="287" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593785197839" />
     <state width="939" height="290" key="GridCell.Tab.0.left/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749242" />
-    <state width="1878" height="287" key="GridCell.Tab.0.right" timestamp="1593783017807">
+    <state width="1878" height="287" key="GridCell.Tab.0.right" timestamp="1593785197839">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.right/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.right/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592204528053" />
     <state width="1878" height="290" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
-    <state width="1878" height="287" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593783017807" />
+    <state width="1878" height="287" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593785197839" />
     <state width="939" height="290" key="GridCell.Tab.0.right/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
     <state width="1878" height="358" key="GridCell.Tab.1.bottom" timestamp="1592724221915">
       <screen x="1792" y="23" width="1920" height="1057" />
@@ -443,12 +456,12 @@
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="1792" y="23" width="1581" height="723" key="dock-window-2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593777870607" />
-    <state x="2458" y="282" width="983" height="703" key="find.popup" timestamp="1593623599460">
+    <state x="2458" y="282" width="983" height="703" key="find.popup" timestamp="1593784612923">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="622" y="292" width="917" height="729" key="find.popup/0.23.1792.1097@0.23.1792.1097" timestamp="1593088168117" />
     <state x="2458" y="282" width="588" height="538" key="find.popup/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592814736630" />
-    <state x="2458" y="282" width="983" height="703" key="find.popup/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593623599460" />
+    <state x="2458" y="282" width="983" height="703" key="find.popup/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593784612923" />
     <state x="2417" y="258" width="670" height="676" key="search.everywhere.popup" timestamp="1593679895974">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>

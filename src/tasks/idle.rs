@@ -8,6 +8,8 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
 
         cfg_if::cfg_if! {
                 if #[cfg(feature = "master")] {
+                    use rtt_target::rprintln;
+
                     rprintln!(=> 8, "\x1b[2J\x1b[0m");
                     let (tr_gts_answers, bl_gts_answers, br_gts_answers) = cx.resources.stat.lock(|s|
                         (

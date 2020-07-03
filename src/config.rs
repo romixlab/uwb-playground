@@ -1,6 +1,6 @@
 use crate::board::hal;
 
-use hal::gpio::{PushPull, Output, Alternate, Input, PullDown, Floating, };
+use hal::gpio::{PushPull, Output, Alternate, Input, PullDown};
 
 #[cfg(feature = "pozyx-board")]
 use hal::gpio::{AF5, gpioa::{PA4, PA5, PA6, PA7}};
@@ -53,14 +53,20 @@ pub const PAN_ID: PanId = PanId(0x666);
 pub const REQUIRED_SLAVE_COUNT: u8 = 3;
 
 /// Maximum number of nodes in a PAN
-pub type TOTAL_NODE_COUNT = typenum::consts::U5;
+pub type TotalNodeCount = typenum::consts::U5;
 
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
 
+#[cfg(any(feature = "master", feature = "devnode", feature = "tr"))]
 pub const TR_UWB_ADDR: ShortAddress = ShortAddress(0xaa_00); // 43520
+
+#[cfg(any(feature = "master", feature = "devnode", feature = "bl"))]
 pub const BL_UWB_ADDR: ShortAddress = ShortAddress(0xaa_01); // 43521
+
+#[cfg(any(feature = "master", feature = "devnode", feature = "br"))]
 pub const BR_UWB_ADDR: ShortAddress = ShortAddress(0xaa_02); // 43522
+
 #[cfg(feature = "devnode")]
 pub const DEV_UWB_ADDR: ShortAddress = ShortAddress(0x777);
 
@@ -119,12 +125,16 @@ pub type VescBBBufferSize = generic_array::typenum::consts::U512;
 pub type VescBBBufferP = bbqueue::Producer<'static, VescBBBufferSize>;
 pub type VescBBBufferC = bbqueue::Consumer<'static, VescBBBufferSize>;
 pub const VESC_IRQ_EXTI: Interrupt = Interrupt::USART1;
+#[cfg(feature = "master")]
 pub const VESC_RPM_ARRAY_FRAME_ID: u8 = 86;
+#[cfg(feature = "master")]
 pub const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
 pub const VESC_SETRPM_FRAME_ID: u8 = 8;
 pub const VESC_SETCURRENT_FRAME_ID: u8 = 6;
 pub const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
+#[cfg(feature = "master")]
 pub const VESC_LIFT_FRAME_ID: u8 = 88;
+#[cfg(feature = "master")]
 pub const VESC_RESET_ALL: u8 = 89;
 pub const VESC_REQUESTED_VALUES: u32 = (1 << 13) | (1 << 3) | (1 << 8); // tacho + i_in + v_in
 
@@ -135,6 +145,7 @@ pub type CtrlSerial = hal::serial::Serial<hal::stm32::USART2, (CtrlTxPin, CtrlRx
 pub type CtrlBBBufferSize = generic_array::typenum::consts::U512;
 pub type CtrlBBBufferP = bbqueue::Producer<'static, CtrlBBBufferSize>;
 pub type CtrlBBBufferC = bbqueue::Consumer<'static, CtrlBBBufferSize>;
+#[cfg(any(feature = "master", feature = "devnode", feature = "br"))] // for lidar
 pub const CTRL_IRQ_EXTI: Interrupt = Interrupt::USART2;
 
 use hal::gpio::gpioc::{PC6};

@@ -4,19 +4,20 @@ use crate::motion;
 use crate::board::hal;
 
 use rtic::Mutex;
-use core::num::Wrapping;
-use rtt_target::{rprint, rprintln};
-use cortex_m::peripheral::DWT;
+use rtt_target::{rprintln};
 use rtic::cyccnt::U32Ext;
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
 
 pub enum RadioChronoState {
     Idle,
+    #[cfg(feature = "master")]
     GTSInProgress,
 }
 
+#[allow(unused_variables)]
 pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoState) {
+    #[cfg(feature = "master")]
     const GTS_END_MS: u32 = 30;
     //use radio::Command;
     //use radio::message::*;
@@ -100,6 +101,8 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: radio::Event) {
     match e {
         #[cfg(feature = "master")]
         GTSAnswerReceived(from, answer) => {
+            use crate::motion::Tachometer;
+
             let stat = cx.resources.stat;
             cx.resources.mecanum_wheels.lock(|wheels| {
                 if from == config::TR_UWB_ADDR {

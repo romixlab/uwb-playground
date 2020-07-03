@@ -3,7 +3,7 @@ use crate::motion;
 use crate::board::hal;
 use crate::crc_framer;
 
-use rtt_target::{rprint, rprintln};
+use rtt_target::rprintln;
 use rtic::cyccnt::U32Ext;
 use rtic::Mutex;
 
@@ -14,6 +14,7 @@ pub fn motor_control(
     stopped: &mut bool
 ) {
     //rprintln!(=> 9, "mc_event: {:?}\n", e);
+    use motion::MotorControlEvent;
     use motion::MotorControlEvent::*;
     // Schedule timing check when first move event is received
     if e.is_move_event() {
@@ -99,6 +100,7 @@ pub fn motor_control(
                 motion::MotorControlEvent::TimingCheck
             ).ok(); // TODO: count errors, totally fail at this probably
         },
+        #[cfg(feature = "master")]
         ResetTacho => {
             cfg_if::cfg_if! {
                     if #[cfg(feature = "master")] {

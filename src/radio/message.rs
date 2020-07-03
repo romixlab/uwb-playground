@@ -107,6 +107,7 @@ pub struct GTSEntry {
 }
 
 impl GTSEntry {
+    #[cfg(any(feature = "master", feature = "devnode"))]
     pub fn new(delta: u16, window: u16, sync_no_ack_data: GTSDownlinkData) -> Self {
         GTSEntry {
             delta, window, sync_no_ack_data
@@ -122,6 +123,7 @@ pub struct GTSStart {
 }
 
 impl GTSStart {
+    #[cfg(any(feature = "master", feature = "devnode"))]
     pub fn new(tr: GTSEntry, bl: GTSEntry, br: GTSEntry) -> Self {
         GTSStart {
             timeslots: [tr, bl, br]

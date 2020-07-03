@@ -60,14 +60,13 @@ pub type CommandQueueC = Consumer<'static, Command, U8>;
 /// Lost -> smth received -> Active(0)
 /// slot missed -> Active(+1), threshold reached -> Lost
 
-
 struct Window {
     shift: u16,
     window: u16
 }
 
 use crate::units::MilliSeconds;
-struct Node {
+pub struct Node {
     address: dw1000::mac::ShortAddress,
     last_seen: MilliSeconds,
     granted_window: Option<Window>
@@ -82,6 +81,14 @@ pub enum NodeState {
 
 use typenum::marker_traits::Unsigned;
 struct Radio {
-    nodes: [NodeState; config::TOTAL_NODE_COUNT::USIZE],
+    nodes: [NodeState; config::TotalNodeCount::USIZE],
     //address_map: heapless::FnvIndexMap<dw1000::mac::ShortAddress, usize, config::TOTAL_NODE_COUNT>,
+}
+
+#[derive(Default)]
+pub struct Stat {
+    pub tr_gts_answers: u32,
+    pub bl_gts_answers: u32,
+    pub br_gts_answers: u32,
+
 }

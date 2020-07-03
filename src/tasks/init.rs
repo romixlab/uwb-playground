@@ -4,7 +4,7 @@ use crate::config;
 use crate::crc_framer;
 use crate::motion;
 
-use bbqueue::{BBBuffer, ConstBBBuffer};
+use bbqueue::{BBBuffer};
 use rtt_target::{rtt_init_print, rprint, rprintln};
 use cortex_m::peripheral::DWT;
 use hal::gpio::{Edge, ExtiPin};
@@ -18,8 +18,6 @@ pub fn init(
     vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
     ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>
 ) -> crate::init::LateResources {
-
-
     rtt_init_print!(NoBlockSkip);
     rprintln!("\x1b[2J\x1b[0m");
     rprint!("UWB v");
@@ -126,10 +124,10 @@ pub fn init(
     dw1000_reset.set_high().ok();
     busywait!(ms_alt, clocks, 5);
     let dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
-    let mut dw1000 = dw1000.init(dw1000::configs::MaximumFrameLength::Decawave1023);
+    let dw1000 = dw1000.init(dw1000::configs::MaximumFrameLength::Decawave1023);
     let mut dw1000 = match dw1000 {
         Ok(dw1000) => { dw1000 },
-        Err(e) => { panic!("DW1000 init error"); }
+        Err(e) => { panic!("DW1000 init error {:?}", e); }
     };
     for _ in 0..3 {
         let sys_status = dw1000.ll().sys_status().read().unwrap();
@@ -152,7 +150,7 @@ pub fn init(
         }
     }
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
-    dw1000.configure_leds(false, false, true, true, 1);
+    dw1000.configure_leds(false, false, true, true, 1).unwrap();
 
     // To VESC
     use hal::serial::{Serial, Event, config::Config};
@@ -186,15 +184,19 @@ pub fn init(
     ).unwrap();
     ctrl_serial.listen(Event::Rxne);
     let ctrl_framer = crc_framer::CrcFramerDe::new();
-    let (mut ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
+
     cfg_if::cfg_if! {
-            if #[cfg(feature = "br")] {
-                let mut wgr = ctrl_bbbuffer_p.grant_exact(2).unwrap();
-                wgr.copy_from_slice(&[0xa5, 0x20]);
-                wgr.commit(2);
-                rtic::pend(CTRL_IRQ_EXTI);
-            }
+        if #[cfg(feature = "br")] {
+            let (mut ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
+
+            let mut wgr = ctrl_bbbuffer_p.grant_exact(2).unwrap();
+            wgr.copy_from_slice(&[0xa5, 0x20]);
+            wgr.commit(2);
+            rtic::pend(CTRL_IRQ_EXTI);
+        } else {
+            let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
         }
+    }
 
     let usart6_tx = gpioc.pc6.into_alternate_af8();
     let lift_serial = Serial::usart6(
@@ -206,7 +208,7 @@ pub fn init(
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
-                let mecanum_wheels = MecanumWheels::default();
+                let mecanum_wheels = crate::motion::MecanumWheels::default();
             } else if  #[cfg(feature = "slave")] {
                 let wheel = motion::MCData::default();
             }
@@ -223,7 +225,7 @@ pub fn init(
                 crate::init::LateResources {
                     clocks,
 
-                    radio_state: RadioState::Ready(Some(dw1000)),
+                    radio_state: radio::RadioState::Ready(Some(dw1000)),
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
                     radio_commands_p, radio_commands_c,
@@ -241,10 +243,10 @@ pub fn init(
                     mecanum_wheels,
 
                     led_blinky,
-                    idle_counter: Wrapping(0u32),
+                    idle_counter: core::num::Wrapping(0u32),
                     exti,
 
-                    stat: Stat::default()
+                    stat: radio::Stat::default()
                 }
             } else if #[cfg(feature = "slave")] {
                 crate::init::LateResources {

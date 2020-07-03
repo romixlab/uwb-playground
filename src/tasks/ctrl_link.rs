@@ -1,30 +1,34 @@
 use crate::config;
 use crate::board::hal;
 
-use rtt_target::{rprint, rprintln};
+//use rtt_target::{rprint, rprintln};
 
+#[allow(unused_variables)]
 pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
     cfg_if::cfg_if! {
-            if #[cfg(feature = "master")] {
-                let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
-                    (
-                        wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
-                        wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
-                        wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
-                        wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
-                    )
-                });
-                let mut tacho_arr_frame = [0u8; 17];
-                tacho_arr_frame[0] = VESC_TACHO_ARRAY_FRAME_ID;
-                tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.to_be_bytes());
-                tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.to_be_bytes());
-                tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
-                tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
-                cx.resources.ctrl_bbbuffer_p.lock(|bb| {
-                    crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, CTRL_IRQ_EXTI).ok(); // TODO: count errors
-                });
-            }
+        if #[cfg(feature = "master")] {
+            use crate::crc_framer;
+            use rtic::Mutex;
+
+            let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
+                (
+                    wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
+                    wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
+                    wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
+                    wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
+                )
+            });
+            let mut tacho_arr_frame = [0u8; 17];
+            tacho_arr_frame[0] = config::VESC_TACHO_ARRAY_FRAME_ID;
+            tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.to_be_bytes());
+            tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.to_be_bytes());
+            tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
+            tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
+            cx.resources.ctrl_bbbuffer_p.lock(|bb| {
+                crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
+            });
         }
+    }
 }
 
 pub fn ctrl_serial_irq(
@@ -33,10 +37,14 @@ pub fn ctrl_serial_irq(
     sending_idx: &mut usize
 ) {
     let serial = cx.resources.ctrl_serial;
-    use core::convert::TryInto;
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
+                use core::convert::TryInto;
+                use rtt_target::rprintln;
+                use crate::motion::{MotorControlEvent, Rpm, RpmArray};
+                use embedded_hal::serial::Read;
+
                 match serial.read() {
                     Ok(byte) => {
                         let framer = cx.resources.ctrl_framer;
@@ -59,7 +67,7 @@ pub fn ctrl_serial_irq(
                                 //rprintln!("{} {} {} {}", tl_rpm, tr_rpm, bl_rpm, br_rpm);
                             } else if frame[0] == config::VESC_LIFT_FRAME_ID && frame.len() == 2 {
                                 rprintln!(=>5, "lift cmd: {}", frame[1] as char);
-                                use LiftControlCommand::*;
+                                use crate::tasks::lift::LiftControlCommand::*;
                                 match frame[1] as char {
                                     'q' => { spawner.lift_control(LeftDown).ok(); },
                                     'a' => { spawner.lift_control(LeftUp).ok(); },

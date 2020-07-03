@@ -1,6 +1,6 @@
 use crate::config;
 
-use rtt_target::{rprint, rprintln};
+//use rtt_target::{rprint, rprintln};
 use embedded_hal::digital::v2::OutputPin;
 use rtic::cyccnt::U32Ext;
 

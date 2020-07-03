@@ -32,6 +32,7 @@ macro_rules! cycles2ms {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! cycles2us {
     ($cx:ident, $amount:expr) => {
         (($amount as u64) * 1_000_000) / $cx.resources.clocks.sysclk().0 as u64

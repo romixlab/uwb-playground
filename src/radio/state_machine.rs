@@ -269,7 +269,7 @@ fn process_messages_gts_start_waiting<TP>(
 ) -> RadioState
     where TP: OutputPin
 {
-    use super::message::{GTSStart, GTSUplinkData, GTSAnswer};
+    use super::message::{GTSStart};
     use dw1000::ranging::{Message, RxMessage};
     use dw1000::time::Duration;
 
@@ -331,7 +331,7 @@ fn advance_gts_start_waiting<TP>(
     //rprintln!(=>1,"A: {}", sys_status);
 
     match receiving_radio.wait(rx_buffer) {
-        Ok((message, sys_status_before)) => {
+        Ok((message, _sys_status_before)) => {
             //trace_pin.set_high().ok();
             //rprintln!(=>1,"C: {}", sys_status_before);
             //let sys_status_after = receiving_radio.ll().sys_status().read().unwrap();
@@ -365,7 +365,6 @@ fn advance_gts_waiting_for_uplink_data(
 ) -> RadioState
 {
     use super::Command::*;
-    use dw1000::time::Duration;
     cfg_if::cfg_if! {
         if #[cfg(feature = "master")] {
             let receiving_radio = enable_receiver(ready_radio, trace_pin);

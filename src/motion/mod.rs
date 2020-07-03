@@ -29,6 +29,7 @@ pub struct MecanumWheels {
 }
 
 impl MecanumWheels {
+    #[cfg(feature = "master")]
     pub fn all_stop(&mut self) {
         self.top_left.rpm = Rpm(0);
         self.top_right.rpm = Rpm(0);
@@ -46,6 +47,7 @@ pub struct RpmArray {
 }
 
 impl RpmArray {
+    #[cfg(feature = "master")]
     pub fn is_all_zero(&self) -> bool {
         self.top_left.0 == 0 &&
             self.top_right.0 == 0 &&
@@ -91,6 +93,7 @@ pub enum MotorControlEvent {
     /// Check if too much time passed since last command and turn off the motors.
     TimingCheck,
     /// Quick hack
+    #[cfg(feature = "master")]
     ResetTacho // TODO: forward messages untouched and implement real reset
 }
 
