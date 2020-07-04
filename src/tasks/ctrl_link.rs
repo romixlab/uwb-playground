@@ -27,6 +27,53 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
             cx.resources.ctrl_bbbuffer_p.lock(|bb| {
                 crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
             });
+        } else if #[cfg(feature = "br")] {
+            use rtic::Mutex;
+            use rtt_target::{rprint, rprintln};
+
+            while cx.resources.lidar_queue_c.ready() {
+                match cx.resources.lidar_queue_c.dequeue() {
+                    Some(frame) => {
+                        let scan = frame.0;
+                        let angle: u16 = ((scan[3] & 0b0111_1111) as u16) << 8 | scan[2] as u16;
+                        let angle_dec = angle / 64;
+                        let angle_frac = angle % 64;
+                        rprintln!(=> 5, "{}.{}\n", angle_dec, angle_frac);
+                        for i in 0..84 {
+                            rprint!(=>5, "{:02x} ", scan[i]);
+                        }
+                        rprintln!(=>5, "]\n");
+                    },
+                    None => { }
+                }
+            }
+
+            rprintln!(=>5, ".");
+            let mut ctrl_bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
+            cx.resources.lidar.lock(|lidar|
+                lidar.periodic_check(|tx_bytes| {
+                    rprint!(=>5, "ctrl:tx:[");
+                    for b in tx_bytes {
+                        rprint!(=>5, "{:02x} ", b);
+                    }
+                    rprintln!(=>5, "]");
+                    ctrl_bbbuffer_p.lock(|bb| {
+                        match bb.grant_exact(tx_bytes.len()) {
+
+                            Ok(mut wgr) => {
+                                wgr.copy_from_slice(tx_bytes);
+                                wgr.commit(tx_bytes.len());
+                                rtic::pend(config::CTRL_IRQ_EXTI);
+                            },
+                            Err(_) => {
+                                rprintln!(=>5, "  failed");
+                            }
+                        }
+                    });
+                })
+            );
+            use rtic::cyccnt::U32Ext;
+            cx.schedule.ctrl_link_control(cx.scheduled + ms2cycles!(cx, 50)).ok();
         }
     }
 }
@@ -37,60 +84,104 @@ pub fn ctrl_serial_irq(
     sending_idx: &mut usize
 ) {
     let serial = cx.resources.ctrl_serial;
+    //rprintln!(=> 5, "irq");
 
     cfg_if::cfg_if! {
-            if #[cfg(feature = "master")] {
-                use core::convert::TryInto;
-                use rtt_target::rprintln;
-                use crate::motion::{MotorControlEvent, Rpm, RpmArray};
-                use embedded_hal::serial::Read;
+        if #[cfg(feature = "master")] {
+            use core::convert::TryInto;
+            use rtt_target::rprintln;
+            use crate::motion::{MotorControlEvent, Rpm, RpmArray};
+            use embedded_hal::serial::Read;
 
-                match serial.read() {
-                    Ok(byte) => {
-                        let framer = cx.resources.ctrl_framer;
-                        //let bbbuffer_p = cx.resources.vesc_bbbuffer_p;
-                        let spawner = cx.spawn;
-                        framer.eat_byte(byte, |frame| {
-                            rprintln!(=> 5, "frame ctrl: {} {}\n", frame[0], frame.len());
-                            if frame[0] == config::VESC_RPM_ARRAY_FRAME_ID {
-                                let tl_rpm = Rpm( i32::from_be_bytes(frame[1..=4].try_into().unwrap()) );
-                                let tr_rpm = Rpm( i32::from_be_bytes(frame[5..=8].try_into().unwrap()) );
-                                let bl_rpm = Rpm( i32::from_be_bytes(frame[9..=12].try_into().unwrap()) );
-                                let br_rpm = Rpm( i32::from_be_bytes(frame[13..=16].try_into().unwrap()) );
-                                let rpm_array = RpmArray {
-                                    top_left: tl_rpm,
-                                    top_right: tr_rpm,
-                                    bottom_left: bl_rpm,
-                                    bottom_right: br_rpm
-                                };
-                                spawner.motor_control(MotorControlEvent::SetRpmArray(rpm_array)).ok(); // TODO: count errors;
-                                //rprintln!("{} {} {} {}", tl_rpm, tr_rpm, bl_rpm, br_rpm);
-                            } else if frame[0] == config::VESC_LIFT_FRAME_ID && frame.len() == 2 {
-                                rprintln!(=>5, "lift cmd: {}", frame[1] as char);
-                                use crate::tasks::lift::LiftControlCommand::*;
-                                match frame[1] as char {
-                                    'q' => { spawner.lift_control(LeftDown).ok(); },
-                                    'a' => { spawner.lift_control(LeftUp).ok(); },
-                                    'w' => { spawner.lift_control(AllDown).ok(); },
-                                    's' => { spawner.lift_control(AllUp).ok(); },
-                                    'e' => { spawner.lift_control(RightDown).ok(); },
-                                    'd' => { spawner.lift_control(RightUp).ok(); },
-                                    _ => {}
-                                };
-                            } else if frame[0] == config::VESC_RESET_ALL {
-                                rprintln!(=>5, "\n\nRESET TACHO\n\n");
-                                spawner.motor_control(MotorControlEvent::ResetTacho).ok(); // TODO: count errors;
+            match serial.read() {
+                Ok(byte) => {
+                    let framer = cx.resources.ctrl_framer;
+                    //let bbbuffer_p = cx.resources.vesc_bbbuffer_p;
+                    let spawner = cx.spawn;
+                    framer.eat_byte(byte, |frame| {
+                        rprintln!(=> 5, "frame ctrl: {} {}\n", frame[0], frame.len());
+                        if frame[0] == config::VESC_RPM_ARRAY_FRAME_ID {
+                            let tl_rpm = Rpm( i32::from_be_bytes(frame[1..=4].try_into().unwrap()) );
+                            let tr_rpm = Rpm( i32::from_be_bytes(frame[5..=8].try_into().unwrap()) );
+                            let bl_rpm = Rpm( i32::from_be_bytes(frame[9..=12].try_into().unwrap()) );
+                            let br_rpm = Rpm( i32::from_be_bytes(frame[13..=16].try_into().unwrap()) );
+                            let rpm_array = RpmArray {
+                                top_left: tl_rpm,
+                                top_right: tr_rpm,
+                                bottom_left: bl_rpm,
+                                bottom_right: br_rpm
+                            };
+                            spawner.motor_control(MotorControlEvent::SetRpmArray(rpm_array)).ok(); // TODO: count errors;
+                            //rprintln!("{} {} {} {}", tl_rpm, tr_rpm, bl_rpm, br_rpm);
+                        } else if frame[0] == config::VESC_LIFT_FRAME_ID && frame.len() == 2 {
+                            rprintln!(=>5, "lift cmd: {}", frame[1] as char);
+                            use crate::tasks::lift::LiftControlCommand::*;
+                            match frame[1] as char {
+                                'q' => { spawner.lift_control(LeftDown).ok(); },
+                                'a' => { spawner.lift_control(LeftUp).ok(); },
+                                'w' => { spawner.lift_control(AllDown).ok(); },
+                                's' => { spawner.lift_control(AllUp).ok(); },
+                                'e' => { spawner.lift_control(RightDown).ok(); },
+                                'd' => { spawner.lift_control(RightUp).ok(); },
+                                _ => {}
+                            };
+                        } else if frame[0] == config::VESC_RESET_ALL {
+                            rprintln!(=>5, "\n\nRESET TACHO\n\n");
+                            spawner.motor_control(MotorControlEvent::ResetTacho).ok(); // TODO: count errors;
+                        }
+                        //crc_framer::CrcFramerSer::commit_frame(frame, bbbuffer_p);
+                        //rtic::pend(VESC_IRQ_EXTI);
+                    });
+                },
+                _ => {}
+            }
+        } else if #[cfg(feature = "br")] {
+            use embedded_hal::serial::Read;
+            use rtt_target::{rprint, rprintln};
+            use crate::rplidar;
+            match serial.read() {
+                Ok(byte) => {
+                    let lidar = cx.resources.lidar;
+                    //let spawner = cx.spawn;
+                    let bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
+                    let lidar_queue_p = cx.resources.lidar_queue_p;
+                    //rprintln!(=>5, "r:{:02x}\n", byte);
+                    lidar.eat_byte(byte,
+                        |scan| {
+                            if scan.len() == rplidar::FRAME_SIZE {
+                                let mut frame = [0u8; 84];
+                                frame.copy_from_slice(&scan[..rplidar::FRAME_SIZE]);
+                                let r = lidar_queue_p.enqueue(rplidar::Frame(frame));
+                                if r.is_err() {
+                                    rprintln!(=> 5, "drop");
+                                }
                             }
-                            //crc_framer::CrcFramerSer::commit_frame(frame, bbbuffer_p);
-                            //rtic::pend(VESC_IRQ_EXTI);
-                        });
-                    },
-                    _ => {}
-                }
-            } else if #[cfg(feature = "br")] {
+                        },
+                        |tx_bytes| {
+                            rprint!(=>5, "ctrl_irq:tx:[");
+                            for b in tx_bytes {
+                                rprint!(=>5, "{:02x} ", b);
+                            }
+                            rprintln!(=>5, "]\n");
+                            match bbbuffer_p.grant_exact(tx_bytes.len()) {
+                                Ok(mut wgr) => {
+                                    wgr.copy_from_slice(tx_bytes);
+                                    wgr.commit(tx_bytes.len());
+                                    rtic::pend(config::CTRL_IRQ_EXTI);
+                                },
+                                Err(_) => {
+                                    rprintln!(=>5, "  failed");
+                                }
+                            }
+                        }
+                    );
+                },
+                Err(e) => {
 
+                }
             }
         }
+    }
 
 
     use hal::serial::Event;

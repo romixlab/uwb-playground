@@ -11,6 +11,7 @@ mod crc_framer;
 mod units;
 mod tasks;
 mod motion;
+mod rplidar;
 
 use board::hal;
 use core::num::Wrapping;
@@ -53,6 +54,13 @@ const APP: () = {
 
         #[cfg(feature = "master")]
         stat: crate::radio::Stat,
+
+        #[cfg(feature = "br")]
+        lidar: rplidar::RpLidar,
+        #[cfg(feature = "br")]
+        lidar_queue_p: rplidar::LidarQueueP,
+        #[cfg(feature = "br")]
+        lidar_queue_c: rplidar::LidarQueueC,
     }
 
     #[init(
@@ -60,17 +68,20 @@ const APP: () = {
         spawn = [
             radio_chrono,
             blinker,
+            ctrl_link_control
         ]
     )]
     fn init(cx: init::Context) -> init::LateResources {
         static mut RADIO_COMMANDS_QUEUE: radio::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut VESC_BBBUFFER: BBBuffer<config::VescBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut CTRL_BBBUFFER: BBBuffer<config::CtrlBBBufferSize> = BBBuffer(ConstBBBuffer::new());
+        static mut LIDAR_QUEUE: rplidar::LidarQueue = heapless::spsc::Queue(heapless::i::Queue::new());
         tasks::init::init(
             cx,
             RADIO_COMMANDS_QUEUE,
             VESC_BBBUFFER,
             CTRL_BBBUFFER,
+            LIDAR_QUEUE
         )
     }
 
@@ -162,8 +173,14 @@ const APP: () = {
         priority = 2,
         capacity = 4,
         resources = [
+            &clocks,
             mecanum_wheels,
             ctrl_bbbuffer_p,
+            lidar,
+            lidar_queue_c,
+        ],
+        schedule = [
+            ctrl_link_control,
         ]
     )]
     fn ctrl_link_control(cx: ctrl_link_control::Context) {
@@ -172,12 +189,14 @@ const APP: () = {
 
     #[task(
         binds = USART2,
-        priority = 3,
+        priority = 7,
         resources = [
             ctrl_serial,
             ctrl_framer,
             ctrl_bbbuffer_p,
             ctrl_bbbuffer_c,
+            lidar,
+            lidar_queue_p,
         ],
         spawn = [
             motor_control,

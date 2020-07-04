@@ -2,7 +2,6 @@ use crate::board::hal;
 use crate::radio;
 use crate::config;
 use crate::crc_framer;
-use crate::motion;
 
 use bbqueue::{BBBuffer};
 use rtt_target::{rtt_init_print, rprint, rprintln};
@@ -16,10 +15,11 @@ pub fn init(
     cx: crate::init::Context,
     radio_commands_queue: &'static mut radio::CommandQueue,
     vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
-    ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>
+    ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>,
+    lidar_queue: &'static mut crate::rplidar::LidarQueue,
 ) -> crate::init::LateResources {
     rtt_init_print!(NoBlockSkip);
-    rprintln!("\x1b[2J\x1b[0m");
+    //rprintln!("\x1b[2J\x1b[0m");
     rprint!("UWB v");
     rprintln!(env!("CARGO_PKG_VERSION"));
     rprintln!("\x1b[1;36;40minit()\x1b[0m ");
@@ -184,19 +184,7 @@ pub fn init(
     ).unwrap();
     ctrl_serial.listen(Event::Rxne);
     let ctrl_framer = crc_framer::CrcFramerDe::new();
-
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "br")] {
-            let (mut ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
-
-            let mut wgr = ctrl_bbbuffer_p.grant_exact(2).unwrap();
-            wgr.copy_from_slice(&[0xa5, 0x20]);
-            wgr.commit(2);
-            rtic::pend(CTRL_IRQ_EXTI);
-        } else {
-            let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
-        }
-    }
+    let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
 
     let usart6_tx = gpioc.pc6.into_alternate_af8();
     let lift_serial = Serial::usart6(
@@ -207,18 +195,24 @@ pub fn init(
     ).unwrap();
 
     cfg_if::cfg_if! {
-            if #[cfg(feature = "master")] {
-                let mecanum_wheels = crate::motion::MecanumWheels::default();
-            } else if  #[cfg(feature = "slave")] {
-                let wheel = motion::MCData::default();
-            }
+        if #[cfg(feature = "master")] {
+            let mecanum_wheels = crate::motion::MecanumWheels::default();
+        } else if  #[cfg(feature = "slave")] {
+            let wheel = crate::motion::MCData::default();
         }
+    }
 
     rprintln!("init(): done");
 
     cx.spawn.blinker().expect("RTIC failure?");
     cx.spawn.radio_chrono().expect("RTIC failure?");
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "br")] { // lidar ctrl
+            cx.spawn.ctrl_link_control().unwrap();
+        }
+    }
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
+    let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
@@ -248,7 +242,7 @@ pub fn init(
 
                     stat: radio::Stat::default()
                 }
-            } else if #[cfg(feature = "slave")] {
+            } else if #[cfg(any(feature = "tr", feature = "bl"))] {
                 crate::init::LateResources {
                     clocks,
 
@@ -272,6 +266,35 @@ pub fn init(
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
                     exti
+                }
+            } else if #[cfg(feature = "br")] {
+                crate::init::LateResources {
+                    clocks,
+
+                    radio_state: radio::RadioState::Ready(Some(dw1000)),
+                    radio_irq: dw1000_irq,
+                    radio_trace: trace_pin,
+                    radio_commands_p, radio_commands_c,
+
+                    vesc_serial,
+                    vesc_framer,
+                    vesc_bbbuffer_p, vesc_bbbuffer_c,
+
+                    ctrl_serial,
+                    ctrl_framer,
+                    ctrl_bbbuffer_p, ctrl_bbbuffer_c,
+
+                    lift_serial,
+
+                    wheel,
+
+                    led_blinky,
+                    idle_counter: core::num::Wrapping(0u32),
+                    exti,
+
+                    lidar: crate::rplidar::RpLidar::new(),
+                    lidar_queue_p,
+                    lidar_queue_c
                 }
             }
         }
