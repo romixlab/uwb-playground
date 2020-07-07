@@ -68,6 +68,25 @@ pub struct XYThetaMove {
     pub dtheta: Degrees
 }
 
+pub enum MoveType {
+    /// Received from relay on master and from ctrl link on relay
+    #[cfg(any(feature = "master", feature = "relay"))]
+    PreserveHeading(XYThetaMove),
+    #[cfg(any(feature = "master", feature = "relay"))]
+    IgnoreHeading(XYThetaMove),
+    /// Received from master on slaves, dispatched from other command on master.
+    #[cfg(any(feature = "master", feature = "slave"))]
+    SetRpm(Rpm),
+    /// Received from ctrl link.
+    #[cfg(feature = "master")]
+    SetRpmArray(RpmArray)
+}
+
+pub struct MoveCommand {
+    pub seq: u8,
+    pub r#type: MoveType
+}
+
 #[derive(Debug)]
 pub enum MotorControlEvent {
     #[cfg(feature = "master")]

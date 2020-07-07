@@ -25,6 +25,7 @@ const APP: () = {
         clocks: Clocks,
 
         radio_state: radio::RadioState,
+        radio_queues: tasks::radio::DataQueues,
         radio_irq: config::RadioIrqPin,
         radio_trace: config::RadioTracePin,
         radio_commands_p: radio::CommandQueueP,
@@ -132,6 +133,7 @@ const APP: () = {
         resources = [
             &clocks,
             radio_state,
+            radio_queues,
             radio_irq,
             radio_commands_c,
             radio_trace,
@@ -143,8 +145,8 @@ const APP: () = {
         ])
     ]
     fn radio_irq(cx: radio_irq::Context) {
-        static mut RX_BUFFER: [u8; 1024] = [0u8; 1024];
-        tasks::radio::radio_irq(cx, RX_BUFFER);
+        static mut BUFFER: [u8; 1024] = [0u8; 1024];
+        tasks::radio::radio_irq(cx, BUFFER);
     }
 
     #[task(

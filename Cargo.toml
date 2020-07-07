@@ -1,6 +1,6 @@
 [package]
-name = "uwb-play"
-version = "0.1.0"
+name = "uwb"
+version = "0.2.0"
 authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 edition = "2018"
 
@@ -52,12 +52,13 @@ slave = []
 tr = []
 bl = []
 br = []
+relay = []
 devnode = []
 pozyx-board = ["stm32f4xx-hal"]
 dragonfly-board = ["stm32l4xx-hal"]
 
 [[bin]]
-name = "uwb-play"
+name = "uwb"
 test = false
 bench = false
 

@@ -21,16 +21,18 @@ use crate::config;
 //use heapless::spsc::Consumer;
 //use heapless::consts::*;
 use crate::radio::message::TxMessage;
-use crate::radio::Dw1000Spi;
+use crate::radio::{Dw1000Spi, Arbiter};
 use crate::config::Dw1000Cs;
 
-pub fn advance<TP>(
+pub fn advance<A, TP>(
     radio_state: &mut RadioState,
+    arbiter: &mut A,
     commands: &mut super::CommandQueueC,
-    rx_buffer: &mut[u8],
+    buffer: &mut[u8],
     spawn: &crate::radio_irq::Spawn,
-    trace_pin: &mut TP)
-    where TP: OutputPin
+    trace_pin: &mut TP
+)
+    where TP: OutputPin, A: Arbiter
 {
     use RadioState::*;
     const SM_FAIL_MESSAGE: &'static str = "Radio state machine fail";
@@ -49,17 +51,17 @@ pub fn advance<TP>(
         GTSAnswersReceiving(sd) => {
             let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
             let answers_received = sd.1;
-            advance_gts_answers_receiving(receiving_radio, answers_received, rx_buffer, commands, spawn, trace_pin)
+            advance_gts_answers_receiving(receiving_radio, answers_received, buffer, commands, spawn, trace_pin)
         }
         #[cfg(feature = "slave")]
         GTSStartWaiting(sd) => {
             let receiving_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_gts_start_waiting(receiving_radio, rx_buffer, spawn, trace_pin)
+            advance_gts_start_waiting(receiving_radio, buffer, spawn, trace_pin)
         }
         #[cfg(feature = "slave")]
         GTSWaitingForUplinkData(sd) => {
             let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_gts_waiting_for_uplink_data(ready_radio, rx_buffer, commands)
+            advance_gts_waiting_for_uplink_data(ready_radio, buffer, commands)
         }
         #[cfg(feature = "slave")]
         GTSAnswerSending(sd) => {
@@ -189,7 +191,7 @@ fn process_messages_gts_answers_receiving<TP>(
 fn advance_gts_answers_receiving<TP>(
     mut receiving_radio: ReceivingRadio,
     answers_received: u8,
-    rx_buffer: &mut[u8],
+    buffer: &mut[u8],
     commands: &mut super::CommandQueueC,
     spawn: &crate::radio_irq::Spawn,
     trace_pin: &mut TP
@@ -211,7 +213,7 @@ fn advance_gts_answers_receiving<TP>(
         },
         _ => { }
     }
-    match receiving_radio.wait(rx_buffer) {
+    match receiving_radio.wait(buffer) {
         Ok(message) => {
             trace_pin.set_low().ok();
             process_messages_gts_answers_receiving(receiving_radio, message.0, answers_received, spawn, trace_pin)
@@ -321,7 +323,7 @@ fn process_messages_gts_start_waiting<TP>(
 #[cfg(feature = "slave")]
 fn advance_gts_start_waiting<TP>(
     mut receiving_radio: ReceivingRadio,
-    rx_buffer: &mut[u8],
+    buffer: &mut[u8],
     spawn: &crate::radio_irq::Spawn,
     trace_pin: &mut TP
 ) -> RadioState
@@ -330,7 +332,7 @@ fn advance_gts_start_waiting<TP>(
     //let sys_status = receiving_radio.ll().sys_status().read().unwrap();
     //rprintln!(=>1,"A: {}", sys_status);
 
-    match receiving_radio.wait(rx_buffer) {
+    match receiving_radio.wait(buffer) {
         Ok((message, _sys_status_before)) => {
             //trace_pin.set_high().ok();
             //rprintln!(=>1,"C: {}", sys_status_before);
@@ -360,7 +362,7 @@ fn advance_gts_start_waiting<TP>(
 #[cfg(feature = "slave")]
 fn advance_gts_waiting_for_uplink_data(
     mut ready_radio: ReadyRadio,
-    _rx_buffer: &mut[u8],
+    _buffer: &mut[u8],
     commands: &mut super::CommandQueueC,
 ) -> RadioState
 {

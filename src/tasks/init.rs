@@ -213,6 +213,7 @@ pub fn init(
     }
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
+    let radio_queues = crate::tasks::radio::DataQueues::new();
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
@@ -220,6 +221,7 @@ pub fn init(
                     clocks,
 
                     radio_state: radio::RadioState::Ready(Some(dw1000)),
+                    radio_queues,
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
                     radio_commands_p, radio_commands_c,
