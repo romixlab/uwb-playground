@@ -31,7 +31,6 @@ features = ["rt", "stm32f401"]
 optional = true
 
 [dependencies.stm32l4xx-hal]
-path = "../stm32l4xx-hal"
 version = "0.5.0"
 features = ["rt", "stm32l4x6"]
 optional = true

@@ -8,7 +8,7 @@ use rtt_target::{rprintln};
 use rtic::cyccnt::U32Ext;
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
-use crate::radio::{Arbiter, LogicalDestination, BytesWritten, ChannelId};
+use crate::radio::{Arbiter, LogicalDestination, ChannelId, Multiplexer};
 use crate::motion::MoveCommand;
 
 pub enum RadioChronoState {
@@ -56,7 +56,7 @@ pub enum RadioChronoState {
 pub struct DataQueues {
     ///// I/0/_/T/G/H/_/10 @66
     //pub stop_command: Option<Stop>,
-    /// I/0/L/T/D/H/S/9 @70
+    //#[queue(I/0/L/T/D/H/S/9 @70)]
     pub move_command: Option<MoveCommand>,
     ///// I/0/L/T/D/H/S/9 @71
     //pub odometry: Option<OdometryData>
@@ -81,15 +81,12 @@ impl DataQueues {
 }
 
 impl Arbiter for DataQueues {
-    fn source_sync(&mut self, buf: &mut [u8]) -> (BytesWritten, LogicalDestination, ChannelId) {
-        (
-            BytesWritten(0),
-            LogicalDestination::Multicast,
-            ChannelId(0)
-        )
+    fn source_sync<M: Multiplexer>(&mut self, mux: &mut M)
+    {
+
     }
 
-    fn source_async(&mut self, buf: &mut [u8]) -> (BytesWritten, LogicalDestination, ChannelId) {
+    fn source_async<M: Multiplexer>(&mut self, mux: &mut M) {
         unimplemented!()
     }
 
