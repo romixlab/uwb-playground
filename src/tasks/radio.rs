@@ -4,12 +4,13 @@ use crate::motion;
 use crate::board::hal;
 
 use rtic::Mutex;
-use rtt_target::{rprintln};
+use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
 use crate::radio::{Arbiter, LogicalDestination, ChannelId, Multiplexer};
 use crate::motion::MoveCommand;
+use crate::util::{Tracer, TraceEvent};
 
 pub enum RadioChronoState {
     Idle,
@@ -114,12 +115,7 @@ pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoSta
                 use RadioChronoState::*;
                 *state = match state {
                     Idle => {
-                        let wheels = cx.resources.mecanum_wheels;
-                        let tr = GTSEntry::new(0, 6_000, GTSDownlinkData{ rpm: wheels.top_right.rpm.0 });
-                        let bl = GTSEntry::new(16_000, 6_000, GTSDownlinkData{ rpm: wheels.bottom_left.rpm.0 });
-                        let br = GTSEntry::new(22_000, 6_000, GTSDownlinkData{ rpm: wheels.bottom_right.rpm.0 });
-                        let gts_start = GTSStart::new(tr, bl, br);
-                        cx.resources.radio_commands_p.enqueue(Command::GTSStart(gts_start)).ok(); // TODO: Count errors
+                        cx.resources.radio_commands_p.enqueue(Command::GTSStart).ok(); // TODO: Count errors
                         cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, GTS_END_MS)).ok(); // TODO: Count errors
                         //
                         RadioChronoState::GTSInProgress
@@ -140,7 +136,35 @@ pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoSta
     rtic::pend(config::DW1000_IRQ_EXTI);
 }
 
-pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
+pub struct RttTracer {
+    pub instant: u32,
+    pub sysclk: u32
+}
+
+impl Tracer for RttTracer {
+    fn event(&mut self, e: TraceEvent) {
+        use cortex_m::peripheral::DWT;
+
+        if e == TraceEvent::GTSStart {
+            self.instant = DWT::get_cycle_count();
+            rprintln!(=> 13, "\n\n\n---\n");
+        } else {
+            let now = DWT::get_cycle_count();
+            let dt = now - self.instant;
+            let dt = cycles2us_raw!(self.sysclk, dt);
+            rprint!(=> 13, "+{}.{} ", dt / 1000, dt % 1000);
+        }
+        rprintln!(=> 13, "{}\n", e);
+    }
+}
+
+pub struct NoOpTracer {}
+
+impl Tracer for NoOpTracer {
+    fn event(&mut self, _e: TraceEvent) { }
+}
+
+pub fn radio_irq<T: Tracer>(cx: crate::radio_irq::Context, tracer: &mut T, buffer: &mut[u8], ) {
     // let now = DWT::get_cycle_count() as i32;
     // let dt = now.wrapping_sub(*LAST_IDLE_INSTANT);
     // *LAST_IDLE_INSTANT = now;
@@ -151,26 +175,17 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     //     }
     //     *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
     // }
-    cx.resources.radio_trace.set_high().ok();
-    cx.resources.radio_irq.clear_interrupt_pending_bit();
     //rprintln!("IRQ: {}us", cycles2us!(cx, dt));
 
-    // radio::state_machine::advance(
-    //     cx.resources.radio_state,
-    //     cx.resources.radio_commands_c,
-    //     buffer,
-    //     &cx.spawn,
-    //     cx.resources.radio_trace
-    // );
+    cx.resources.radio_irq.clear_interrupt_pending_bit();
     for _ in 0..42 {
-        cx.resources.radio_trace.toggle().ok();
         radio::state_machine::advance(
             cx.resources.radio_state,
             cx.resources.radio_queues,
             cx.resources.radio_commands_c,
             buffer,
             &cx.spawn,
-            cx.resources.radio_trace
+            tracer
         );
         if cx.resources.radio_irq.is_low().unwrap() {
             break;
@@ -179,7 +194,6 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     if cx.resources.radio_irq.is_high().unwrap() {
         rprintln!("radio_irq: still pending after many tries!");
     }
-    cx.resources.radio_trace.set_low().ok();
 }
 
 pub fn radio_event(mut cx: crate::radio_event::Context, e: radio::Event) {

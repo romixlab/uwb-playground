@@ -34,6 +34,7 @@ pub fn init(
     use hal::rcc::RccExt;
     let rcc = device.RCC.constrain();
     use hal::time::U32Ext;
+    // If you change clock frequency, make sure to also change tracer sysclk!
     cfg_if::cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
                 let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
@@ -129,7 +130,7 @@ pub fn init(
         Ok(dw1000) => { dw1000 },
         Err(e) => { panic!("DW1000 init error {:?}", e); }
     };
-    for _ in 0..3 {
+    for _ in 0..10 {
         let sys_status = dw1000.ll().sys_status().read().unwrap();
         if sys_status.clkpll_ll() == 0b0 {
             rprint!("SPI speed bump to: {}MHz, ", dw1000_spi_freq_hi.0);
@@ -142,11 +143,16 @@ pub fn init(
                     clocks
                 )
             });
-            rprintln!("done.");
+            let br = unsafe {
+                let spi1 = unsafe { &(*hal::stm32::SPI1::ptr()) };
+                spi1.cr1.read().br().bits()
+            };
+            let ratio = 1 << (br + 1);
+            rprintln!("done, actual ratio:{} baud:{}", ratio, clocks.pclk2().0 / ratio);
             break;
         } else {
-            rprintln!("clkpll_ll = 1, waiting");
-            busywait!(ms_alt, clocks, 1);
+            rprintln!("clkpll_ll = 1, resetting");
+            busywait!(ms_alt, clocks, 10);
         }
     }
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();

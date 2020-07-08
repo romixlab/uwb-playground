@@ -9,12 +9,14 @@ use dw1000::{
     ranging::{
         Message, Prelude
     },
-    DW1000, Error, Ready, Sending, TxConfig
+    DW1000, Ready, Sending, TxConfig
 };
 use embedded_hal::{
     blocking::spi,
     digital::v2::OutputPin,
 };
+use crate::units;
+use super::Error;
 
 /// Any message size is <= than this number (checked in send()).
 #[allow(unused)] // Actually used, lint bug?
@@ -50,7 +52,7 @@ impl<T> TxMessage<T> where T: Message {
     /// Serializes the message payload and uses [`DW1000::send`] internally to
     /// send it.
     pub fn send<'r, SPI, CS>(&self, dw1000: DW1000<SPI, CS, Ready>, tx_config: TxConfig)
-                             -> Result<DW1000<SPI, CS, Sending>, Error<SPI, CS>>
+                             -> Result<DW1000<SPI, CS, Sending>, dw1000::Error<SPI, CS>>
         where
             SPI: spi::Transfer<u8> + spi::Write<u8>,
             CS:  OutputPin,
@@ -146,4 +148,112 @@ pub struct GTSAnswer {
 impl Message for GTSAnswer {
     const PRELUDE: Prelude = Prelude(b"GTSA");
     const PRELUDE_LEN: usize = 4;
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct RadioConfig {
+    pub channel: dw1000::configs::UwbChannel,
+    pub bitrate: dw1000::configs::BitRate,
+    pub prf: dw1000::configs::PulseRepetitionFrequency,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum WindowType {
+    /// Slave sends data to master, possibly with ACK request
+    Uplink = 0b0,
+    /// Slave listents for data from master
+    Downlink = 0b1
+}
+
+/// One window of message exchanges. Requested by slaves and granted by master.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Window {
+    /// Beginning of the window from received GTSStart
+    pub shift: units::MicroSeconds,
+    /// Duration of the window
+    pub window: units::MicroSeconds,
+    /// Who iniates transmissions in this window
+    pub window_type: WindowType,
+    /// Radio config used
+    pub radio_config: RadioConfig,
+}
+
+fn channel_from_u8(n: u8) -> Option<dw1000::configs::UwbChannel> {
+    use dw1000::configs::UwbChannel::*;
+    match n {
+        1 => { Some(Channel1) },
+        2 => { Some(Channel2) },
+        3 => { Some(Channel3) },
+        4 => { Some(Channel4) },
+        5 => { Some(Channel5) },
+        7 => { Some(Channel7) },
+        _ => None
+    }
+}
+
+fn bitrate_from_u8(n: u8) -> Option<dw1000::configs::BitRate> {
+    use dw1000::configs::BitRate::*;
+    match n {
+        0b00 => { Some(Kbps110) },
+        0b01 => { Some(Kbps850) },
+        0b10 => { Some(Kbps6800) },
+        _ => None
+    }
+}
+
+impl Window {
+    pub fn deserizalize(buf: &[u8; 5]) -> Result<Self, Error> {
+        use core::convert::TryInto;
+
+        let shift: [u8; 2] = buf[0..=1].try_into().unwrap();
+        let shift = u16::from_le_bytes(shift);
+        let window: [u8; 2] = buf[2..=3].try_into().unwrap();
+        let window = u16::from_le_bytes(window);
+        let channel = channel_from_u8(buf[4] & 0b0000_1111).ok_or(Error::WrongChannel)?;
+        let bitrate = bitrate_from_u8((buf[4] & 0b0011_0000) >> 4).ok_or(Error::WrongBitrate)?;
+        use dw1000::configs::PulseRepetitionFrequency::*;
+        let prf = if buf[4] & 0b0100_0000 == 0 { Mhz16 } else { Mhz64 };
+        use WindowType::*;
+        let window_type = if buf[4] & 0b1000_0000 == 0 { Uplink } else { Downlink };
+        Ok(Window {
+            shift: units::MicroSeconds(shift as u32),
+            window: units::MicroSeconds(window as u32),
+            window_type,
+            radio_config: RadioConfig {
+                channel,
+                bitrate,
+                prf
+            }
+        })
+    }
+}
+
+impl super::serdes::MessageId for Window {
+    const ID: u8 = 0x70;
+}
+
+use crate::radio::serdes::MessageId;
+
+impl super::serdes::Serialize for Window {
+    type Error = super::Error;
+
+    fn ser(&self, buf: &mut [u8]) -> Result<(), Self::Error> {
+        if self.shift.0 >= core::u16::MAX as u32 || self.window.0 >= core::u16::MAX as u32 {
+            return Err(Error::WindowTooLong);
+        }
+        buf[0] = Self::ID;
+        let shift = self.shift.0 as u16;
+        let window = self.window.0 as u16;
+        buf[1..=2].copy_from_slice(&shift.to_le_bytes());
+        buf[3..=4].copy_from_slice(&window.to_le_bytes());
+        let channel = self.radio_config.channel as u8;
+        let bitrate = self.radio_config.bitrate as u8;
+        use dw1000::configs::PulseRepetitionFrequency::*;
+        let prf = if self.radio_config.prf == Mhz16 { 0u8 } else { 1u8 };
+        let window_type = self.window_type as u8;
+        buf[5] = (window_type << 7) | (prf << 6) | (bitrate << 4) | channel;
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize { 6 }
 }

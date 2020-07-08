@@ -1,5 +1,6 @@
 pub mod message;
 pub mod state_machine;
+pub mod serdes;
 
 use crate::units;
 
@@ -10,9 +11,14 @@ use crate::board::hal;
 use heapless::spsc::{Queue, Producer, Consumer};
 use heapless::consts::*;
 
-use serde::{
-    Serialize, Deserialize
-};
+#[derive(Debug)]
+pub enum Error {
+    WindowTooLong,
+    WrongChannel,
+    WrongBitrate,
+    MuxTooBig,
+    DemuxNotEnoughData,
+}
 
 /// Logical destination inside a multiplexed message.
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -41,8 +47,13 @@ impl ChannelId {
 
 /// Multiplex several messages into one continous stream of bytes.
 pub trait Multiplexer {
-    fn mux(&mut self, buf: &[u8], destination: LogicalDestination, channel: ChannelId) -> Result<(), Error>;
-    fn bytes_left(&self, message_len: usize, destination: LogicalDestination, channel: ChannelId) -> usize;
+    type Error;
+
+    fn mux(&mut self,
+           thing: &dyn serdes::Serialize<Error=Self::Error>,
+           destination: LogicalDestination,
+           channel: ChannelId
+    ) -> Result<(), Self::Error>;
 }
 
 /// Interface between the radio and data sources and sinks.
@@ -77,53 +88,69 @@ pub trait Arbiter {
 /// bytes +1 if M: UUUU_UUUU - additional high bits for length.
 pub struct MiniMultiplexer<'a> {
     buf: &'a mut [u8],
-    cursor: usize,
+    cursor: usize
+}
+
+impl<'a> MiniMultiplexer<'a> {
+    pub fn new(buf: &'a mut [u8]) -> Self {
+        MiniMultiplexer {
+            buf,
+            cursor: 0
+        }
+    }
+
+    fn header_size(message_len: usize, destination: LogicalDestination, channel: ChannelId) -> usize
+    {
+        let mut needed_for_header = if destination == LogicalDestination::Implicit { 1 } else { 3 };
+        needed_for_header += if message_len <= 127 { 1 } else { 2 };
+        needed_for_header
+    }
+
+    #[inline]
+    fn remaining(&self) -> usize {
+        self.buf.len() - self.cursor
+    }
+
+    pub fn written(&self) -> usize {
+        self.cursor
+    }
 }
 
 impl<'a> Multiplexer for MiniMultiplexer<'a> {
-    fn mux(&mut self, buf: &[u8], destination: LogicalDestination, channel: ChannelId) -> Result<(), Error> {
-        let bytes_left = self.bytes_left(buf.len(), destination, channel);
-        if buf.len() < bytes_left || buf.len() >= 32768 {
+    type Error = Error;
+
+    fn mux(
+        &mut self,
+        thing: &dyn serdes::Serialize<Error=Self::Error>,
+        destination: LogicalDestination,
+        channel: ChannelId
+    ) -> Result<(), Error>
+    {
+        let header_size = MiniMultiplexer::header_size(thing.size_hint(), destination, channel);
+        let thing_size = thing.size_hint();
+        if header_size + thing_size > self.remaining() || thing_size >= 32768 {
             return Err(Error::MuxTooBig);
         }
         if let LogicalDestination::Unicast(addr) = destination {
             self.buf[self.cursor] = 0b1000_0000 | channel.id();
-            self.buf[self.cursor ..= self.cursor + 1].copy_from_slice(&addr.0.to_le_bytes());
+            self.buf[self.cursor+1 ..= self.cursor + 2].copy_from_slice(&addr.0.to_le_bytes());
             self.cursor += 3;
         } else {
             self.buf[self.cursor] = channel.id();
             self.cursor += 1;
         }
-        if buf.len() <= 127 {
-            self.buf[self.cursor] = buf.len() as u8;
+        if thing_size <= 127 {
+            self.buf[self.cursor] = thing_size as u8;
             self.cursor += 1;
         } else {
-            let len = buf.len() as u16;
+            let len = thing_size as u16;
             self.buf[self.cursor] = 0b1000_0000 | (len & 0b0111_1111) as u8;
             self.buf[self.cursor + 1] = (len >> 9) as u8;
             self.cursor += 2;
         }
-        unsafe {
-            core::ptr::copy(
-                buf.as_ptr(),
-                self.buf.as_mut_ptr().offset(self.cursor as isize),
-                buf.len());
-        }
+        thing.ser(&mut self.buf[self.cursor..])?;
+        self.cursor += thing_size;
         Ok(())
-    }
-
-    fn bytes_left(&self, message_len: usize, destination: LogicalDestination, channel: ChannelId) -> usize {
-        let total_left = self.buf.len() - self.cursor;
-        if total_left <= 2 {
-            return 0;
-        }
-        let mut needed_for_header = if destination == LogicalDestination::Implicit { 1 } else { 3 };
-        needed_for_header += if message_len <= 127 { 1 } else { 2 };
-        if total_left > needed_for_header {
-            total_left - needed_for_header
-        } else {
-            0
-        }
     }
 }
 
@@ -152,7 +179,7 @@ pub enum RadioState {
 
 pub enum Command {
     #[cfg(feature = "master")]
-    GTSStart(message::GTSStart),
+    GTSStart,
     /// Fired when all GTS should finish on master and slave, after that rpms are sent to MCs.
     #[cfg(feature = "slave")]
     GTSSendAnswer(Option<dw1000::time::Instant>, message::GTSAnswer),
@@ -176,120 +203,11 @@ pub type CommandQueue = Queue<Command, U8>;
 pub type CommandQueueP = Producer<'static, Command, U8>;
 pub type CommandQueueC = Consumer<'static, Command, U8>;
 
-pub trait MessageId {
-    const ID: u32;
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct RadioConfig {
-    pub channel: dw1000::configs::UwbChannel,
-    pub bitrate: dw1000::configs::BitRate,
-    pub prf: dw1000::configs::PulseRepetitionFrequency,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum WindowType {
-    /// Slave sends data to master, possibly with ACK request
-    Uplink = 0b0,
-    /// Slave listents for data from master
-    Downlink = 0b1
-}
-
-/// One window of message exchanges. Requested by slaves and granted by master.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Window {
-    /// Beginning of the window from received GTSStart
-    pub shift: units::MicroSeconds,
-    /// Duration of the window
-    pub window: units::MicroSeconds,
-    /// Who iniates transmissions in this window
-    pub window_type: WindowType,
-    /// Radio config used
-    pub radio_config: RadioConfig,
-}
-
-pub enum Error {
-    WindowTooLong,
-    WrongChannel,
-    WrongBitrate,
-    MuxTooBig,
-    DemuxNotEnoughData,
-}
-
-fn channel_from_u8(n: u8) -> Option<dw1000::configs::UwbChannel> {
-    use dw1000::configs::UwbChannel::*;
-    match n {
-        1 => { Some(Channel1) },
-        2 => { Some(Channel2) },
-        3 => { Some(Channel3) },
-        4 => { Some(Channel4) },
-        5 => { Some(Channel5) },
-        7 => { Some(Channel7) },
-        _ => None
-    }
-}
-
-fn bitrate_from_u8(n: u8) -> Option<dw1000::configs::BitRate> {
-    use dw1000::configs::BitRate::*;
-    match n {
-        0b00 => { Some(Kbps110) },
-        0b01 => { Some(Kbps850) },
-        0b10 => { Some(Kbps6800) },
-        _ => None
-    }
-}
-
-impl Window {
-    pub fn serialize(&self, buf: &mut[u8; 5]) -> Result<(), Error> {
-        if self.shift.0 >= core::u16::MAX as u32 || self.window.0 >= core::u16::MAX as u32 {
-            return Err(Error::WindowTooLong);
-        }
-        let shift = self.shift.0 as u16;
-        let window = self.window.0 as u16;
-        buf[0..=1].copy_from_slice(&shift.to_le_bytes());
-        buf[2..=3].copy_from_slice(&window.to_le_bytes());
-        let channel = self.radio_config.channel as u8;
-        let bitrate = self.radio_config.bitrate as u8;
-        use dw1000::configs::PulseRepetitionFrequency::*;
-        let prf = if self.radio_config.prf == Mhz16 { 0u8 } else { 1u8 };
-        let window_type = self.window_type as u8;
-        buf[4] = (window_type << 7) | (prf << 6) | (bitrate << 4) | channel;
-        Ok(())
-    }
-
-    pub fn deserizalize(buf: &[u8; 5]) -> Result<Self, Error> {
-        let shift: [u8; 2] = buf[0..=1].try_into().unwrap();
-        let shift = u16::from_le_bytes(shift);
-        let window: [u8; 2] = buf[2..=3].try_into().unwrap();
-        let window = u16::from_le_bytes(window);
-        let channel = channel_from_u8(buf[4] & 0b0000_1111).ok_or(Error::WrongChannel)?;
-        let bitrate = bitrate_from_u8((buf[4] & 0b0011_0000) >> 4).ok_or(Error::WrongBitrate)?;
-        use dw1000::configs::PulseRepetitionFrequency::*;
-        let prf = if buf[4] & 0b0100_0000 == 0 { Mhz16 } else { Mhz64 };
-        use WindowType::*;
-        let window_type = if buf[4] & 0b1000_0000 == 0 { Uplink } else { Downlink };
-        Ok(Window {
-            shift: units::MicroSeconds(shift as u32),
-            window: units::MicroSeconds(window as u32),
-            window_type,
-            radio_config: RadioConfig {
-                channel,
-                bitrate,
-                prf
-            }
-        })
-    }
-}
-
-impl MessageId for Window {
-    const ID: u32 = 0x70;
-}
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Node {
     pub address: dw1000::mac::ShortAddress,
     pub last_seen: units::MilliSeconds,
-    pub slots: [Option<Window>; 2]
+    //pub slots: [Option<Window>; 2]
     //#[cfg(feature = "stats")]
     // stats: NodeStatistics
 }

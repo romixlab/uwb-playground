@@ -146,7 +146,8 @@ const APP: () = {
     ]
     fn radio_irq(cx: radio_irq::Context) {
         static mut BUFFER: [u8; 1024] = [0u8; 1024];
-        tasks::radio::radio_irq(cx, BUFFER);
+        static mut TRACER: tasks::radio::RttTracer = tasks::radio::RttTracer{ instant: 0, sysclk: 72_000_000 };
+        tasks::radio::radio_irq(cx, TRACER, BUFFER);
     }
 
     #[task(
