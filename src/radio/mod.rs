@@ -49,11 +49,19 @@ impl ChannelId {
 pub trait Multiplexer {
     type Error;
 
-    fn mux(&mut self,
-           thing: &dyn serdes::Serialize<Error=Self::Error>,
-           destination: LogicalDestination,
-           channel: ChannelId
+    fn mux(
+        &mut self,
+        thing: &dyn serdes::Serialize<Error=Self::Error>,
+        destination: LogicalDestination,
+        channel: ChannelId
     ) -> Result<(), Self::Error>;
+}
+
+pub trait Demultiplexer {
+    type Error;
+
+    fn demux<F>(&mut self, self_addr: dw1000::mac::ShortAddress, f: &mut F)
+        where F: FnMut(ChannelId, &[u8]);
 }
 
 /// Interface between the radio and data sources and sinks.
@@ -111,6 +119,7 @@ impl<'a> MiniMultiplexer<'a> {
         self.buf.len() - self.cursor
     }
 
+    #[inline]
     pub fn written(&self) -> usize {
         self.cursor
     }
@@ -145,12 +154,48 @@ impl<'a> Multiplexer for MiniMultiplexer<'a> {
         } else {
             let len = thing_size as u16;
             self.buf[self.cursor] = 0b1000_0000 | (len & 0b0111_1111) as u8;
-            self.buf[self.cursor + 1] = (len >> 9) as u8;
+            self.buf[self.cursor + 1] = ((len >> 7) & 0xff) as u8;
             self.cursor += 2;
         }
         thing.ser(&mut self.buf[self.cursor..])?;
         self.cursor += thing_size;
         Ok(())
+    }
+}
+
+impl<'a> Demultiplexer for MiniMultiplexer<'a> {
+    type Error = Error;
+
+    fn demux<F>(&mut self, self_addr: dw1000::mac::ShortAddress, f: &mut F)
+        where F: FnMut(ChannelId, &[u8])
+    {
+        loop {
+            if self.remaining() <= 2 { break; }
+            let is_unicast = self.buf[self.cursor] & 0b1000_0000 != 0;
+            let channel_id = self.buf[self.cursor] & 0b0111_1111;
+            self.cursor += 1;
+            let skip_thing = if is_unicast {
+                let target_addr: [u8; 2] = self.buf[self.cursor ..= self.cursor + 1].try_into().unwrap();
+                let target_addr = u16::from_be_bytes(target_addr);
+                self.cursor += 2;
+                target_addr != self_addr.0
+            } else {
+                false
+            };
+            if self.remaining() <= 1 { break; }
+            let len_is_2_byte = self.buf[self.cursor] & 0b1000_0000 != 0;
+            let mut len = (self.buf[self.cursor] & 0b0111_1111) as u16;
+            if len_is_2_byte {
+                if self.remaining() <= 128 { break; }
+                self.cursor += 1;
+                len |= (self.buf[self.cursor] as u16) << 7;
+            }
+            if self.remaining() < len as usize { break; }
+            if !skip_thing {
+                f(ChannelId(channel_id), &self.buf[self.cursor .. self.cursor + len as usize]);
+            }
+            self.cursor += len as usize;
+        }
     }
 }
 
