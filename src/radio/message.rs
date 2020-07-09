@@ -1,7 +1,5 @@
 //use core::mem::size_of;
-use serde::{
-    Serialize, Deserialize
-};
+use serde::{Serialize, Deserialize, Serializer};
 use ssmarshal;
 use dw1000::{
     mac,
@@ -201,8 +199,41 @@ fn bitrate_from_u8(n: u8) -> Option<dw1000::configs::BitRate> {
     }
 }
 
-impl Window {
-    pub fn deserizalize(buf: &[u8; 5]) -> Result<Self, Error> {
+use crate::radio::serdes::{MessageId, Buf, BufMut};
+
+impl super::serdes::MessageId for Window {
+    const ID: u8 = 0x70;
+}
+
+impl super::serdes::Serialize for Window {
+    type Error = super::Error;
+
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        if self.shift.0 >= core::u16::MAX as u32 || self.window.0 >= core::u16::MAX as u32 {
+            return Err(Error::WindowTooLong);
+        }
+        buf.put_u8(Self::ID);
+        let shift = self.shift.0 as u16;
+        let window = self.window.0 as u16;
+        buf.put_u16(shift);
+        buf.put_u16(window);
+        let channel = self.radio_config.channel as u8;
+        let bitrate = self.radio_config.bitrate as u8;
+        use dw1000::configs::PulseRepetitionFrequency::*;
+        let prf = if self.radio_config.prf == Mhz16 { 0u8 } else { 1u8 };
+        let window_type = self.window_type as u8;
+        buf.put_u8((window_type << 7) | (prf << 6) | (bitrate << 4) | channel);
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize { 6 }
+}
+
+impl super::serdes::Deserialize for Window {
+    type Output = Window;
+    type Error = super::Error;
+
+    fn des(buf: &[u8]) -> Result<Self::Output, Self::Error> {
         use core::convert::TryInto;
 
         let shift: [u8; 2] = buf[0..=1].try_into().unwrap();
@@ -226,34 +257,4 @@ impl Window {
             }
         })
     }
-}
-
-impl super::serdes::MessageId for Window {
-    const ID: u8 = 0x70;
-}
-
-use crate::radio::serdes::MessageId;
-
-impl super::serdes::Serialize for Window {
-    type Error = super::Error;
-
-    fn ser(&self, buf: &mut [u8]) -> Result<(), Self::Error> {
-        if self.shift.0 >= core::u16::MAX as u32 || self.window.0 >= core::u16::MAX as u32 {
-            return Err(Error::WindowTooLong);
-        }
-        buf[0] = Self::ID;
-        let shift = self.shift.0 as u16;
-        let window = self.window.0 as u16;
-        buf[1..=2].copy_from_slice(&shift.to_le_bytes());
-        buf[3..=4].copy_from_slice(&window.to_le_bytes());
-        let channel = self.radio_config.channel as u8;
-        let bitrate = self.radio_config.bitrate as u8;
-        use dw1000::configs::PulseRepetitionFrequency::*;
-        let prf = if self.radio_config.prf == Mhz16 { 0u8 } else { 1u8 };
-        let window_type = self.window_type as u8;
-        buf[5] = (window_type << 7) | (prf << 6) | (bitrate << 4) | channel;
-        Ok(())
-    }
-
-    fn size_hint(&self) -> usize { 6 }
 }

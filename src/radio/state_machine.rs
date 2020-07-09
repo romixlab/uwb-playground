@@ -117,7 +117,9 @@ fn advance_ready<A: Arbiter, T: Tracer>(
             //seq += Wrapping(1u8);
             let mut len = frame.encode(buffer, mac::WriteFooter::No);
 
-            let mut mux = MiniMultiplexer::new(&mut buffer[len .. len + 128]);
+            use crate::radio::serdes::BufMut;
+            let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
+            let mut mux = MiniMultiplexer::new(bufmut);
 
             let mut window = crate::radio::message::Window {
                 shift: crate::units::MicroSeconds(0x1234),
@@ -136,9 +138,17 @@ fn advance_ready<A: Arbiter, T: Tracer>(
             window.window = crate::units::MicroSeconds(0xccdd);
             mux.mux(&window, super::LogicalDestination::Unicast(dw1000::mac::ShortAddress(0xeeff)), super::ChannelId::new(1));
 
+            window.shift = crate::units::MicroSeconds(0x7766);
+            window.window = crate::units::MicroSeconds(0x8899);
+            let r = mux.mux(&window, super::LogicalDestination::Implicit, super::ChannelId::new(1));
+
+            let r = mux.mux(&window, super::LogicalDestination::Unicast(config::BR_UWB_ADDR), super::ChannelId::new(0));
+
             arbiter.source_sync(&mut mux);
-            use crate::radio::Multiplexer;
-            len += mux.written();
+            use crate::radio::Multiplex;
+            let bufmut_taken = mux.take();
+            len += bufmut_taken.written();
+
             rprint!(=>1, "mux:[");
             for b in &buffer[0..len] {
                 rprint!(=>1, "{:02x} ", b);
@@ -308,10 +318,11 @@ fn advance_ready<A: Arbiter, T: Tracer>(
     ready_radio: ReadyRadio,
     arbiter: &mut A,
     tracer: &mut T,
+    buffer: &mut[u8],
     _commands: &mut super::CommandQueueC,
 ) -> RadioState
 {
-    let receiving_radio = enable_receiver(ready_radio, arbiter, tracer);
+    let receiving_radio = enable_receiver(ready_radio);
     RadioState::GTSStartWaiting(Some(receiving_radio))
 }
 
@@ -330,54 +341,73 @@ fn process_messages_gts_start_waiting<A: Arbiter, T: Tracer>(
 
     let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
 
-    //let frame = message.frame;
-    let gts_start: Result<Option<RxMessage<GTSStart>>, dw1000::hl::Error<Dw1000Spi, Dw1000Cs>> = GTSStart::decode(&message);
-    match gts_start {
-        Ok(gts_start) => {
-            match gts_start {
-                Some(gts_start) => {
-                    //rprintln!(=>1,"dest:{:?}\tgts_start:{:?}", frame.header.destination, gts_start);
-                    //rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
-                    cfg_if::cfg_if! {
-                        if #[cfg(feature = "devnode")] {
-
-                            let receiving_radio = enable_receiver(ready_radio, tracer);
-                            return RadioState::GTSStartWaiting(Some(receiving_radio));
-                        }
-                    }
-
-                    let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
-                    //let downlink_data = timeslot.sync_no_ack_data;
-                    let tx_time = if timeslot.delta == 0 {
-                        None
-                    } else {
-                        Some(gts_start.rx_time + Duration::from_nanos(timeslot.delta as u32 * 1_000))
-                    };
-                    let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
-                    let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
-                    spawn.radio_event(super::Event::GTSStartReceived(tx_time, gts_end_dt, *timeslot)).ok(); // TODO: count errors
-                    RadioState::GTSWaitingForUplinkData(Some(ready_radio))
-                },
-                None => {
-                    rprintln!(=>1,"Unkown message");
-                    let receiving_radio = enable_receiver(ready_radio, tracer);
-                    RadioState::GTSStartWaiting(Some(receiving_radio))
-                }
-            }
-        },
-        Err(e) => {
-            rprintln!(=>1,"Message decode error: {:?}", e);
-            let receiving_radio = enable_receiver(ready_radio, tracer);
-            RadioState::GTSStartWaiting(Some(receiving_radio))
-        }
+    let payload = message.frame.payload;
+    rprint!(=>1, "p:[");
+    for b in payload {
+        rprint!(=>1, "{:02x} ", b);
     }
+    rprintln!(=>1, "]\n");
+    use crate::radio::serdes::Buf;
+    use crate::radio::{Demultiplex, MiniDemultiplexer};
+    let mut buf = Buf::new(payload);
+    let mut demux = MiniDemultiplexer::new(&mut buf);
+    demux.demux(config::UWB_ADDR, |channel_id, chunk| {
+        rprint!(=>1, "->{}:[", channel_id);
+        for b in chunk {
+            rprint!(=>1, "{:02x} ", b);
+        }
+        rprintln!(=>1, "]\n");
+    });
+
+    let receiving_radio = enable_receiver(ready_radio);
+    RadioState::GTSStartWaiting(Some(receiving_radio))
+    // let gts_start: Result<Option<RxMessage<GTSStart>>, dw1000::hl::Error<Dw1000Spi, Dw1000Cs>> = GTSStart::decode(&message);
+    // match gts_start {
+    //     Ok(gts_start) => {
+    //         match gts_start {
+    //             Some(gts_start) => {
+    //                 //rprintln!(=>1,"dest:{:?}\tgts_start:{:?}", frame.header.destination, gts_start);
+    //                 //rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
+    //                 cfg_if::cfg_if! {
+    //                     if #[cfg(feature = "devnode")] {
+    //
+    //                         let receiving_radio = enable_receiver(ready_radio, tracer);
+    //                         return RadioState::GTSStartWaiting(Some(receiving_radio));
+    //                     }
+    //                 }
+    //
+    //                 let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
+    //                 //let downlink_data = timeslot.sync_no_ack_data;
+    //                 let tx_time = if timeslot.delta == 0 {
+    //                     None
+    //                 } else {
+    //                     Some(gts_start.rx_time + Duration::from_nanos(timeslot.delta as u32 * 1_000))
+    //                 };
+    //                 let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
+    //                 let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
+    //                 spawn.radio_event(super::Event::GTSStartReceived(tx_time, gts_end_dt, *timeslot)).ok(); // TODO: count errors
+    //                 RadioState::GTSWaitingForUplinkData(Some(ready_radio))
+    //             },
+    //             None => {
+    //                 rprintln!(=>1,"Unkown message");
+    //                 let receiving_radio = enable_receiver(ready_radio);
+    //                 RadioState::GTSStartWaiting(Some(receiving_radio))
+    //             }
+    //         }
+    //     },
+    //     Err(e) => {
+    //         rprintln!(=>1,"Message decode error: {:?}", e);
+    //         let receiving_radio = enable_receiver(ready_radio);
+    //         RadioState::GTSStartWaiting(Some(receiving_radio))
+    //     }
+    // }
 }
 
 #[cfg(feature = "slave")]
 fn advance_gts_start_waiting<A: Arbiter, T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    _arbiter: &mut A,
-    _tracer: &mut T,
+    arbiter: &mut A,
+    tracer: &mut T,
     buffer: &mut[u8],
     spawn: &crate::radio_irq::Spawn,
 ) -> RadioState
@@ -391,7 +421,7 @@ fn advance_gts_start_waiting<A: Arbiter, T: Tracer>(
             //rprintln!(=>1,"C: {}", sys_status_before);
             //let sys_status_after = receiving_radio.ll().sys_status().read().unwrap();
             //rprintln!(=>1,"D: {}", sys_status_after);
-            process_messages_gts_start_waiting(receiving_radio, message, spawn, tracer)
+            process_messages_gts_start_waiting(receiving_radio, arbiter, tracer, message, spawn)
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still receiving
@@ -405,7 +435,7 @@ fn advance_gts_start_waiting<A: Arbiter, T: Tracer>(
                 rprintln!(=>1,"RX error: {:?}", e);
                 let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
-                let receiving_radio = enable_receiver(ready_radio, tracer);
+                let receiving_radio = enable_receiver(ready_radio);
                 RadioState::GTSStartWaiting(Some(receiving_radio))
             }
         }
@@ -459,7 +489,7 @@ fn advance_gts_waiting_for_uplink_data<A: Arbiter, T: Tracer>(
 fn advance_gts_answer_sending<A: Arbiter, T: Tracer>(
     mut sending_radio: SendingRadio,
     _arbiter: &mut A,
-    _tracer: &mut T,
+    tracer: &mut T,
 ) -> RadioState
 {
     match sending_radio.wait() {
@@ -470,7 +500,7 @@ fn advance_gts_answer_sending<A: Arbiter, T: Tracer>(
             cortex_m::asm::delay(30);
             //tracer.event(TraceEvent::XYZ);
             // Switch back to GTSStart waiting state
-            let receiving_radio = enable_receiver(ready_radio, tracer);
+            let receiving_radio = enable_receiver(ready_radio);
             RadioState::GTSStartWaiting(Some(receiving_radio))
         },
         Err(e) => {
@@ -481,7 +511,7 @@ fn advance_gts_answer_sending<A: Arbiter, T: Tracer>(
                 rprintln!(=>1,"GTS ans send error: {:?}", e);
                 let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
-                let receiving_radio = enable_receiver(ready_radio, tracer);
+                let receiving_radio = enable_receiver(ready_radio);
                 RadioState::GTSStartWaiting(Some(receiving_radio))
             }
         }

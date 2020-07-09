@@ -54,6 +54,8 @@ pub enum TraceEvent {
     GTSAnswerReceived,
     GTSEnded,
 
+    GTSAnswerSent,
+
     RequestedSlotStarted,
     MessageReceived,
     MessageSent,
@@ -71,6 +73,7 @@ impl core::fmt::Display for TraceEvent {
             TraceEvent::MessageReceived => { write!(f, "MR") },
             TraceEvent::MessageSent => { write!(f, "MS") },
             TraceEvent::RequestedSlotEnded => { write!(f, "R_E") },
+            TraceEvent::GTSAnswerSent => { write!(f, "G_AS") }
         }
     }
 }

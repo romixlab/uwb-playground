@@ -28,7 +28,6 @@ pub enum LogicalDestination {
     Implicit,
     /// Send to specified node address.
     /// Useful when master sends multicast multiplexed message for many nodes.
-    #[cfg(any(feature = "master", feature = "devnode", feature = "relay"))]
     Unicast(dw1000::mac::ShortAddress),
 }
 
@@ -45,8 +44,14 @@ impl ChannelId {
     pub fn id(&self) -> u8 { self.0 }
 }
 
+impl core::fmt::Display for ChannelId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "#{}", self.0)
+    }
+}
+
 /// Multiplex several messages into one continous stream of bytes.
-pub trait Multiplexer {
+pub trait Multiplex {
     type Error;
 
     fn mux(
@@ -57,10 +62,10 @@ pub trait Multiplexer {
     ) -> Result<(), Self::Error>;
 }
 
-pub trait Demultiplexer {
+pub trait Demultiplex {
     type Error;
 
-    fn demux<F>(&mut self, self_addr: dw1000::mac::ShortAddress, f: &mut F)
+    fn demux<F>(&mut self, self_addr: dw1000::mac::ShortAddress, f: F)
         where F: FnMut(ChannelId, &[u8]);
 }
 
@@ -76,10 +81,10 @@ pub trait Arbiter {
     /// * .2 - Channel ID (destination queue / buffer id).
     /// Will be called again if there is space available. If 0 is returned, no further calls will be
     /// made in a given slot.
-    fn source_sync<M: Multiplexer>(&mut self, multiplexer: &mut M);
+    fn source_sync<M: Multiplex>(&mut self, multiplexer: &mut M);
     /// Called whenever there is time to send more data (in additionaly requested slot).
     /// Semantics are the same as in `source_sync`.
-    fn source_async<M: Multiplexer>(&mut self, multiplexer: &mut M);
+    fn source_async<M: Multiplex>(&mut self, multiplexer: &mut M);
     // Called when request for additional time slot may be made. Return current amount of data
     // currently pending for transmission
     //fn size_hints(&self) ->
@@ -95,16 +100,16 @@ pub trait Arbiter {
 /// bytes +1: MUUU_UUUU, where U - message length if <= 127, M - more flag.
 /// bytes +1 if M: UUUU_UUUU - additional high bits for length.
 pub struct MiniMultiplexer<'a> {
-    buf: &'a mut [u8],
-    cursor: usize
+    buf: serdes::BufMut<'a>
 }
 
 impl<'a> MiniMultiplexer<'a> {
-    pub fn new(buf: &'a mut [u8]) -> Self {
-        MiniMultiplexer {
-            buf,
-            cursor: 0
-        }
+    pub fn new(buf: serdes::BufMut<'a>) -> Self {
+        MiniMultiplexer { buf }
+    }
+
+    pub fn take(mut self) -> serdes::BufMut<'a> {
+        self.buf
     }
 
     fn header_size(message_len: usize, destination: LogicalDestination, channel: ChannelId) -> usize
@@ -113,19 +118,9 @@ impl<'a> MiniMultiplexer<'a> {
         needed_for_header += if message_len <= 127 { 1 } else { 2 };
         needed_for_header
     }
-
-    #[inline]
-    fn remaining(&self) -> usize {
-        self.buf.len() - self.cursor
-    }
-
-    #[inline]
-    pub fn written(&self) -> usize {
-        self.cursor
-    }
 }
 
-impl<'a> Multiplexer for MiniMultiplexer<'a> {
+impl<'a> Multiplex for MiniMultiplexer<'a> {
     type Error = Error;
 
     fn mux(
@@ -137,64 +132,74 @@ impl<'a> Multiplexer for MiniMultiplexer<'a> {
     {
         let header_size = MiniMultiplexer::header_size(thing.size_hint(), destination, channel);
         let thing_size = thing.size_hint();
-        if header_size + thing_size > self.remaining() || thing_size >= 32768 {
+        if header_size + thing_size > self.buf.remaining() || thing_size >= 32768 {
             return Err(Error::MuxTooBig);
         }
         if let LogicalDestination::Unicast(addr) = destination {
-            self.buf[self.cursor] = 0b1000_0000 | channel.id();
-            self.buf[self.cursor+1 ..= self.cursor + 2].copy_from_slice(&addr.0.to_le_bytes());
-            self.cursor += 3;
+            self.buf.put_u8(0b1000_0000 | channel.id());
+            self.buf.put_u16(addr.0);
         } else {
-            self.buf[self.cursor] = channel.id();
-            self.cursor += 1;
+            self.buf.put_u8(channel.id());
         }
         if thing_size <= 127 {
-            self.buf[self.cursor] = thing_size as u8;
-            self.cursor += 1;
+            self.buf.put_u8(thing_size as u8);
         } else {
             let len = thing_size as u16;
-            self.buf[self.cursor] = 0b1000_0000 | (len & 0b0111_1111) as u8;
-            self.buf[self.cursor + 1] = ((len >> 7) & 0xff) as u8;
-            self.cursor += 2;
+            self.buf.put_u8(0b1000_0000 | (len & 0b0111_1111) as u8);
+            self.buf.put_u8( ((len >> 7) & 0xff) as u8 );
         }
-        thing.ser(&mut self.buf[self.cursor..])?;
-        self.cursor += thing_size;
+        thing.ser(&mut self.buf)?;
         Ok(())
     }
 }
 
-impl<'a> Demultiplexer for MiniMultiplexer<'a> {
+pub struct MiniDemultiplexer<'a> {
+    buf: &'a mut serdes::Buf<'a>,
+}
+
+impl<'a> MiniDemultiplexer<'a> {
+    pub fn new(buf: &'a mut serdes::Buf<'a>) -> Self {
+        MiniDemultiplexer { buf }
+    }
+}
+
+impl<'a> Demultiplex for MiniDemultiplexer<'a> {
     type Error = Error;
 
-    fn demux<F>(&mut self, self_addr: dw1000::mac::ShortAddress, f: &mut F)
+    fn demux<F>(&mut self, self_addr: dw1000::mac::ShortAddress, mut f: F)
         where F: FnMut(ChannelId, &[u8])
     {
+        use rtt_target::rprintln;
         loop {
-            if self.remaining() <= 2 { break; }
-            let is_unicast = self.buf[self.cursor] & 0b1000_0000 != 0;
-            let channel_id = self.buf[self.cursor] & 0b0111_1111;
-            self.cursor += 1;
+            rprintln!(=>1, "de1, re:{}", self.buf.remaining());
+            if self.buf.remaining() <= 2 { break; }
+            rprintln!(=>1, "de2, re:{}", self.buf.remaining());
+            let is_unicast_channel = self.buf.get_u8();
+            let is_unicast = is_unicast_channel & 0b1000_0000 != 0;
+            let channel_id = is_unicast_channel & 0b0111_1111;
             let skip_thing = if is_unicast {
-                let target_addr: [u8; 2] = self.buf[self.cursor ..= self.cursor + 1].try_into().unwrap();
-                let target_addr = u16::from_be_bytes(target_addr);
-                self.cursor += 2;
+                let target_addr = self.buf.get_u16();
                 target_addr != self_addr.0
             } else {
                 false
             };
-            if self.remaining() <= 1 { break; }
-            let len_is_2_byte = self.buf[self.cursor] & 0b1000_0000 != 0;
-            let mut len = (self.buf[self.cursor] & 0b0111_1111) as u16;
+            if self.buf.remaining() <= 1 { break; }
+            rprintln!(=>1, "de3, skip:{}, re:{}", skip_thing, self.buf.remaining());
+            let len = self.buf.get_u8();
+            let len_is_2_byte = len & 0b1000_0000 != 0;
+            let mut len = (len & 0b0111_1111) as u16;
+            rprintln!(=>1, "de3a, len:{} 2b:{}", len, len_is_2_byte);
             if len_is_2_byte {
-                if self.remaining() <= 128 { break; }
-                self.cursor += 1;
-                len |= (self.buf[self.cursor] as u16) << 7;
+                if self.buf.remaining() <= 128 { break; }
+                rprintln!(=>1, "de4, re:{}", self.buf.remaining());
+                len |= (self.buf.get_u8() as u16) << 7;
             }
-            if self.remaining() < len as usize { break; }
+            if self.buf.remaining() < len as usize { break; }
+            rprintln!(=>1, "de5, re:{}", self.buf.remaining());
             if !skip_thing {
-                f(ChannelId(channel_id), &self.buf[self.cursor .. self.cursor + len as usize]);
+                f(ChannelId(channel_id), self.buf.slice_to(len as usize));
             }
-            self.cursor += len as usize;
+            self.buf.advance(len as usize);
         }
     }
 }
@@ -264,6 +269,7 @@ pub enum NodeState {
 
 use typenum::marker_traits::Unsigned;
 use core::convert::TryInto;
+use core::fmt::Formatter;
 
 struct Radio {
     hw: RadioState,

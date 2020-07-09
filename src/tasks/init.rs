@@ -255,6 +255,7 @@ pub fn init(
                     clocks,
 
                     radio_state: radio::RadioState::Ready(Some(dw1000)),
+                    radio_queues,
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
                     radio_commands_p, radio_commands_c,
@@ -280,6 +281,7 @@ pub fn init(
                     clocks,
 
                     radio_state: radio::RadioState::Ready(Some(dw1000)),
+                    radio_queues,
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
                     radio_commands_p, radio_commands_c,

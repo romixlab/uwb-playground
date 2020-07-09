@@ -8,7 +8,7 @@ use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
-use crate::radio::{Arbiter, LogicalDestination, ChannelId, Multiplexer};
+use crate::radio::{Arbiter, LogicalDestination, ChannelId, Multiplex};
 use crate::motion::MoveCommand;
 use crate::util::{Tracer, TraceEvent};
 
@@ -82,12 +82,12 @@ impl DataQueues {
 }
 
 impl Arbiter for DataQueues {
-    fn source_sync<M: Multiplexer>(&mut self, mux: &mut M)
+    fn source_sync<M: Multiplex>(&mut self, mux: &mut M)
     {
 
     }
 
-    fn source_async<M: Multiplexer>(&mut self, mux: &mut M) {
+    fn source_async<M: Multiplex>(&mut self, mux: &mut M) {
         unimplemented!()
     }
 
@@ -145,13 +145,13 @@ impl Tracer for RttTracer {
     fn event(&mut self, e: TraceEvent) {
         use cortex_m::peripheral::DWT;
 
+        let now = DWT::get_cycle_count();
+        let dt = now - self.instant;
+        let dt = cycles2us_raw!(self.sysclk, dt);
         if e == TraceEvent::GTSStart {
             self.instant = DWT::get_cycle_count();
-            rprintln!(=> 13, "\n\n\n---\n");
+            rprintln!(=> 13, "\n\n\n---\n{}.{}\n", dt / 1000, dt % 1000);
         } else {
-            let now = DWT::get_cycle_count();
-            let dt = now - self.instant;
-            let dt = cycles2us_raw!(self.sysclk, dt);
             rprint!(=> 13, "+{}.{} ", dt / 1000, dt % 1000);
         }
         rprintln!(=> 13, "{}\n", e);
@@ -197,7 +197,7 @@ pub fn radio_irq<T: Tracer>(cx: crate::radio_irq::Context, tracer: &mut T, buffe
 }
 
 pub fn radio_event(mut cx: crate::radio_event::Context, e: radio::Event) {
-    rprintln!("radio_event: {:?}", e);
+    rprintln!("radio_event: {:?}\n", e);
     use radio::Event::*;
     match e {
         #[cfg(feature = "master")]
@@ -237,7 +237,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: radio::Event) {
             // Schedule an rpm sending after all GTS, so that each MC receive the command at the same time
             let rpm = motion::Rpm(gts_entry.sync_no_ack_data.rpm);
             cx.resources.wheel.rpm = rpm;
-            cx.schedule.radio_event(cx.scheduled + GTSStartgts_end_dt.0 / 1000, radio::Event::GTSEnded).ok(); // TODO: count errors;
+            cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 / 1000), radio::Event::GTSEnded).ok(); // TODO: count errors;
         },
         #[cfg(feature = "devnode")]
         GTSStartReceived(tx_time, gts_end_dt, gts_entry) => {

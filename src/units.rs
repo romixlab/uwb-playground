@@ -2,7 +2,7 @@ use core::fmt;
 use core::fmt::Formatter;
 use serde::{Serialize, Deserialize};
 
-#[derive(Eq, PartialEq, PartialOrd, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, PartialOrd, Clone, Copy,)]
 pub struct Seconds(pub u32);
 
 impl fmt::Display for Seconds {
@@ -13,7 +13,7 @@ impl fmt::Debug for Seconds {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { write!(f, "{}", self) }
 }
 
-#[derive(Eq, PartialEq, PartialOrd, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, PartialOrd, Clone, Copy,)]
 pub struct MilliSeconds(pub u32);
 
 impl fmt::Display for MilliSeconds {
@@ -32,7 +32,7 @@ impl Into<MilliSeconds> for Seconds {
     fn into(self) -> MilliSeconds { MilliSeconds(self.0 * 1_000) }
 }
 
-#[derive(Eq, PartialEq, PartialOrd, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, PartialOrd, Clone, Copy,)]
 pub struct MicroSeconds(pub u32);
 
 impl fmt::Display for MicroSeconds {
@@ -53,7 +53,7 @@ impl Into<MicroSeconds> for Seconds {
     fn into(self) -> MicroSeconds { MicroSeconds(self.0 * 1_000_000) }
 }
 
-#[derive(Eq, PartialEq, PartialOrd, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, PartialOrd, Clone, Copy)]
 pub struct NanoSeconds(pub u64);
 
 impl fmt::Display for NanoSeconds {

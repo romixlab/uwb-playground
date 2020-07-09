@@ -192,7 +192,7 @@ const APP: () = {
 
     #[task(
         binds = USART2,
-        priority = 7,
+        priority = 3,
         resources = [
             ctrl_serial,
             ctrl_framer,
