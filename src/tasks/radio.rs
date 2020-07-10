@@ -91,17 +91,21 @@ impl Arbiter for DataQueues {
         unimplemented!()
     }
 
-    fn sink_async(&mut self, buf: &[u8], channel: ChannelId) {
+    fn sink_async(&mut self, channel: ChannelId, chunk: &[u8]) {
         unimplemented!()
     }
 
-    fn sink_sync(&mut self, buf: &[u8], channel: ChannelId) {
-        unimplemented!()
+    fn sink_sync(&mut self, channel: ChannelId, chunk: &[u8]) {
+        rprint!(=>1, "arb: CH{}:[", channel);
+        for b in chunk {
+            rprint!(=>1, "{:02x} ", b);
+        }
+        rprintln!(=>1, "]\n");
     }
 }
 
 #[allow(unused_variables)]
-pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoState) {
+pub fn radio_chrono(mut cx: crate::radio_chrono::Context, state: &mut RadioChronoState) {
     #[cfg(feature = "master")]
     const GTS_END_MS: u32 = 30;
     //use radio::Command;
@@ -115,15 +119,19 @@ pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoSta
                 use RadioChronoState::*;
                 *state = match state {
                     Idle => {
-                        cx.resources.radio_commands_p.enqueue(Command::GTSStart).ok(); // TODO: Count errors
+                        unsafe { TRACER.event(TraceEvent::GTSChronoStart); }
+                        cx.resources.radio_command.lock(|cmd| *cmd = Some(Command::GTSStart));
+                        rtic::pend(config::DW1000_IRQ_EXTI);
+
                         cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, GTS_END_MS)).ok(); // TODO: Count errors
-                        //
                         RadioChronoState::GTSInProgress
                     },
                     GTSInProgress => {
-                        cx.resources.radio_commands_p.enqueue(Command::GTSEnd).ok(); // TODO: Count errors
+                        unsafe { TRACER.event(TraceEvent::GTSChronoEnd); }
+                        cx.resources.radio_command.lock(|cmd| *cmd = Some(Command::GTSEnd));
+                        rtic::pend(config::DW1000_IRQ_EXTI);
+
                         cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS - GTS_END_MS)).ok(); // TODO: Count errors
-                        //
                         Idle
                     }
                 }
@@ -137,7 +145,8 @@ pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoSta
 }
 
 pub struct RttTracer {
-    pub instant: u32,
+    pub prev: u32,
+    pub prev_gts: u32,
     pub sysclk: u32
 }
 
@@ -146,15 +155,34 @@ impl Tracer for RttTracer {
         use cortex_m::peripheral::DWT;
 
         let now = DWT::get_cycle_count();
-        let dt = now - self.instant;
-        let dt = cycles2us_raw!(self.sysclk, dt);
-        if e == TraceEvent::GTSStart {
-            self.instant = DWT::get_cycle_count();
-            rprintln!(=> 13, "\n\n\n---\n{}.{}\n", dt / 1000, dt % 1000);
-        } else {
-            rprint!(=> 13, "+{}.{} ", dt / 1000, dt % 1000);
+
+        use crate::board::hal::stm32::Peripherals;
+        let device = unsafe { Peripherals::steal() };
+        let gpioa = device.GPIOA;
+        let count = e as u8;
+        for _ in 0..count {
+            gpioa.bsrr.write(|w| w.bs1().set_bit());
+            cortex_m::asm::nop();
+            gpioa.bsrr.write(|w| w.br1().set_bit());
         }
-        rprintln!(=> 13, "{}\n", e);
+
+        // let dt_gts = now - self.prev_gts;
+        // let dt_prev = now - self.prev;
+        // if e == TraceEvent::GTSChronoStart {
+        //     self.prev_gts = now;
+        //     rprintln!(=> 13, "\n\n\n---\n");
+        // }
+        // self.prev = now;
+        //
+        // let dt_gts = cycles2us_raw!(self.sysclk, dt_gts);
+        // let dt_prev = cycles2us_raw!(self.sysclk, dt_prev);
+        // rprintln!(=> 13,
+        //     "{}({}) +{}.{:03} d{}.{:03}\n",
+        //     e,
+        //     count,
+        //     dt_gts / 1000, dt_gts % 1000,
+        //     dt_prev / 1000, dt_prev % 1000
+        // );
     }
 }
 
@@ -164,7 +192,9 @@ impl Tracer for NoOpTracer {
     fn event(&mut self, _e: TraceEvent) { }
 }
 
-pub fn radio_irq<T: Tracer>(cx: crate::radio_irq::Context, tracer: &mut T, buffer: &mut[u8], ) {
+static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 72_000_000 };
+
+pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // let now = DWT::get_cycle_count() as i32;
     // let dt = now.wrapping_sub(*LAST_IDLE_INSTANT);
     // *LAST_IDLE_INSTANT = now;
@@ -182,10 +212,10 @@ pub fn radio_irq<T: Tracer>(cx: crate::radio_irq::Context, tracer: &mut T, buffe
         radio::state_machine::advance(
             cx.resources.radio_state,
             cx.resources.radio_queues,
-            cx.resources.radio_commands_c,
+            cx.resources.radio_command,
             buffer,
             &cx.spawn,
-            tracer
+            unsafe { &mut TRACER }
         );
         if cx.resources.radio_irq.is_low().unwrap() {
             break;
@@ -232,8 +262,8 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: radio::Event) {
             let power_in = cx.resources.wheel.power_in;
             let uplink_data = radio::message::GTSUplinkData { tacho: tacho.0, power_in };
             let gts_answer = radio::message::GTSAnswer { data: uplink_data };
-            cx.resources.radio_commands_p.lock(|commands|
-                commands.enqueue(radio::Command::GTSSendAnswer(tx_time, gts_answer))).ok(); // TODO: Count errors
+            // cx.resources.radio_commands_p.lock(|commands|
+            //     commands.enqueue(radio::Command::GTSSendAnswer(tx_time, gts_answer))).ok(); // TODO: Count errors
             // Schedule an rpm sending after all GTS, so that each MC receive the command at the same time
             let rpm = motion::Rpm(gts_entry.sync_no_ack_data.rpm);
             cx.resources.wheel.rpm = rpm;

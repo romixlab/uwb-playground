@@ -28,8 +28,9 @@ const APP: () = {
         radio_queues: tasks::radio::DataQueues,
         radio_irq: config::RadioIrqPin,
         radio_trace: config::RadioTracePin,
-        radio_commands_p: radio::CommandQueueP,
-        radio_commands_c: radio::CommandQueueC,
+        //radio_commands_p: radio::CommandQueueP,
+        //radio_commands_c: radio::CommandQueueC,
+        radio_command: Option<radio::Command>,
 
         vesc_serial: config::VescSerial,
         vesc_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U512>,
@@ -115,7 +116,7 @@ const APP: () = {
         priority = 5,
         resources = [
             &clocks,
-            radio_commands_p,
+            radio_command,
             mecanum_wheels,
         ],
         schedule = [
@@ -135,7 +136,7 @@ const APP: () = {
             radio_state,
             radio_queues,
             radio_irq,
-            radio_commands_c,
+            radio_command,
             radio_trace,
             idle_counter,
             exti,
@@ -146,8 +147,7 @@ const APP: () = {
     ]
     fn radio_irq(cx: radio_irq::Context) {
         static mut BUFFER: [u8; 1024] = [0u8; 1024];
-        static mut TRACER: tasks::radio::RttTracer = tasks::radio::RttTracer{ instant: 0, sysclk: 72_000_000 };
-        tasks::radio::radio_irq(cx, TRACER, BUFFER);
+        tasks::radio::radio_irq(cx, BUFFER);
     }
 
     #[task(
@@ -157,7 +157,6 @@ const APP: () = {
             &clocks,
             wheel,
             mecanum_wheels,
-            radio_commands_p,
             stat,
         ],
         spawn = [

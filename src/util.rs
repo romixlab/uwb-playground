@@ -47,12 +47,14 @@ macro_rules! cycles2us_raw {
     };
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum TraceEvent {
-    GTSStart,
-    GTSStartedReceivingAnswers,
-    GTSAnswerReceived,
-    GTSEnded,
+    GTSChronoStart = 1,
+    GTSStart = 2,
+    GTSStartedReceivingAnswers = 3,
+    GTSAnswerReceived = 4,
+    GTSChronoEnd = 5,
+    GTSEnded = 6,
 
     GTSAnswerSent,
 
@@ -74,6 +76,8 @@ impl core::fmt::Display for TraceEvent {
             TraceEvent::MessageSent => { write!(f, "MS") },
             TraceEvent::RequestedSlotEnded => { write!(f, "R_E") },
             TraceEvent::GTSAnswerSent => { write!(f, "G_AS") }
+            TraceEvent::GTSChronoStart => { write!(f, "G_CS") }
+            TraceEvent::GTSChronoEnd => { write!(f, "G_CE") }
         }
     }
 }

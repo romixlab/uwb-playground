@@ -32,7 +32,15 @@
   <component name="ChangeListManager">
     <list default="true" id="bc4657c7-b1de-4277-b77d-1b087b3e0639" name="Default Changelist" comment="Implement Multiplexer.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/radio/message.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/message.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/radio/serdes.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/serdes.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/radio/state_machine.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/state_machine.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/init.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/init.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/radio.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/radio.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/util.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/util.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -74,7 +82,7 @@
     <property name="settings.editor.selected.configurable" value="terminal" />
     <property name="show.migrate.to.gradle.popup" value="false" />
   </component>
-  <component name="RunManager" selected="Cargo Command.Check master [pozyx]">
+  <component name="RunManager" selected="Cargo Command.Run release Master">
     <configuration name="Check dev" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="check --release --features &quot;slave devnode pozyx-board&quot;" />
@@ -137,7 +145,7 @@
     </configuration>
     <configuration name="Run release Master" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release  --features &quot;master pozyx-board&quot;" />
+      <option name="command" value="run --release  --features &quot;master pozyx-board&quot; -- USB 801016393" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="SHORT" />
@@ -161,7 +169,7 @@
     </configuration>
     <configuration name="Run release Slave BR" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
-      <option name="command" value="run --release  --features &quot;slave br pozyx-board&quot; -- USB 801016393" />
+      <option name="command" value="run --release  --features &quot;slave br pozyx-board&quot; -- USB 801016389" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="SHORT" />
@@ -174,6 +182,18 @@
     <configuration name="Run release Slave TR" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="run --release  --features &quot;slave tr pozyx-board&quot;" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Size release Master" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="DEFAULT" />
+      <option name="command" value="size --release --features &quot;master pozyx-board&quot; --bin uwb -- -A" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="SHORT" />
@@ -225,6 +245,7 @@
       <item itemvalue="Cargo Command.Check dev" />
       <item itemvalue="Cargo Command.Check slave" />
       <item itemvalue="Cargo Command.Run release Master" />
+      <item itemvalue="Cargo Command.Size release Master" />
       <item itemvalue="Cargo Command.Run release Dev" />
       <item itemvalue="Cargo Command.Run release Slave TR" />
       <item itemvalue="Cargo Command.Run release Slave BL" />
@@ -327,7 +348,14 @@
       <option name="project" value="LOCAL" />
       <updated>1593872583093</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL-00011" summary="Implement Buf, BufMut, test MiniDemultiplexer.">
+      <created>1594314272818</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1594314272818</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -354,27 +382,28 @@
     <MESSAGE value="Remove many warning messages." />
     <MESSAGE value="Implement RPLidar driver." />
     <MESSAGE value="Implement Multiplexer." />
-    <option name="LAST_COMMIT_MESSAGE" value="Implement Multiplexer." />
+    <MESSAGE value="Implement Buf, BufMut, test MiniDemultiplexer." />
+    <option name="LAST_COMMIT_MESSAGE" value="Implement Buf, BufMut, test MiniDemultiplexer." />
   </component>
   <component name="WindowStateProjectService">
     <state x="2643" y="421" key="#Notifications" timestamp="1594131073569">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2643" y="421" key="#Notifications/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594131073569" />
-    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1594111397565">
+    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1594390452838">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="721" y="163" key="#com.intellij.execution.impl.EditConfigurationsDialog/0.23.1792.1097@0.23.1792.1097" timestamp="1593003704895" />
     <state x="424" y="213" key="#com.intellij.execution.impl.EditConfigurationsDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141203945" />
     <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592730890149" />
-    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594111397565" />
+    <state x="2574" y="158" key="#com.intellij.execution.impl.EditConfigurationsDialog/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594390452838" />
     <state x="2216" y="213" key="#com.intellij.execution.impl.EditConfigurationsDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592311929359" />
-    <state x="773" y="274" key="#com.intellij.ide.util.MemberChooser" timestamp="1594144900257">
-      <screen x="0" y="23" width="1920" height="1057" />
+    <state x="2565" y="274" key="#com.intellij.ide.util.MemberChooser" timestamp="1594385100184">
+      <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="773" y="274" key="#com.intellij.ide.util.MemberChooser/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594144900257" />
     <state x="2565" y="274" key="#com.intellij.ide.util.MemberChooser/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592813402153" />
-    <state x="2565" y="274" key="#com.intellij.ide.util.MemberChooser/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594130346012" />
+    <state x="2565" y="274" key="#com.intellij.ide.util.MemberChooser/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594385100184" />
     <state x="2331" y="223" key="#com.intellij.openapi.keymap.impl.ui.EditKeymapsDialog" timestamp="1592728980181">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
@@ -391,48 +420,48 @@
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2288" y="297" key="#com.intellij.structuralsearch.plugin.ui.StructuralSearchDialog/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592748908410" />
-    <state x="2359" y="127" key="CommitChangelistDialog2" timestamp="1593872582909">
+    <state x="2359" y="127" width="1194" height="854" key="CommitChangelistDialog2" timestamp="1594314272638">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="341" y="131" key="CommitChangelistDialog2/0.23.1792.1097@0.23.1792.1097" timestamp="1593196140832" />
     <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671766105" />
-    <state x="2359" y="127" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593872582908" />
+    <state x="2359" y="127" width="1194" height="854" key="CommitChangelistDialog2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594314272638" />
     <state x="1934" y="210" width="734" height="663" key="EnvironmentVariablesDialog" timestamp="1592212535440">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="142" y="210" width="734" height="663" key="EnvironmentVariablesDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141097561" />
     <state x="1934" y="210" key="EnvironmentVariablesDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592212535440" />
-    <state width="939" height="290" key="GridCell.Tab.0.bottom" timestamp="1594233852452">
-      <screen x="0" y="23" width="1920" height="1057" />
+    <state width="1878" height="287" key="GridCell.Tab.0.bottom" timestamp="1594393583352">
+      <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.bottom/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852452" />
     <state width="1878" height="290" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
-    <state width="939" height="287" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594135773677" />
+    <state width="1878" height="287" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583352" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="939" height="290" key="GridCell.Tab.0.center" timestamp="1594233852451">
-      <screen x="0" y="23" width="1920" height="1057" />
+    <state width="1878" height="287" key="GridCell.Tab.0.center" timestamp="1594393583351">
+      <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.center/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.center/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852451" />
     <state width="1878" height="290" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
-    <state width="939" height="287" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594135773676" />
+    <state width="1878" height="287" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583351" />
     <state width="939" height="290" key="GridCell.Tab.0.center/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="939" height="290" key="GridCell.Tab.0.left" timestamp="1594233852451">
-      <screen x="0" y="23" width="1920" height="1057" />
+    <state width="1878" height="287" key="GridCell.Tab.0.left" timestamp="1594393583351">
+      <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.left/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142459" />
     <state width="939" height="290" key="GridCell.Tab.0.left/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852451" />
     <state width="1878" height="290" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
-    <state width="939" height="287" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594135773676" />
+    <state width="1878" height="287" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583351" />
     <state width="939" height="290" key="GridCell.Tab.0.left/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749242" />
-    <state width="939" height="290" key="GridCell.Tab.0.right" timestamp="1594233852452">
-      <screen x="0" y="23" width="1920" height="1057" />
+    <state width="1878" height="287" key="GridCell.Tab.0.right" timestamp="1594393583351">
+      <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state width="1750" height="301" key="GridCell.Tab.0.right/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.right/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852452" />
     <state width="1878" height="290" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
-    <state width="939" height="287" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594135773677" />
+    <state width="1878" height="287" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583351" />
     <state width="939" height="290" key="GridCell.Tab.0.right/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
     <state width="1878" height="358" key="GridCell.Tab.1.bottom" timestamp="1592724221915">
       <screen x="1792" y="23" width="1920" height="1057" />
@@ -454,11 +483,11 @@
       <screen x="0" y="23" width="1920" height="1057" />
     </state>
     <state x="469" y="190" key="SettingsEditor/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141072123" />
-    <state x="2352" y="291" key="Vcs.Push.Dialog.v2" timestamp="1593872584891">
+    <state x="2352" y="291" key="Vcs.Push.Dialog.v2" timestamp="1594314274458">
       <screen x="1792" y="23" width="1920" height="1057" />
     </state>
     <state x="2352" y="291" key="Vcs.Push.Dialog.v2/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592671768713" />
-    <state x="2352" y="291" key="Vcs.Push.Dialog.v2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1593872584891" />
+    <state x="2352" y="291" key="Vcs.Push.Dialog.v2/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594314274458" />
     <state x="751" y="472" key="com.intellij.openapi.vcs.update.UpdateOrStatusOptionsDialogupdate-v2" timestamp="1594233778782">
       <screen x="0" y="23" width="1920" height="1057" />
     </state>

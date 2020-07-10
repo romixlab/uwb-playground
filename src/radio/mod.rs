@@ -13,6 +13,9 @@ use heapless::consts::*;
 
 #[derive(Debug)]
 pub enum Error {
+    NotEnoughSpace,
+    Eof,
+    WrongId,
     WindowTooLong,
     WrongChannel,
     WrongBitrate,
@@ -41,7 +44,12 @@ impl ChannelId {
         ChannelId(channel_id)
     }
 
+    pub fn new_ctrl() -> Self {
+        ChannelId(0)
+    }
+
     pub fn id(&self) -> u8 { self.0 }
+    pub fn is_ctrl(&self) -> bool { self.0 == 0 }
 }
 
 impl core::fmt::Display for ChannelId {
@@ -89,9 +97,9 @@ pub trait Arbiter {
     // currently pending for transmission
     //fn size_hints(&self) ->
     /// Called when data for a given channel had been received in async slot.
-    fn sink_sync(&mut self, buf: &[u8], channel: ChannelId);
+    fn sink_sync(&mut self, channel: ChannelId, chunk: &[u8]);
     /// Called when data for a given channel had been received in sync slot.
-    fn sink_async(&mut self, buf: &[u8], channel: ChannelId);
+    fn sink_async(&mut self, channel: ChannelId, chunk: &[u8]);
 }
 
 /// Simple multiplexer that uses from 2 to 5 bytes for each muxed message.
@@ -230,9 +238,7 @@ pub enum RadioState {
 pub enum Command {
     #[cfg(feature = "master")]
     GTSStart,
-    /// Fired when all GTS should finish on master and slave, after that rpms are sent to MCs.
-    #[cfg(feature = "slave")]
-    GTSSendAnswer(Option<dw1000::time::Instant>, message::GTSAnswer),
+    #[cfg(feature = "master")]
     GTSEnd,
 }
 

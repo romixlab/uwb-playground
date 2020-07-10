@@ -1,5 +1,6 @@
-pub trait MessageId {
+pub trait MessageSpec {
     const ID: u8;
+    const SIZE: usize;
 }
 
 pub trait Serialize {
@@ -13,7 +14,7 @@ pub trait Deserialize {
     type Output;
     type Error;
 
-    fn des(buf: &[u8]) -> Result<Self::Output, Self::Error>;
+    fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error>;
 }
 
 pub struct Buf<'a> {
@@ -48,6 +49,10 @@ impl<'a> Buf<'a> {
         let val = unsafe { *self.buf.get_unchecked(self.idx) };
         self.idx += 1;
         val
+    }
+
+    pub fn peek_u8(&self) -> u8 {
+        unsafe { *self.buf.get_unchecked(self.idx) }
     }
 
     pub fn get_u16(&mut self) -> u16 {

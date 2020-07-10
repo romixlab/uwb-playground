@@ -77,7 +77,7 @@ pub fn init(
 
     // DW1000
     let dw1000_spi_freq = 2.mhz();
-    let dw1000_spi_freq_hi = 20.mhz();
+    let dw1000_spi_freq_hi = 18.mhz();
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
@@ -217,7 +217,8 @@ pub fn init(
             cx.spawn.ctrl_link_control().unwrap();
         }
     }
-    let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
+    //let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
+    let radio_command = None;
     let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
     let radio_queues = crate::tasks::radio::DataQueues::new();
 
@@ -230,7 +231,8 @@ pub fn init(
                     radio_queues,
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
-                    radio_commands_p, radio_commands_c,
+                    //radio_commands_p, radio_commands_c,
+                    radio_command,
 
                     vesc_serial,
                     vesc_framer,
@@ -258,7 +260,8 @@ pub fn init(
                     radio_queues,
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
-                    radio_commands_p, radio_commands_c,
+                    //radio_commands_p, radio_commands_c,
+                    radio_command,
 
                     vesc_serial,
                     vesc_framer,
@@ -284,7 +287,8 @@ pub fn init(
                     radio_queues,
                     radio_irq: dw1000_irq,
                     radio_trace: trace_pin,
-                    radio_commands_p, radio_commands_c,
+                    //radio_commands_p, radio_commands_c,
+                    radio_command,
 
                     vesc_serial,
                     vesc_framer,

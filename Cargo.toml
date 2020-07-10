@@ -68,7 +68,8 @@ debug = true
 lto = false
 
 [profile.release]
-opt-level = "s"
+#opt-level = "s"
+opt-level = 3
 codegen-units = 1
 debug = true
 lto = true

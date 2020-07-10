@@ -199,16 +199,20 @@ fn bitrate_from_u8(n: u8) -> Option<dw1000::configs::BitRate> {
     }
 }
 
-use crate::radio::serdes::{MessageId, Buf, BufMut};
+use crate::radio::serdes::{MessageSpec, Buf, BufMut};
 
-impl super::serdes::MessageId for Window {
+impl MessageSpec for Window {
     const ID: u8 = 0x70;
+    const SIZE: usize = 6;
 }
 
 impl super::serdes::Serialize for Window {
     type Error = super::Error;
 
     fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        if buf.remaining() < Self::SIZE {
+            return Err(Error::NotEnoughSpace);
+        }
         if self.shift.0 >= core::u16::MAX as u32 || self.window.0 >= core::u16::MAX as u32 {
             return Err(Error::WindowTooLong);
         }
@@ -226,26 +230,37 @@ impl super::serdes::Serialize for Window {
         Ok(())
     }
 
-    fn size_hint(&self) -> usize { 6 }
+    fn size_hint(&self) -> usize {
+        Self::SIZE
+    }
 }
 
 impl super::serdes::Deserialize for Window {
     type Output = Window;
     type Error = super::Error;
 
-    fn des(buf: &[u8]) -> Result<Self::Output, Self::Error> {
-        use core::convert::TryInto;
+    fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
+        if buf.remaining() >= 1 {
+            if buf.peek_u8() != Self::ID {
+                return Err(Error::WrongId);
+            }
+        } else {
+            return Err(Error::Eof);
+        }
+        if buf.remaining() < Self::SIZE {
+            return Err(Error::Eof);
+        }
 
-        let shift: [u8; 2] = buf[0..=1].try_into().unwrap();
-        let shift = u16::from_le_bytes(shift);
-        let window: [u8; 2] = buf[2..=3].try_into().unwrap();
-        let window = u16::from_le_bytes(window);
-        let channel = channel_from_u8(buf[4] & 0b0000_1111).ok_or(Error::WrongChannel)?;
-        let bitrate = bitrate_from_u8((buf[4] & 0b0011_0000) >> 4).ok_or(Error::WrongBitrate)?;
+        let _id = buf.get_u8();
+        let shift = buf.get_u16();
+        let window = buf.get_u16();
+        let config = buf.get_u8();
+        let channel = channel_from_u8(config & 0b0000_1111).ok_or(Error::WrongChannel)?;
+        let bitrate = bitrate_from_u8((config & 0b0011_0000) >> 4).ok_or(Error::WrongBitrate)?;
         use dw1000::configs::PulseRepetitionFrequency::*;
-        let prf = if buf[4] & 0b0100_0000 == 0 { Mhz16 } else { Mhz64 };
+        let prf = if config & 0b0100_0000 == 0 { Mhz16 } else { Mhz64 };
         use WindowType::*;
-        let window_type = if buf[4] & 0b1000_0000 == 0 { Uplink } else { Downlink };
+        let window_type = if config & 0b1000_0000 == 0 { Uplink } else { Downlink };
         Ok(Window {
             shift: units::MicroSeconds(shift as u32),
             window: units::MicroSeconds(window as u32),
