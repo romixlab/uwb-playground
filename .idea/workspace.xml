@@ -31,16 +31,18 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="bc4657c7-b1de-4277-b77d-1b087b3e0639" name="Default Changelist" comment="Implement Multiplexer.">
+      <change afterPath="$PROJECT_DIR$/src/channels.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/radio/channelization.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/radio/serdes_impl.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/radio/types.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/message.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/message.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/radio/serdes.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/serdes.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/radio/state_machine.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/radio/state_machine.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tasks/idle.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/idle.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/tasks/init.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/init.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/tasks/radio.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tasks/radio.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/util.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/util.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -82,7 +84,7 @@
     <property name="settings.editor.selected.configurable" value="terminal" />
     <property name="show.migrate.to.gradle.popup" value="false" />
   </component>
-  <component name="RunManager" selected="Cargo Command.Run release Master">
+  <component name="RunManager" selected="Cargo Command.Check slave">
     <configuration name="Check dev" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="check --release --features &quot;slave devnode pozyx-board&quot;" />
@@ -431,33 +433,37 @@
     </state>
     <state x="142" y="210" width="734" height="663" key="EnvironmentVariablesDialog/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1592141097561" />
     <state x="1934" y="210" key="EnvironmentVariablesDialog/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592212535440" />
-    <state width="1878" height="287" key="GridCell.Tab.0.bottom" timestamp="1594393583352">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1225" height="290" key="GridCell.Tab.0.bottom" timestamp="1594416609758">
+      <screen x="0" y="22" width="1920" height="1058" />
     </state>
+    <state width="1225" height="290" key="GridCell.Tab.0.bottom/0.22.1920.1058/1920.22.1920.1058@0.22.1920.1058" timestamp="1594416609758" />
     <state width="1750" height="301" key="GridCell.Tab.0.bottom/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852452" />
     <state width="1878" height="290" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />
     <state width="1878" height="287" key="GridCell.Tab.0.bottom/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583352" />
     <state width="939" height="290" key="GridCell.Tab.0.bottom/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="287" key="GridCell.Tab.0.center" timestamp="1594393583351">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1225" height="290" key="GridCell.Tab.0.center" timestamp="1594416609757">
+      <screen x="0" y="22" width="1920" height="1058" />
     </state>
+    <state width="1225" height="290" key="GridCell.Tab.0.center/0.22.1920.1058/1920.22.1920.1058@0.22.1920.1058" timestamp="1594416609757" />
     <state width="1750" height="301" key="GridCell.Tab.0.center/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.center/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852451" />
     <state width="1878" height="290" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
     <state width="1878" height="287" key="GridCell.Tab.0.center/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583351" />
     <state width="939" height="290" key="GridCell.Tab.0.center/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749243" />
-    <state width="1878" height="287" key="GridCell.Tab.0.left" timestamp="1594393583351">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1225" height="290" key="GridCell.Tab.0.left" timestamp="1594416609757">
+      <screen x="0" y="22" width="1920" height="1058" />
     </state>
+    <state width="1225" height="290" key="GridCell.Tab.0.left/0.22.1920.1058/1920.22.1920.1058@0.22.1920.1058" timestamp="1594416609757" />
     <state width="1750" height="301" key="GridCell.Tab.0.left/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142459" />
     <state width="939" height="290" key="GridCell.Tab.0.left/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852451" />
     <state width="1878" height="290" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795611" />
     <state width="1878" height="287" key="GridCell.Tab.0.left/1792.23.1920.1057/3712.-32.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1594393583351" />
     <state width="939" height="290" key="GridCell.Tab.0.left/3712.-211.1080.1897/1792.23.1920.1057/0.23.1792.1097@1792.23.1920.1057" timestamp="1592314749242" />
-    <state width="1878" height="287" key="GridCell.Tab.0.right" timestamp="1594393583351">
-      <screen x="1792" y="23" width="1920" height="1057" />
+    <state width="1225" height="290" key="GridCell.Tab.0.right" timestamp="1594416609758">
+      <screen x="0" y="22" width="1920" height="1058" />
     </state>
+    <state width="1225" height="290" key="GridCell.Tab.0.right/0.22.1920.1058/1920.22.1920.1058@0.22.1920.1058" timestamp="1594416609758" />
     <state width="1750" height="301" key="GridCell.Tab.0.right/0.23.1792.1097@0.23.1792.1097" timestamp="1593196142460" />
     <state width="939" height="290" key="GridCell.Tab.0.right/0.23.1920.1057/1920.23.1920.1057@0.23.1920.1057" timestamp="1594233852452" />
     <state width="1878" height="290" key="GridCell.Tab.0.right/1792.23.1920.1057/3712.-211.1080.1897/0.23.1792.1097@1792.23.1920.1057" timestamp="1592816795612" />

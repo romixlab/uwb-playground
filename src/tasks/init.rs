@@ -13,7 +13,7 @@ use embedded_hal::digital::v2::OutputPin;
 
 pub fn init(
     cx: crate::init::Context,
-    radio_commands_queue: &'static mut radio::CommandQueue,
+    radio_commands_queue: &'static mut radio::types::CommandQueue,
     vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
     ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>,
     lidar_queue: &'static mut crate::rplidar::LidarQueue,
@@ -80,45 +80,45 @@ pub fn init(
     let dw1000_spi_freq_hi = 18.mhz();
 
     cfg_if::cfg_if! {
-            if #[cfg(feature = "pozyx-board")] {
-                let mut dw1000_reset  = gpiob.pb0.into_open_drain_output(); // open drain, do not pull high
-                let mut dw1000_cs = gpioa.pa4.into_push_pull_output();
-                let dw1000_clk    = gpioa.pa5.into_alternate_af5();
-                let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
-                let dw1000_miso   = gpioa.pa6.into_alternate_af5();
-                let _dw1000_wakeup = gpioc.pc5;
-                let mut dw1000_irq = gpioa.pa0.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
-                //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input(); // IRQ never ends with this
-                let trace_pin = gpioa.pa1.into_push_pull_output(); // Header pin 1
-                dw1000_irq.make_interrupt_source(&mut syscfg);
-                dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
-                dw1000_irq.enable_interrupt(&mut exti);
+        if #[cfg(feature = "pozyx-board")] {
+            let mut dw1000_reset  = gpiob.pb0.into_open_drain_output(); // open drain, do not pull high
+            let mut dw1000_cs = gpioa.pa4.into_push_pull_output();
+            let dw1000_clk    = gpioa.pa5.into_alternate_af5();
+            let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
+            let dw1000_miso   = gpioa.pa6.into_alternate_af5();
+            let _dw1000_wakeup = gpioc.pc5;
+            let mut dw1000_irq = gpioa.pa0.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
+            //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input(); // IRQ never ends with this
+            let trace_pin = gpioa.pa1.into_push_pull_output(); // Header pin 1
+            dw1000_irq.make_interrupt_source(&mut syscfg);
+            dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
+            dw1000_irq.enable_interrupt(&mut exti);
 
-                let dw1000_spi = Spi::spi1(
-                    device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
-                    embedded_hal::spi::MODE_0,
-                    dw1000_spi_freq.into(),
-                    clocks
-                );
-            } else if #[cfg(feature = "dragonfly-board")] {
-                let mut dw1000_reset  = gpioc.pc11.into_open_drain_output(&mut gpioc.moder, &mut gpioc.otyper); // open drain, do not pull high
-                let mut dw1000_cs = gpioa.pa8.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
-                let dw1000_clk    = gpiob.pb3.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
-                let dw1000_mosi   = gpiob.pb5.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
-                let dw1000_miso   = gpiob.pb4.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
-                //let _dw1000_wakeup = gpioc.pc5;
-                let trace_pin = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
-                let mut dw1000_irq = gpioc.pc9.into_pull_down_input(&mut gpioc.moder, &mut gpioc.pupdr);
-                let mut dw1000_spi = Spi::spi1(
-                    device.SPI1,
-                    (dw1000_clk, dw1000_miso, dw1000_mosi),
-                    MODE_0,
-                    dw1000_spi_freq,
-                    clocks,
-                    &mut rcc.apb2,
-                );
-            }
+            let dw1000_spi = Spi::spi1(
+                device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
+                embedded_hal::spi::MODE_0,
+                dw1000_spi_freq.into(),
+                clocks
+            );
+        } else if #[cfg(feature = "dragonfly-board")] {
+            let mut dw1000_reset  = gpioc.pc11.into_open_drain_output(&mut gpioc.moder, &mut gpioc.otyper); // open drain, do not pull high
+            let mut dw1000_cs = gpioa.pa8.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+            let dw1000_clk    = gpiob.pb3.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+            let dw1000_mosi   = gpiob.pb5.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+            let dw1000_miso   = gpiob.pb4.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+            //let _dw1000_wakeup = gpioc.pc5;
+            let trace_pin = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+            let mut dw1000_irq = gpioc.pc9.into_pull_down_input(&mut gpioc.moder, &mut gpioc.pupdr);
+            let mut dw1000_spi = Spi::spi1(
+                device.SPI1,
+                (dw1000_clk, dw1000_miso, dw1000_mosi),
+                MODE_0,
+                dw1000_spi_freq,
+                clocks,
+                &mut rcc.apb2,
+            );
         }
+    }
     dw1000_cs.set_high().ok();
     dw1000_reset.set_low().ok();
     busywait!(ms_alt, clocks, 2);
@@ -217,22 +217,18 @@ pub fn init(
             cx.spawn.ctrl_link_control().unwrap();
         }
     }
-    //let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
-    let radio_command = None;
+    let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
-    let radio_queues = crate::tasks::radio::DataQueues::new();
+    let channels = crate::channels::Channels::new();
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
                 crate::init::LateResources {
                     clocks,
 
-                    radio_state: radio::RadioState::Ready(Some(dw1000)),
-                    radio_queues,
-                    radio_irq: dw1000_irq,
-                    radio_trace: trace_pin,
-                    //radio_commands_p, radio_commands_c,
-                    radio_command,
+                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                    radio_commands: radio_commands_p,
+                    channels,
 
                     vesc_serial,
                     vesc_framer,
@@ -249,19 +245,14 @@ pub fn init(
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
                     exti,
-
-                    stat: radio::Stat::default()
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl"))] {
                 crate::init::LateResources {
                     clocks,
 
-                    radio_state: radio::RadioState::Ready(Some(dw1000)),
-                    radio_queues,
-                    radio_irq: dw1000_irq,
-                    radio_trace: trace_pin,
-                    //radio_commands_p, radio_commands_c,
-                    radio_command,
+                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                    radio_commands: radio_commands_p,
+                    channels,
 
                     vesc_serial,
                     vesc_framer,
@@ -283,12 +274,9 @@ pub fn init(
                 crate::init::LateResources {
                     clocks,
 
-                    radio_state: radio::RadioState::Ready(Some(dw1000)),
-                    radio_queues,
-                    radio_irq: dw1000_irq,
-                    radio_trace: trace_pin,
-                    //radio_commands_p, radio_commands_c,
-                    radio_command,
+                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                    radio_commands: radio_commands_p,
+                    channels,
 
                     vesc_serial,
                     vesc_framer,

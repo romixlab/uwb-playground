@@ -1,8 +1,27 @@
-use super::{
+use super::types::{
+    Radio,
     RadioState,
-    ReadyRadio, SendingRadio, ReceivingRadio
+    RadioConfig,
+    ReadyRadio, SendingRadio, ReceivingRadio,
+    Window, WindowType,
+    Event,
+    CommandQueueC
 };
-use rtt_target::{ rprint, rprintln };
+use super::types::{
+    Dw1000Spi,
+    Command
+};
+use super::channelization::{
+    Arbiter,
+    Multiplex, Demultiplex,
+    MiniMultiplexer, MiniDemultiplexer,
+    ChannelId,
+    LogicalDestination,
+};
+use rtt_target::{
+    rprint,
+    rprintln
+};
 use dw1000::{
     mac,
     configs::{
@@ -15,21 +34,24 @@ use dw1000::{
         PulseRepetitionFrequency
     },
 };
+use crate::units::MicroSeconds;
+use super::serdes::{
+    Buf,
+    Deserialize,
+};
 
 use embedded_hal::digital::v2::OutputPin;
-//use embedded_hal::blocking::spi;
 use crate::config;
 //use heapless::spsc::Consumer;
 //use heapless::consts::*;
 use crate::radio::message::TxMessage;
-use crate::radio::{Dw1000Spi, Arbiter, MiniMultiplexer, Command};
+
 use crate::config::Dw1000Cs;
 use crate::util::{Tracer, TraceEvent};
 
 pub fn advance<A: Arbiter, T: Tracer>(
-    radio_state: &mut RadioState,
+    radio: &mut Radio,
     arbiter: &mut A,
-    command: &mut Option<Command>,
     buffer: &mut[u8],
     spawn: &crate::radio_irq::Spawn,
     tracer: &mut T
@@ -37,10 +59,12 @@ pub fn advance<A: Arbiter, T: Tracer>(
     use RadioState::*;
     const SM_FAIL_MESSAGE: &'static str = "Radio state machine fail";
 
+    let commands = &mut radio.commands;
+    let radio_state = &mut radio.state;
     *radio_state = match radio_state {
         Ready(sd) => {
             let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_ready(ready_radio, arbiter, tracer, buffer, command)
+            advance_ready(ready_radio, arbiter, tracer, buffer, commands)
         },
         #[cfg(feature = "master")]
         GTSStartSending(sd) => {
@@ -51,7 +75,7 @@ pub fn advance<A: Arbiter, T: Tracer>(
         GTSAnswersReceiving(sd) => {
             let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
             let answers_received = sd.1;
-            advance_gts_answers_receiving(receiving_radio, arbiter, tracer, answers_received, buffer, command, spawn)
+            advance_gts_answers_receiving(receiving_radio, arbiter, tracer, answers_received, buffer, commands, spawn)
         }
         #[cfg(feature = "slave")]
         GTSStartWaiting(sd) => {
@@ -61,7 +85,7 @@ pub fn advance<A: Arbiter, T: Tracer>(
         #[cfg(feature = "slave")]
         GTSWaitingForUplinkData(sd) => {
             let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_gts_waiting_for_uplink_data(ready_radio, arbiter, tracer, buffer, command)
+            advance_gts_waiting_for_uplink_data(ready_radio, arbiter, tracer, buffer, commands)
         }
         #[cfg(feature = "slave")]
         GTSAnswerSending(sd) => {
@@ -112,14 +136,14 @@ fn advance_ready<A: Arbiter, T: Tracer>(
     arbiter: &mut A,
     tracer: &mut T,
     buffer: &mut[u8],
-    command: &mut Option<Command>,
+    commands: &mut CommandQueueC,
 ) -> RadioState
 {
+    let command = commands.dequeue();
     if command.is_none() {
         return RadioState::Ready(Some(ready_radio));
     }
-    let command = command.take().unwrap();
-    match command {
+    match command.unwrap() {
         Command::GTSStart => {
             tracer.event(TraceEvent::GTSStart);
             use dw1000::mac;
@@ -149,37 +173,36 @@ fn advance_ready<A: Arbiter, T: Tracer>(
             let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
             let mut mux = MiniMultiplexer::new(bufmut);
 
-            let mut window = crate::radio::message::Window {
-                shift: crate::units::MicroSeconds(0x1234),
-                window: crate::units::MicroSeconds(0x5678),
-                window_type: crate::radio::message::WindowType::Uplink,
-                radio_config: crate::radio::message::RadioConfig {
-                    channel: dw1000::configs::UwbChannel::Channel5,
-                    bitrate: dw1000::configs::BitRate::Kbps850,
-                    prf: dw1000::configs::PulseRepetitionFrequency::Mhz64
+            let mut window = Window {
+                shift: MicroSeconds(0x1234),
+                window: MicroSeconds(0x5678),
+                window_type: WindowType::Uplink,
+                radio_config: RadioConfig {
+                    channel: UwbChannel::Channel5,
+                    bitrate: BitRate::Kbps850,
+                    prf: PulseRepetitionFrequency::Mhz64
                 }
             };
             tracer.event(TraceEvent::GTSStart);
 
-            let r = mux.mux(&window, super::LogicalDestination::Implicit, super::ChannelId::new(0));
+            let r = mux.mux(&window, LogicalDestination::Implicit, ChannelId::new(0));
             rprintln!(=>1, "mux1:{:?}", r);
             tracer.event(TraceEvent::GTSStart);
 
-            window.shift = crate::units::MicroSeconds(0xaabb);
-            window.window = crate::units::MicroSeconds(0xccdd);
-            mux.mux(&window, super::LogicalDestination::Unicast(dw1000::mac::ShortAddress(0xeeff)), super::ChannelId::new(1));
+            window.shift = MicroSeconds(0xaabb);
+            window.window = MicroSeconds(0xccdd);
+            mux.mux(&window, LogicalDestination::Unicast(mac::ShortAddress(0xeeff)), ChannelId::new(1));
             tracer.event(TraceEvent::GTSStart);
 
-            window.shift = crate::units::MicroSeconds(0x7766);
-            window.window = crate::units::MicroSeconds(0x8899);
-            let r = mux.mux(&window, super::LogicalDestination::Implicit, super::ChannelId::new(1));
+            window.shift = MicroSeconds(0x7766);
+            window.window = MicroSeconds(0x8899);
+            let r = mux.mux(&window, LogicalDestination::Implicit, ChannelId::new(1));
             tracer.event(TraceEvent::GTSStart);
 
-            let r = mux.mux(&window, super::LogicalDestination::Unicast(config::BR_UWB_ADDR), super::ChannelId::new(0));
+            let r = mux.mux(&window, LogicalDestination::Unicast(config::BR_UWB_ADDR), ChannelId::new(0));
             tracer.event(TraceEvent::GTSStart);
 
             arbiter.source_sync(&mut mux);
-            use crate::radio::Multiplex;
             let bufmut_taken = mux.take();
             len += bufmut_taken.written();
             tracer.event(TraceEvent::GTSStart);
@@ -247,19 +270,19 @@ fn process_messages_gts_answers_receiving<A: Arbiter, T: Tracer>(
             match gts_answer {
                 Some(gts_answer) => {
                     //rprintln!(=>1,"GTSAnswer: tacho: {} pwr_in: {}", gts_answer.payload.data.tacho, gts_answer.payload.data.power_in);
-                    if let dw1000::mac::Address::Short(_, src) = message.frame.header.source {
-                        spawn.radio_event(super::Event::GTSAnswerReceived(src, gts_answer.payload)).ok(); // TODO: count errors
-                    }
-                    // Continue listening for GTSAnswer's
-                    let answers_received = answers_received + 1;
-                    if answers_received == config::REQUIRED_SLAVE_COUNT {
-                        spawn.radio_event(super::Event::GTSEnded).ok(); // TODO: count errors;
-                        RadioState::Ready(Some(ready_radio))
-                    } else {
-                        let receiving_radio = enable_receiver(ready_radio);
-                        RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
-                    }
-
+                    // if let dw1000::mac::Address::Short(_, src) = message.frame.header.source {
+                    //     spawn.radio_event(super::Event::GTSAnswerReceived(src, gts_answer.payload)).ok(); // TODO: count errors
+                    // }
+                    // // Continue listening for GTSAnswer's
+                    // let answers_received = answers_received + 1;
+                    // if answers_received == config::REQUIRED_SLAVE_COUNT {
+                    //     spawn.radio_event(super::Event::GTSEnded).ok(); // TODO: count errors;
+                    //     RadioState::Ready(Some(ready_radio))
+                    // } else {
+                    //     let receiving_radio = enable_receiver(ready_radio);
+                    //     RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
+                    // }
+RadioState::Ready(Some(ready_radio))
                 },
                 None => {
                     rprintln!(=>1,"Unkown message"); // TODO: Process other messages
@@ -283,26 +306,26 @@ fn advance_gts_answers_receiving<A: Arbiter, T: Tracer>(
     tracer: &mut T,
     answers_received: u8,
     buffer: &mut[u8],
-    command: &mut Option<Command>,
+    commands: &mut CommandQueueC,
     spawn: &crate::radio_irq::Spawn,
 ) -> RadioState
 {
-    use super::Command::*;
-    match command {
-        Some(cmd) => {
-            match cmd {
-                //  ┌─ One or more GTS answer is missing, ignore and continue, should not happen?
-                //  │            ┌─ Valid GTS termination from radio_chrono
-                GTSStart | GTSEnd => {
-                    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-                    spawn.radio_event(super::Event::GTSEnded).ok(); // TODO: count errors
-                    tracer.event(TraceEvent::GTSEnded);
-                    return advance_ready(ready_radio, arbiter, tracer, buffer, command);
-                }
-            }
-        },
-        _ => { }
+    let command = commands.dequeue();
+    if command.is_some() {
+        use Command::*;
+        match command.unwrap() {
+            //  ┌─ One or more GTS answer is missing, ignore and continue, should not happen?
+            //  │            ┌─ Valid GTS termination from radio_chrono
+            GTSStart | GTSEnd => {
+                let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                spawn.radio_event(Event::GTSEnded).ok(); // TODO: count errors
+                tracer.event(TraceEvent::GTSEnded);
+                return advance_ready(ready_radio, arbiter, tracer, buffer, commands);
+            },
+            _ => {}
+        }
     }
+
     match receiving_radio.wait(buffer) {
         Ok(message) => {
             //tracer.event(TraceEvent::XYZ);
@@ -331,7 +354,7 @@ fn advance_ready<A: Arbiter, T: Tracer>(
     arbiter: &mut A,
     tracer: &mut T,
     buffer: &mut[u8],
-    _command: &mut Option<Command>,
+    _commands: &mut CommandQueueC,
 ) -> RadioState
 {
     let receiving_radio = enable_receiver(ready_radio);
@@ -359,9 +382,7 @@ fn process_messages_gts_start_waiting<A: Arbiter, T: Tracer>(
         rprint!(=>1, "{:02x} ", b);
     }
     rprintln!(=>1, "]\n");
-    use crate::radio::serdes::{ Buf, Deserialize };
-    use crate::radio::{ Error, Demultiplex, MiniDemultiplexer };
-    use crate::radio::message::Window;
+
     let mut buf = Buf::new(payload);
     let mut demux = MiniDemultiplexer::new(&mut buf);
     demux.demux(config::UWB_ADDR, |channel, chunk| {
@@ -468,12 +489,12 @@ fn advance_gts_waiting_for_uplink_data<A: Arbiter, T: Tracer>(
     _arbiter: &mut A,
     _tracer: &mut T,
     _buffer: &mut[u8],
-    command: &mut Option<Command>,
+    commands: &mut CommandQueueC,
 ) -> RadioState
 {
     RadioState::GTSWaitingForUplinkData(Some(ready_radio))
     // loop {
-    //     match command {
+    //     match commands {
     //         Some(cmd) => {
     //             match cmd {
     //                 GTSSendAnswer(instant, gts_answer) => {

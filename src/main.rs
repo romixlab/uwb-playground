@@ -4,6 +4,7 @@
 mod board;
 mod panic_handler;
 mod radio;
+mod channels;
 #[macro_use]
 mod util;
 mod config;
@@ -24,13 +25,9 @@ const APP: () = {
     struct Resources {
         clocks: Clocks,
 
-        radio_state: radio::RadioState,
-        radio_queues: tasks::radio::DataQueues,
-        radio_irq: config::RadioIrqPin,
-        radio_trace: config::RadioTracePin,
-        //radio_commands_p: radio::CommandQueueP,
-        //radio_commands_c: radio::CommandQueueC,
-        radio_command: Option<radio::Command>,
+        radio: radio::Radio,
+        radio_commands: radio::types::CommandQueueP,
+        channels: channels::Channels,
 
         vesc_serial: config::VescSerial,
         vesc_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U512>,
@@ -54,9 +51,6 @@ const APP: () = {
         idle_counter: Wrapping<u32>,
         exti: hal::stm32::EXTI,
 
-        #[cfg(feature = "master")]
-        stat: crate::radio::Stat,
-
         #[cfg(feature = "br")]
         lidar: rplidar::RpLidar,
         #[cfg(feature = "br")]
@@ -74,7 +68,7 @@ const APP: () = {
         ]
     )]
     fn init(cx: init::Context) -> init::LateResources {
-        static mut RADIO_COMMANDS_QUEUE: radio::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
+        static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut VESC_BBBUFFER: BBBuffer<config::VescBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut CTRL_BBBUFFER: BBBuffer<config::CtrlBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut LIDAR_QUEUE: rplidar::LidarQueue = heapless::spsc::Queue(heapless::i::Queue::new());
@@ -90,7 +84,6 @@ const APP: () = {
     #[idle(
         resources = [
             idle_counter,
-            stat,
             mecanum_wheels,
         ]
     )]
@@ -116,7 +109,7 @@ const APP: () = {
         priority = 5,
         resources = [
             &clocks,
-            radio_command,
+            radio_commands,
             mecanum_wheels,
         ],
         schedule = [
@@ -133,11 +126,8 @@ const APP: () = {
         priority = 6,
         resources = [
             &clocks,
-            radio_state,
-            radio_queues,
-            radio_irq,
-            radio_command,
-            radio_trace,
+            radio,
+            channels,
             idle_counter,
             exti,
         ],
@@ -157,7 +147,6 @@ const APP: () = {
             &clocks,
             wheel,
             mecanum_wheels,
-            stat,
         ],
         spawn = [
             motor_control,
@@ -167,7 +156,7 @@ const APP: () = {
             radio_event,
         ]
     )]
-    fn radio_event(cx: radio_event::Context, e: radio::Event) {
+    fn radio_event(cx: radio_event::Context, e: radio::types::Event) {
         tasks::radio::radio_event(cx, e);
     }
 
@@ -214,7 +203,7 @@ const APP: () = {
     #[task(
         priority = 2,
         capacity = 4,
-        resources = [&clocks, mecanum_wheels, wheel, vesc_bbbuffer_p, stat],
+        resources = [&clocks, mecanum_wheels, wheel, vesc_bbbuffer_p],
         schedule = [motor_control],
         spawn = [motor_control]
     )]
