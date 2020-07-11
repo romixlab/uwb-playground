@@ -29,7 +29,7 @@ impl ChannelId {
         ChannelId(channel_id)
     }
 
-    pub fn new_ctrl() -> Self {
+    pub fn ctrl() -> Self {
         ChannelId(0)
     }
 
@@ -64,6 +64,7 @@ pub trait Demultiplex {
 
 /// Interface between the radio and data sources and sinks.
 pub trait Arbiter {
+    type Error;
     /// Called each GTS to get some data to send. Number of bytes that may be sent is calculated
     /// from slot duration, transmitter settings, spi & cpu core speed.
     /// Return:
@@ -74,7 +75,7 @@ pub trait Arbiter {
     /// * .2 - Channel ID (destination queue / buffer id).
     /// Will be called again if there is space available. If 0 is returned, no further calls will be
     /// made in a given slot.
-    fn source_sync<M: Multiplex>(&mut self, multiplexer: &mut M);
+    fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, multiplexer: &mut M);
     /// Called whenever there is time to send more data (in additionaly requested slot).
     /// Semantics are the same as in `source_sync`.
     fn source_async<M: Multiplex>(&mut self, multiplexer: &mut M);
@@ -164,9 +165,9 @@ impl<'a> Demultiplex for MiniDemultiplexer<'a> {
     {
         use rtt_target::rprintln;
         loop {
-            rprintln!(=>1, "de1, re:{}", self.buf.remaining());
+            //rprintln!(=>1, "de1, re:{}", self.buf.remaining());
             if self.buf.remaining() <= 2 { break; }
-            rprintln!(=>1, "de2, re:{}", self.buf.remaining());
+            //rprintln!(=>1, "de2, re:{}", self.buf.remaining());
             let is_unicast_channel = self.buf.get_u8();
             let is_unicast = is_unicast_channel & 0b1000_0000 != 0;
             let channel_id = is_unicast_channel & 0b0111_1111;
@@ -177,22 +178,23 @@ impl<'a> Demultiplex for MiniDemultiplexer<'a> {
                 false
             };
             if self.buf.remaining() <= 1 { break; }
-            rprintln!(=>1, "de3, skip:{}, re:{}", skip_thing, self.buf.remaining());
+            //rprintln!(=>1, "de3, skip:{}, re:{}", skip_thing, self.buf.remaining());
             let len = self.buf.get_u8();
             let len_is_2_byte = len & 0b1000_0000 != 0;
             let mut len = (len & 0b0111_1111) as u16;
-            rprintln!(=>1, "de3a, len:{} 2b:{}", len, len_is_2_byte);
+            //rprintln!(=>1, "de3a, len:{} 2b:{}", len, len_is_2_byte);
             if len_is_2_byte {
                 if self.buf.remaining() <= 128 { break; }
-                rprintln!(=>1, "de4, re:{}", self.buf.remaining());
+                //rprintln!(=>1, "de4, re:{}", self.buf.remaining());
                 len |= (self.buf.get_u8() as u16) << 7;
             }
             if self.buf.remaining() < len as usize { break; }
-            rprintln!(=>1, "de5, re:{}", self.buf.remaining());
+            //rprintln!(=>1, "de5, re:{}", self.buf.remaining());
             if !skip_thing {
                 f(ChannelId(channel_id), self.buf.slice_to(len as usize));
             }
             self.buf.advance(len as usize);
         }
+        rprintln!(=>1, "demux :{}\n", self.buf.remaining());
     }
 }

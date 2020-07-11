@@ -1,3 +1,5 @@
+pub mod serdes_impl;
+
 #[derive(Default, Debug, Copy, Clone)]
 pub struct Rpm(pub i32);
 

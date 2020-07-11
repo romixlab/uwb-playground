@@ -114,10 +114,13 @@ const APP: () = {
         ],
         schedule = [
             radio_chrono,
+        ],
+        spawn = [
+            radio_chrono,
         ]
     )]
     fn radio_chrono(cx: radio_chrono::Context) {
-        static mut STATE: tasks::radio::RadioChronoState = tasks::radio::RadioChronoState::Idle;
+        static mut STATE: tasks::radio::RadioChronoState = tasks::radio::RadioChronoState::Uninit;
         tasks::radio::radio_chrono(cx, STATE);
     }
 
@@ -145,6 +148,8 @@ const APP: () = {
         capacity = 16,
         resources = [
             &clocks,
+            radio,
+            radio_commands,
             wheel,
             mecanum_wheels,
         ],

@@ -78,6 +78,19 @@ impl<'a> Buf<'a> {
         self.idx += 4;
         u32::from_le_bytes(le)
     }
+
+    pub fn get_i32(&mut self) -> i32 {
+        let mut le = unsafe {
+            [
+                *self.buf.get_unchecked(self.idx),
+                *self.buf.get_unchecked(self.idx + 1),
+                *self.buf.get_unchecked(self.idx + 2),
+                *self.buf.get_unchecked(self.idx + 3)
+            ]
+        };
+        self.idx += 4;
+        i32::from_le_bytes(le)
+    }
 }
 
 pub struct BufMut<'a> {
@@ -117,6 +130,17 @@ impl<'a> BufMut<'a> {
     }
 
     pub fn put_u32(&mut self, val: u32) {
+        let le = val.to_le_bytes();
+        unsafe {
+            *self.buf.get_unchecked_mut(self.idx) = le[0];
+            *self.buf.get_unchecked_mut(self.idx + 1) = le[1];
+            *self.buf.get_unchecked_mut(self.idx + 2) = le[2];
+            *self.buf.get_unchecked_mut(self.idx + 3) = le[3];
+        }
+        self.idx += 4;
+    }
+
+    pub fn put_i32(&mut self, val: i32) {
         let le = val.to_le_bytes();
         unsafe {
             *self.buf.get_unchecked_mut(self.idx) = le[0];

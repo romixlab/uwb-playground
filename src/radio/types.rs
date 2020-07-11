@@ -1,8 +1,4 @@
-use dw1000::configs::{
-    UwbChannel,
-    BitRate,
-    PulseRepetitionFrequency,
-};
+use dw1000::configs::{UwbChannel, BitRate, PulseRepetitionFrequency, SfdSequence, PreambleLength};
 use crate::units::{
     NanoSeconds,
     MicroSeconds,
@@ -19,6 +15,8 @@ use crate::units;
 use typenum::marker_traits::Unsigned;
 use heapless::spsc::{Queue, Producer, Consumer};
 use heapless::consts::*;
+use rtic::cyccnt::Instant as CycntInstant;
+use dw1000::time::Instant as RadioInstant;
 
 #[derive(Debug)]
 pub enum Error {
@@ -66,6 +64,36 @@ pub struct RadioConfig {
     pub prf: PulseRepetitionFrequency,
 }
 
+impl Default for RadioConfig {
+    fn default() -> Self {
+        RadioConfig {
+            channel: UwbChannel::Channel5,
+            bitrate: BitRate::Kbps850,
+            prf: PulseRepetitionFrequency::Mhz64
+        }
+    }
+}
+
+impl RadioConfig {
+    pub fn recommended_sfd(&self) -> SfdSequence {
+        use SfdSequence::*;
+        match self.bitrate {
+            BitRate::Kbps110 =>  { Decawave },
+            BitRate::Kbps850 =>  { DecawaveAlt },
+            BitRate::Kbps6800 => { IEEE },
+        }
+    }
+
+    pub fn recommended_preamble(&self) -> PreambleLength {
+        use PreambleLength::*;
+        match self.bitrate {
+            BitRate::Kbps110 =>  { Symbols1024 },
+            BitRate::Kbps850 =>  { Symbols256 },
+            BitRate::Kbps6800 => { Symbols64 },
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum WindowType {
     /// Slave sends data to master, possibly with ACK request
@@ -92,6 +120,9 @@ pub enum Command {
     GTSStart,
     #[cfg(feature = "master")]
     GTSEnd,
+    Listen(RadioConfig),
+    SendGTSAnswer,
+    DynWindowStart,
 }
 
 #[derive(Debug)]
@@ -99,8 +130,10 @@ pub enum Event {
     //#[cfg(any(feature = "master", feature = "devnode"))]
     //GTSAnswerReceived(dw1000::mac::ShortAddress, message::GTSAnswer),
     #[cfg(feature = "slave")]
-    /// .0 - tx_time in dw1000 counts; .1 - time till GTS end.
-    GTSStartReceived(Option<dw1000::time::Instant>, NanoSeconds),
+    GTSStartReceived,
+    #[cfg(feature = "slave")]
+    DynWindowStarted,
+    GTSAnswerSent,
     GTSEnded,
 }
 
@@ -110,9 +143,9 @@ pub type CommandQueueC = Consumer<'static, Command, U8>;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Node {
-    pub address: dw1000::mac::ShortAddress,
-    pub last_seen: units::MilliSeconds,
-    pub slots: [Option<Window>; 2],
+    //pub address: dw1000::mac::ShortAddress,
+    pub last_seen: Option<(CycntInstant, RadioInstant)>,
+    pub slots: [Option<Window>; 3],
     //#[cfg(feature = "stats")]
     // stats: NodeStatistics
 }
@@ -125,12 +158,13 @@ pub enum NodeState {
 
 pub struct Radio {
     pub(crate) state: RadioState,
+    pub(crate) state_instant: Option<CycntInstant>,
     pub irq: config::RadioIrqPin,
     pub(crate) commands: CommandQueueC,
     #[cfg(any(feature = "master", feature = "devnode"))]
-    nodes: [NodeState; config::TotalNodeCount::USIZE],
+    pub(crate) nodes: [NodeState; config::TotalNodeCount::USIZE],
     #[cfg(feature = "slave")]
-    master: NodeState,
+    pub(crate) master: NodeState,
     //address_map: heapless::FnvIndexMap<dw1000::mac::ShortAddress, usize, config::TOTAL_NODE_COUNT>,
 }
 
@@ -138,6 +172,7 @@ impl Radio {
     pub fn new(dw1000: ReadyRadio, irq: config::RadioIrqPin, commands: CommandQueueC) -> Self {
         Radio {
             state: RadioState::Ready(Some(dw1000)),
+            state_instant: None,
             irq,
             commands,
             #[cfg(any(feature = "master", feature = "devnode"))]

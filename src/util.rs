@@ -27,6 +27,18 @@ macro_rules! ms2cycles_raw {
     };
 }
 
+macro_rules! us2cycles {
+    ($cx:ident, $amount:expr) => {
+        ($cx.resources.clocks.sysclk().0 / 1_000_000 * $amount).cycles()
+    };
+}
+
+macro_rules! us2cycles_raw {
+    ($cx:ident, $amount:expr) => {
+        $cx.resources.clocks.sysclk().0 / 1_000_000 * $amount
+    };
+}
+
 macro_rules! cycles2ms {
     ($cx:ident, $amount:expr) => {
         (($amount as u64) * 1_000) / $cx.resources.clocks.sysclk().0 as u64
@@ -47,6 +59,20 @@ macro_rules! cycles2us_raw {
     };
 }
 
+macro_rules! radio_command_l {
+    ($cx:ident, $cmd:expr) => {
+        $cx.resources.radio_commands.lock(|cmds| cmds.enqueue($cmd)).ok();
+        rtic::pend(config::DW1000_IRQ_EXTI);
+    };
+}
+
+macro_rules! radio_command {
+    ($cx:ident, $cmd:expr) => {
+        $cx.resources.radio_commands.enqueue($cmd).ok();
+        rtic::pend(config::DW1000_IRQ_EXTI);
+    };
+}
+
 #[derive(PartialEq, Clone, Copy)]
 pub enum TraceEvent {
     GTSChronoStart = 1,
@@ -56,7 +82,12 @@ pub enum TraceEvent {
     GTSChronoEnd = 5,
     GTSEnded = 6,
 
-    GTSAnswerSent,
+    Listening = 7,
+    GTSStartReceived = 8,
+    GTSAnswerSend = 9,
+    GTSAnswerSent = 10,
+
+    DynWindowStart = 11,
 
     RequestedSlotStarted,
     MessageReceived,
@@ -75,9 +106,13 @@ impl core::fmt::Display for TraceEvent {
             TraceEvent::MessageReceived => { write!(f, "MR") },
             TraceEvent::MessageSent => { write!(f, "MS") },
             TraceEvent::RequestedSlotEnded => { write!(f, "R_E") },
-            TraceEvent::GTSAnswerSent => { write!(f, "G_AS") }
+            TraceEvent::GTSAnswerSent => { write!(f, "G_ASD") }
             TraceEvent::GTSChronoStart => { write!(f, "G_CS") }
             TraceEvent::GTSChronoEnd => { write!(f, "G_CE") }
+            TraceEvent::Listening => { write!(f, "L") }
+            TraceEvent::GTSAnswerSend => { write!(f, "G_AS") }
+            TraceEvent::GTSStartReceived => { write!(f, "G_SS") }
+            TraceEvent::DynWindowStart => { write!(f, "D_WS") }
         }
     }
 }

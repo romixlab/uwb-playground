@@ -4,11 +4,18 @@ use crate::radio::channelization::{
     ChannelId,
     Multiplex
 };
+use crate::radio::Error;
 use crate::motion::MoveCommand;
 use rtt_target::{
     rprint,
     rprintln
 };
+use cfg_if::cfg_if;
+cfg_if! {
+    if #[cfg(feature = "slave")] {
+        use crate::motion::Tachometer;
+    }
+}
 
 /// **Reliability**
 /// * `R` - (Reliable) ACKed, with retransmission (as in TCP).
@@ -74,16 +81,19 @@ impl Channels {
 }
 
 impl Arbiter for Channels {
-    fn source_sync<M: Multiplex>(&mut self, mux: &mut M)
-    {
+    type Error = Error;
 
+    fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M)
+    {
+        cfg_if! {
+            if #[cfg(feature = "slave")] {
+                let tacho = Tachometer(1234);
+                mux.mux(&tacho, LogicalDestination::Implicit, ChannelId::new(1));
+            }
+        }
     }
 
     fn source_async<M: Multiplex>(&mut self, mux: &mut M) {
-        unimplemented!()
-    }
-
-    fn sink_async(&mut self, channel: ChannelId, chunk: &[u8]) {
         unimplemented!()
     }
 
@@ -94,4 +104,9 @@ impl Arbiter for Channels {
         }
         rprintln!(=>1, "]\n");
     }
+
+    fn sink_async(&mut self, channel: ChannelId, chunk: &[u8]) {
+        unimplemented!()
+    }
+
 }

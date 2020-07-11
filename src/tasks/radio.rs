@@ -2,18 +2,21 @@ use crate::config;
 use crate::radio;
 use crate::motion;
 use crate::board::hal;
-use crate::radio::types::{
-    Command,
-    Event,
-};
+use crate::radio::types::{Command, Event, RadioConfig};
 use rtic::Mutex;
 use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
 use crate::util::{Tracer, TraceEvent};
+use cfg_if::cfg_if;
+use crate::radio::types::{
+    Node,
+    NodeState
+};
 
 pub enum RadioChronoState {
+    Uninit,
     Idle,
     #[cfg(feature = "master")]
     GTSInProgress,
@@ -23,39 +26,40 @@ pub enum RadioChronoState {
 pub fn radio_chrono(mut cx: crate::radio_chrono::Context, state: &mut RadioChronoState) {
     #[cfg(feature = "master")]
     const GTS_END_MS: u32 = 30;
-    //use radio::Command;
-    //use radio::message::*;
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "master")] {
-            //let now = DWT::get_cycle_count();
-
-            use crate::radio::message::{GTSEntry, GTSStart, GTSDownlinkData};
-            use RadioChronoState::*;
-            *state = match state {
-                Idle => {
+    use RadioChronoState::*;
+    *state = match state {
+        Uninit => {
+            radio_command!(cx, Command::Listen(RadioConfig::default()));
+            #[cfg(feature = "slave")]
+            cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok();
+            #[cfg(feature = "master")]
+            cx.spawn.radio_chrono().ok();
+            Idle
+        },
+        Idle => {
+            cfg_if! {
+                if #[cfg(feature = "master")] {
                     unsafe { TRACER.event(TraceEvent::GTSChronoStart); }
-                    cx.resources.radio_commands.enqueue(Command::GTSStart);
-                    rtic::pend(config::DW1000_IRQ_EXTI);
+                    radio_command!(cx, Command::GTSStart);
 
                     cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, GTS_END_MS)).ok(); // TODO: Count errors
-                    RadioChronoState::GTSInProgress
-                },
-                GTSInProgress => {
-                    unsafe { TRACER.event(TraceEvent::GTSChronoEnd); }
-                    cx.resources.radio_commands.enqueue(Command::GTSEnd);
+                    GTSInProgress
+                } else if #[cfg(feature = "slave")] {
                     rtic::pend(config::DW1000_IRQ_EXTI);
-
-                    cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS - GTS_END_MS)).ok(); // TODO: Count errors
+                    cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok();
                     Idle
                 }
             }
-        } else if #[cfg(all(feature = "slave", not(feature = "devnode")))] {
-            cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok(); // TODO: count errors
-        } else if #[cfg(feature = "devnode")] {
-            cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok(); // TODO: count errors
+        },
+        #[cfg(feature = "master")]
+        GTSInProgress => {
+            unsafe { TRACER.event(TraceEvent::GTSChronoEnd); }
+            radio_command!(cx, Command::GTSEnd);
+
+            cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::GTS_PERIOD_MS - GTS_END_MS)).ok(); // TODO: Count errors
+            Idle
         }
-    }
-    rtic::pend(config::DW1000_IRQ_EXTI);
+    };
 }
 
 pub struct RttTracer {
@@ -80,23 +84,23 @@ impl Tracer for RttTracer {
             gpioa.bsrr.write(|w| w.br1().set_bit());
         }
 
-        // let dt_gts = now - self.prev_gts;
-        // let dt_prev = now - self.prev;
-        // if e == TraceEvent::GTSChronoStart {
-        //     self.prev_gts = now;
-        //     rprintln!(=> 13, "\n\n\n---\n");
-        // }
-        // self.prev = now;
-        //
-        // let dt_gts = cycles2us_raw!(self.sysclk, dt_gts);
-        // let dt_prev = cycles2us_raw!(self.sysclk, dt_prev);
-        // rprintln!(=> 13,
-        //     "{}({}) +{}.{:03} d{}.{:03}\n",
-        //     e,
-        //     count,
-        //     dt_gts / 1000, dt_gts % 1000,
-        //     dt_prev / 1000, dt_prev % 1000
-        // );
+        let dt_gts = now - self.prev_gts;
+        let dt_prev = now - self.prev;
+        if e == TraceEvent::GTSChronoStart || e == TraceEvent::GTSStartReceived {
+            self.prev_gts = now;
+            rprintln!(=> 13, "\n\n\n---\n");
+        }
+        self.prev = now;
+
+        let dt_gts = cycles2us_raw!(self.sysclk, dt_gts);
+        let dt_prev = cycles2us_raw!(self.sysclk, dt_prev);
+        rprintln!(=> 13,
+            "{}({}) +{}.{:03} d{}.{:03}\n",
+            e,
+            count,
+            dt_gts / 1000, dt_gts % 1000,
+            dt_prev / 1000, dt_prev % 1000
+        );
     }
 }
 
@@ -114,12 +118,12 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // *LAST_IDLE_INSTANT = now;
     // if dt > 72_000_000 * 2 {
     //     if *LAST_IDLE_COUNTER == *cx.resources.idle_counter {
-    //         rprintln!("IRQ lockup detected!");
+    //         rprintln!(=>2, "IRQ lockup detected!");
     //         cx.resources.radio_irq.disable_interrupt(cx.resources.exti);
     //     }
     //     *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
     // }
-    //rprintln!("IRQ: {}us", cycles2us!(cx, dt));
+    //rprintln!(=>2, "IRQ: {}us", cycles2us!(cx, dt));
 
     cx.resources.radio.irq.clear_interrupt_pending_bit();
     for _ in 0..42 {
@@ -135,12 +139,12 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
         }
     }
     if cx.resources.radio.irq.is_high().unwrap() {
-        rprintln!("radio_irq: still pending after many tries!");
+        rprintln!(=>2, "radio_irq: still pending after many tries!");
     }
 }
 
 pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
-    rprintln!("radio_event: {:?}\n", e);
+    rprintln!(=>2, "e: {:?}\n", e);
     use Event::*;
     match e {
         // #[cfg(feature = "master")]
@@ -166,10 +170,10 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         // },
         // #[cfg(feature = "devnode")]
         // GTSAnswerReceived(from, answer) => {
-        //     rprintln!("GTS answer rx from: {:?}, tacho: {}, pwr: {}", from, answer.data.tacho, answer.data.power_in);
+        //     rprintln!(=>2, "GTS answer rx from: {:?}, tacho: {}, pwr: {}", from, answer.data.tacho, answer.data.power_in);
         // },
-        #[cfg(all(feature = "slave", not(feature = "devnode")))]
-        GTSStartReceived(tx_time, gts_end_dt) => {
+        #[cfg(feature = "slave")]
+        GTSStartReceived => {
             // Prepare telemetry for sending in a given slot
             // let tacho = cx.resources.wheel.tacho;
             // let power_in = cx.resources.wheel.power_in;
@@ -180,13 +184,44 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             // // Schedule an rpm sending after all GTS, so that each MC receive the command at the same time
             // let rpm = motion::Rpm(gts_entry.sync_no_ack_data.rpm);
             // cx.resources.wheel.rpm = rpm;
-            cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 as u32 / 1000), radio::types::Event::GTSEnded).ok(); // TODO: count errors;
+            //cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 as u32 / 1000), radio::types::Event::GTSEnded).ok(); // TODO: count errors;
+            radio_command_l!(cx, Command::SendGTSAnswer);
         },
-        // #[cfg(feature = "devnode")]
-        // GTSStartReceived(tx_time, gts_end_dt, gts_entry) => {
-        //     rprintln!("GTS start received");
-        //     cx.schedule.radio_event(cx.scheduled + ms2cycles!(cx, gts_end_dt.0 / 1000), radio::Event::GTSEnded);
-        // },
+        #[cfg(feature = "slave")]
+        GTSAnswerSent => {
+            radio_command_l!(cx, Command::Listen(RadioConfig::default()));
+
+            let dyn_window = cx.resources.radio.lock(|radio| {
+                match radio.master {
+                    NodeState::Disconnected => { None },
+                    NodeState::Active(node) => {
+                        let when_gts_started = node.last_seen.unwrap().0;
+                        let from_gts_start = {
+                            if node.slots[2].is_some() {
+                                node.slots[2].unwrap().shift
+                            } else if node.slots[1].is_some() {
+                                node.slots[1].unwrap().shift
+                            } else {
+                                return None;
+                            }
+                        };
+                        Some((when_gts_started, from_gts_start))
+                    }
+                }
+            });
+
+            match dyn_window {
+                Some((when_gts_started, from_gts_start)) => {
+                    let since_gts_start = (cx.scheduled - when_gts_started).as_cycles();
+                    let till_dyn_start = us2cycles_raw!(cx, from_gts_start.0) - since_gts_start;
+                    cx.schedule.radio_event(cx.scheduled + till_dyn_start.cycles(), Event::DynWindowStarted);
+                },
+                None => {}
+            }
+        },
+        DynWindowStarted => {
+            radio_command_l!(cx, Command::DynWindowStart);
+        },
         GTSEnded => {
             cfg_if::cfg_if! {
                     if #[cfg(feature = "master")] {
