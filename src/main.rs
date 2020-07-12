@@ -136,8 +136,11 @@ const APP: () = {
         ],
         spawn = [
             radio_event,
-        ])
-    ]
+        ],
+        schedule = [
+            radio_event,
+        ]
+    )]
     fn radio_irq(cx: radio_irq::Context) {
         static mut BUFFER: [u8; 1024] = [0u8; 1024];
         tasks::radio::radio_irq(cx, BUFFER);

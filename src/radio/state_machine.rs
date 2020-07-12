@@ -59,15 +59,26 @@ use crate::radio::message::TxMessage;
 use crate::config::Dw1000Cs;
 use crate::util::{Tracer, TraceEvent};
 
+struct SMContext<'a, A, T> {
+    arbiter: &'a mut A,
+    tracer: &'a mut T,
+    spawn: &'a crate::radio_irq::Spawn<'a>,
+    schedule: &'a crate::radio_irq::Schedule<'a>,
+    //master_node
+    //state_instant
+}
+
 pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
     radio: &mut Radio,
     arbiter: &mut A,
     buffer: &mut[u8],
     spawn: &crate::radio_irq::Spawn,
+    schedule: &crate::radio_irq::Schedule,
     tracer: &mut T
 ) {
     use RadioState::*;
     const SM_FAIL_MESSAGE: &'static str = "Radio state machine fail";
+    let mut cx = SMContext { arbiter, tracer, spawn, schedule };
 
     let commands = &mut radio.commands;
     match commands.peek() {
@@ -75,7 +86,7 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
             match command {
                 Command::DynWindowStart => {
                     commands.dequeue();
-                    tracer.event(TraceEvent::DynWindowStart);
+                    cx.tracer.event(TraceEvent::DynWindowStart);
                 },
                 _ => {}
             }
@@ -87,7 +98,7 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
         #[cfg(feature = "master")]
         Ready(sd) => {
             let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_ready(ready_radio, arbiter, tracer, buffer, commands)
+            advance_ready(ready_radio, &mut cx, buffer, commands)
         },
         #[cfg(feature = "master")]
         GTSStartSending(sd) => {
@@ -98,7 +109,7 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
         GTSAnswersReceiving(sd) => {
             let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
             let answers_received = sd.1;
-            advance_gts_answers_receiving(receiving_radio, arbiter, tracer, answers_received, buffer, commands, spawn)
+            advance_gts_answers_receiving(receiving_radio, &mut cx, answers_received, buffer, commands)
         }
         #[cfg(feature = "slave")]
         Ready(sd) => {
@@ -170,8 +181,7 @@ fn default_mac_frame(payload: &[u8]) -> mac::Frame {
 #[cfg(feature = "master")]
 fn advance_ready<A: Arbiter<Error = Error>, T: Tracer>(
     mut ready_radio: ReadyRadio,
-    arbiter: &mut A,
-    tracer: &mut T,
+    cx: &mut SMContext<A, T>,
     buffer: &mut[u8],
     commands: &mut CommandQueueC,
 ) -> RadioState
@@ -182,7 +192,7 @@ fn advance_ready<A: Arbiter<Error = Error>, T: Tracer>(
     }
     match command.unwrap() {
         Command::GTSStart => {
-            tracer.event(TraceEvent::GTSStart);
+            cx.tracer.event(TraceEvent::GTSStart);
 
             let frame = default_mac_frame(&[]);
             let mut len = frame.encode(buffer, mac::WriteFooter::No);
@@ -191,7 +201,7 @@ fn advance_ready<A: Arbiter<Error = Error>, T: Tracer>(
             let mut mux = MiniMultiplexer::new(bufmut);
 
             Scheduler::source_timeslots(&mut mux);
-            arbiter.source_sync(&mut mux);
+            cx.arbiter.source_sync(&mut mux);
 
             let bufmut_taken = mux.take();
             len += bufmut_taken.written();
@@ -199,7 +209,7 @@ fn advance_ready<A: Arbiter<Error = Error>, T: Tracer>(
             ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
             let tx_config = get_txconfig(RadioConfig::default());
             let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
-            tracer.event(TraceEvent::GTSStart);
+            cx.tracer.event(TraceEvent::GTSStart);
             RadioState::GTSStartSending(Some(sending_radio))
         },
         // Command::Listen => {
@@ -240,13 +250,11 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
 }
 
 #[cfg(feature = "master")]
-fn process_messages_gts_answers_receiving<A: Arbiter, T: Tracer>(
+fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
     receiving_radio: ReceivingRadio,
-    arbiter: &mut A,
-    tracer: &mut T,
+    cx: &mut SMContext<A, T>,
     message: dw1000::hl::Message,
     answers_received: u8,
-    spawn: &crate::radio_irq::Spawn,
 ) -> RadioState
 {
     use super::message::{GTSAnswer};
@@ -261,7 +269,7 @@ fn process_messages_gts_answers_receiving<A: Arbiter, T: Tracer>(
         if channel.is_ctrl() {
 
         } else {
-            arbiter.sink_sync(channel, chunk);
+            cx.arbiter.sink_sync(channel, chunk);
         }
     });
 
@@ -272,12 +280,10 @@ fn process_messages_gts_answers_receiving<A: Arbiter, T: Tracer>(
 #[cfg(feature = "master")]
 fn advance_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    arbiter: &mut A,
-    tracer: &mut T,
+    mut cx: &mut SMContext<A, T>,
     answers_received: u8,
     buffer: &mut[u8],
     commands: &mut CommandQueueC,
-    spawn: &crate::radio_irq::Spawn,
 ) -> RadioState
 {
     let command = commands.dequeue();
@@ -288,9 +294,9 @@ fn advance_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
             //  │            ┌─ Valid GTS termination from radio_chrono
             GTSStart | GTSEnd => {
                 let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-                spawn.radio_event(Event::GTSEnded).ok(); // TODO: count errors
-                tracer.event(TraceEvent::GTSEnded);
-                return advance_ready(ready_radio, arbiter, tracer, buffer, commands);
+                cx.spawn.radio_event(Event::GTSEnded).ok(); // TODO: count errors
+                cx.tracer.event(TraceEvent::GTSEnded);
+                return advance_ready(ready_radio, &mut cx, buffer, commands);
             },
             _ => {}
         }
@@ -299,7 +305,7 @@ fn advance_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
     match receiving_radio.wait(buffer) {
         Ok(message) => {
             //tracer.event(TraceEvent::XYZ);
-            process_messages_gts_answers_receiving(receiving_radio, arbiter, tracer, message.0, answers_received, spawn)
+            process_messages_gts_answers_receiving(receiving_radio, &mut cx, message.0, answers_received)
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still receiving
