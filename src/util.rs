@@ -66,7 +66,7 @@ macro_rules! cycles2us_alt {
 #[allow(unused_macros)]
 macro_rules! radio_command_l {
     ($cx:ident, $cmd:expr) => {
-        $cx.resources.radio_commands.lock(|cmds| cmds.enqueue($cmd)).ok();
+        $cx.resources.radio_commands.lock(|cmds| cmds.enqueue($cmd)).ok(); // TODO: count errors
         rtic::pend(config::DW1000_IRQ_EXTI);
     };
 }

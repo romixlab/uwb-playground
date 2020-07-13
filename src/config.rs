@@ -37,7 +37,7 @@ pub const BLINK_PERIOD_MS: u32 = 500;
 /// Ignore IRQ and check state anyway with specified period.
 /// To ensure that endless lockup won't happen.
 #[cfg(feature = "slave")]
-pub const DW1000_CHECK_PERIOD_MS: u32 = 3000;
+pub const DW1000_CHECK_PERIOD: MilliSeconds = ms(1000);
 
 use hal::stm32::Interrupt;
 /// Which EXTI line is used for DW1000 interrupt.
@@ -45,7 +45,6 @@ use hal::stm32::Interrupt;
 pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
 
 /// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
-#[cfg(feature = "master")]
 pub const GTS_PERIOD: MilliSeconds = ms(50);
 
 use dw1000::mac::{PanId, ShortAddress};

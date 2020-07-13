@@ -57,6 +57,22 @@ pub enum RadioState {
     GTSAnswerSending(Option<SendingRadio>),
 }
 
+impl RadioState {
+    pub fn is_sending_state(&self) -> bool {
+        match self {
+            RadioState::Ready(_) => { false },
+            #[cfg(feature = "master")]
+            RadioState::GTSStartSending(_) => { true },
+            #[cfg(feature = "master")]
+            RadioState::GTSAnswersReceiving(_) => { false },
+            #[cfg(feature = "slave")]
+            RadioState::GTSStartWaiting(_) => { false },
+            #[cfg(feature = "slave")]
+            RadioState::GTSAnswerSending(_) => { true },
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct RadioConfig {
     pub channel: UwbChannel,
@@ -115,37 +131,110 @@ pub struct Window {
     pub radio_config: RadioConfig,
 }
 
+#[derive(PartialEq)]
 pub enum Command {
     #[cfg(feature = "master")]
     GTSStart,
-
     GTSEnd,
-    Listen(RadioConfig),
-    SendGTSAnswer,
+    #[cfg(feature = "slave")]
+    ListenForGTSStart(RadioConfig),
+    #[cfg(feature = "slave")]
+    SendGTSAnswer(MicroSeconds),
     DynWindowStart,
+    ForceReady,
+    ForceReadyIfSending,
 }
 
 pub enum Event {
-    //#[cfg(any(feature = "master", feature = "devnode"))]
-    //GTSAnswerReceived(dw1000::mac::ShortAddress, message::GTSAnswer),
-    /// .0 is measured processing delay from rx timestamp, need to shift all further timings by that amount
+    // Guaranteed slot handling
+    /// scheduled: when GTSStart has been received and after power on.
+    /// dt: a little bit before the next GTSStart.
+    /// ▶ start listening for a GTSStart.
+    #[cfg(feature = "slave")]
+    GTSStartAboutToBeBroadcasted,
+    /// * Emitted from the SM when GTSStart message received from the PAN master.
+    /// * .0 is measured processing delay from rx timestamp, need to shift all further timings by that amount
+    /// * ▶ action: schedule gt, aloha and dyn slot starts and guards, if available.
+    /// * ▶ action: if gt slot available with zero shift, execute GTSAboutToStart event right away.
     #[cfg(feature = "slave")]
     GTSStartReceived(CycntDuration),
-    DynWindowAboutToStart,
+
+    /// * Emitted from the SM when GTSStart message was just sent with the current cycle counter value.
+    #[cfg(feature = "master")]
+    TimeMarker(CycntInstant),
+
+    /// * m: scheduled: scheduled by itself or spawned after power on. `.0` is the sum of all gt slot durations.
+    /// * dt: [GTS_PERIOD](config::GTS_PERIOD)
+    /// * m: ▶ issue GTSStart command to the SM, schedule itself.
+    /// * s: scheduled: after GTSStart received with gt slot available if shift is not 0. `.0` is the slot duration.
+    /// * dt: `slot.shift`
+    /// * s: ▶ issue command to the SM to send the uplink data.
+    GTSAboutToStart(MicroSeconds),
+    /// * m: emitted from the SM when all pending answers has been received.
+    /// If some is missed, `GTSShouldHaveEnded` will disable the receivier.
+    /// * s: emitted from the SM when gt slot uplink data has been sent.
+    /// * ▶ set flag, notify other tasks if needed to synchronize them within all nodes in a PAN.
+    GTSProcessingFinished,
+    /// * on master: at the `timing marker` when all slots should be finished.
+    /// * on slave: scheduled when GTSStart is received if gt slot is available, after that slot.
+    /// * ▶ if not flag => force stop transmitter, not to overlap with anyone else (this is a BUG on slave!).
+    GTSShouldHaveEnded,
+
+    // Aloha slot handling
+    /// * m: scheduled: when GTSStart was just sended.
+    /// * s: scheduled: when GTSStart received with aloha slot available.
+    /// * dt: GT phase duration + guard.
+    /// * `.0` is the slot duration.
+    /// * ▶ issue command to the SM to receive or transmit something.
+    AlohaSlotAboutToStart(MicroSeconds),
+    // Can't know in advance if someone is going to transmit, wait `AlohaSlotShouldHaveEnded` event.
+    //AlohaSlotProcessingFinished,
+    /// * scheduled: at the `timing marker` a little bit into guard interval afterwards.
+    /// * ▶ force idle state
+    AlohaSlotShouldHaveEnded,
+
+    // Dyn slot handling
+    /// * m: scheduled: when GTSStart was just sended.
+    /// * dt:
+    /// * slave: scheduled after GTSStart received with dyn slot available.
+    /// * ▶ action: issue command to the SM to receive or transmit something.
+    DynAboutToStart(MicroSeconds),
+    /// * Emitted from the SM when something had been actually sent.
+    /// * ▶ set flag
+    DynProcessingFinished,
+    /// * • Scheduled at the `timing marker` a little bit into guard interval afterwards.
+    /// * ▶ if not flag => force stop transmitter, not to overlap with anyone else (this is a BUG!).
+    DynShouldHaveEnded,
+
+    // Ranging slot handling
+
+    // Checking
+    /// * Emitted from the SM if radio irq is pended but message was not received yet.
+    /// * ▶ schedule itself and pend radio irq to re-enable receiver, if `config::DW1000_CHECK_PERIOD_MS` passed.
+    /// It can get stuck, at least on RTT disconnect, and do not receive anything.
     #[cfg(feature = "slave")]
-    GTSAnswerSent,
-    GTSAboutToEnd,
+    ReceiveCheck,
+    // Emitted from the SM if radio irq is pended but message was not sended yet.
+    //StillSending,
 }
 
 impl core::fmt::Display for Event {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(feature = "slave")]
-            Event::GTSStartReceived(_) => { write!(f, "G_S") },
-            Event::DynWindowAboutToStart => { write!(f, "D_S") },
+            Event::GTSStartAboutToBeBroadcasted => { write!(f, "G_ATB") },
             #[cfg(feature = "slave")]
-            Event::GTSAnswerSent => { write!(f, "G_AS") },
-            Event::GTSAboutToEnd => { write!(f, "G_E") },
+            Event::GTSStartReceived(_) => { write!(f, "G_SR") },
+            #[cfg(feature = "master")]
+            Event::TimeMarker(_) => { write!(f, "TM") },
+            Event::GTSAboutToStart(_) => { write!(f, "G_AS") },
+            Event::GTSProcessingFinished => { write!(f, "G_PF") },
+            Event::GTSShouldHaveEnded => { write!(f, "G_SX") },
+            Event::AlohaSlotAboutToStart(_) => { write!(f, "A_ATS") },
+            Event::AlohaSlotShouldHaveEnded => { write!(f, "A_SX") },
+            Event::DynAboutToStart(_) => { write!(f, "D_ATS") },
+            Event::DynProcessingFinished => { write!(f, "D_PF") },
+            Event::DynShouldHaveEnded => { write!(f, "D_SX") },
         }
     }
 }
@@ -169,21 +258,37 @@ pub enum NodeState {
     Active(Node),
 }
 
+// TODO: Add slot type instead of blind search
 impl NodeState {
-    pub fn dyn_slot_dt(&self) -> Option<MicroSeconds> {
+    pub fn gt_slot(&self) -> Option<Window> {
         match self {
             NodeState::Disconnected => { None },
             NodeState::Active(node) => {
-                let from_gts_start = {
-                    if node.slots[2].is_some() {
-                        node.slots[2].unwrap().shift
-                    } else if node.slots[1].is_some() {
-                        node.slots[1].unwrap().shift
-                    } else {
-                        return None;
-                    }
-                };
-                Some(from_gts_start)
+                node.slots[0]
+            }
+        }
+    }
+
+    pub fn aloha_slot(&self) -> Option<Window> {
+        match self {
+            NodeState::Disconnected => { None },
+            NodeState::Active(node) => {
+                node.slots[1]
+            }
+        }
+    }
+
+    pub fn dyn_slot(&self) -> Option<Window> {
+        match self {
+            NodeState::Disconnected => { None },
+            NodeState::Active(node) => {
+                if node.slots[2].is_some() {
+                    node.slots[2]
+                } else if node.slots[1].is_some() {
+                    node.slots[1]
+                } else {
+                    None
+                }
             }
         }
     }

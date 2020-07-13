@@ -2,6 +2,7 @@ use crate::board::hal;
 use crate::radio;
 use crate::config;
 use crate::crc_framer;
+use crate::color;
 
 use bbqueue::{BBBuffer};
 use rtt_target::{rtt_init_print, rprint, rprintln};
@@ -10,6 +11,9 @@ use hal::gpio::{Edge, ExtiPin};
 use dw1000::DW1000;
 use hal::spi::Spi;
 use embedded_hal::digital::v2::OutputPin;
+use cfg_if::cfg_if;
+use radio::types::Event;
+use radio::scheduler::Scheduler;
 
 pub fn init(
     cx: crate::init::Context,
@@ -20,9 +24,9 @@ pub fn init(
 ) -> crate::init::LateResources {
     rtt_init_print!(NoBlockSkip);
     //rprintln!("\x1b[2J\x1b[0m");
-    rprint!("UWB v");
-    rprintln!(env!("CARGO_PKG_VERSION"));
-    rprintln!("\x1b[1;36;40minit()\x1b[0m ");
+    rprint!("\n{}==============\n= UWB v", color::CYAN);
+    rprintln!("{} =\n=============={}\n", env!("CARGO_PKG_VERSION"), color::DEFAULT);
+    rprintln!("init...");
 
     let mut core/*: cortex_m::Peripherals */= cx.core;
     core.DCB.enable_trace();
@@ -35,7 +39,7 @@ pub fn init(
     let rcc = device.RCC.constrain();
     use hal::time::U32Ext;
     // If you change clock frequency, make sure to also change tracer sysclk!
-    cfg_if::cfg_if! {
+    cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
                 let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
             } else if #[cfg(feature = "dragonfly-board")] {
@@ -48,7 +52,7 @@ pub fn init(
     let mut exti = device.EXTI;
 
     use hal::gpio::GpioExt;
-    cfg_if::cfg_if! {
+    cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
                 let gpioa = device.GPIOA.split();
                 let gpiob = device.GPIOB.split();
@@ -60,7 +64,7 @@ pub fn init(
             }
         }
 
-    cfg_if::cfg_if! {
+    cfg_if! {
             if #[cfg(feature = "pozyx-board")] {
                 let mut led1_red = gpiob.pb4.into_push_pull_output();
                 let mut led_blinky = gpiob.pb5.into_push_pull_output();
@@ -79,7 +83,7 @@ pub fn init(
     let dw1000_spi_freq = 2.mhz();
     let dw1000_spi_freq_hi = 18.mhz();
 
-    cfg_if::cfg_if! {
+    cfg_if! {
         if #[cfg(feature = "pozyx-board")] {
             let mut dw1000_reset  = gpiob.pb0.into_open_drain_output(); // open drain, do not pull high
             let mut dw1000_cs = gpioa.pa4.into_push_pull_output();
@@ -173,13 +177,13 @@ pub fn init(
     let (vesc_bbbuffer_p, vesc_bbbuffer_c) = vesc_bbbuffer.try_split().unwrap();
 
     // To Ctrl or lidar
-    cfg_if::cfg_if! {
-            if #[cfg(feature = "master")] {
-                let ctrl_baudrate = 115_200.bps();
-            } else {
-                let ctrl_baudrate = 256_000.bps();
-            }
+    cfg_if! {
+        if #[cfg(feature = "master")] {
+            let ctrl_baudrate = 115_200.bps();
+        } else {
+            let ctrl_baudrate = 256_000.bps();
         }
+    }
     let usart2_tx = gpioa.pa2.into_alternate_af7();
     let usart2_rx = gpioa.pa3.into_alternate_af7();
     let mut ctrl_serial = Serial::usart2(
@@ -200,7 +204,7 @@ pub fn init(
         clocks
     ).unwrap();
 
-    cfg_if::cfg_if! {
+    cfg_if! {
         if #[cfg(feature = "master")] {
             let mecanum_wheels = crate::motion::MecanumWheels::default();
         } else if  #[cfg(feature = "slave")] {
@@ -211,7 +215,14 @@ pub fn init(
     rprintln!("init(): done");
 
     cx.spawn.blinker().expect("RTIC failure?");
-    cx.spawn.radio_chrono().expect("RTIC failure?");
+    cfg_if! {
+        if #[cfg(feature = "master")] {
+            cx.spawn.radio_event(radio::Event::GTSAboutToStart(Scheduler::gts_phase_duration())).ok();
+        } else if #[cfg(feature = "slave")] {
+            cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();
+            cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
+        }
+    }
     cfg_if::cfg_if! {
         if #[cfg(feature = "br")] { // lidar ctrl
             cx.spawn.ctrl_link_control().unwrap();
@@ -220,6 +231,7 @@ pub fn init(
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
     let channels = crate::channels::Channels::new();
+    let event_state_data = crate::tasks::radio::EventStateData::default();
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
@@ -229,6 +241,7 @@ pub fn init(
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
                     channels,
+                    event_state_data,
 
                     vesc_serial,
                     vesc_framer,
@@ -253,6 +266,7 @@ pub fn init(
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
                     channels,
+                    event_state_data,
 
                     vesc_serial,
                     vesc_framer,
@@ -277,6 +291,7 @@ pub fn init(
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
                     channels,
+                    event_state_data,
 
                     vesc_serial,
                     vesc_framer,

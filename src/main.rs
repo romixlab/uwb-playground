@@ -13,6 +13,7 @@ mod units;
 mod tasks;
 mod motion;
 mod rplidar;
+mod color;
 
 use board::hal;
 use core::num::Wrapping;
@@ -28,6 +29,7 @@ const APP: () = {
         radio: radio::Radio,
         radio_commands: radio::types::CommandQueueP,
         channels: channels::Channels,
+        event_state_data: tasks::radio::EventStateData,
 
         vesc_serial: config::VescSerial,
         vesc_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U512>,
@@ -62,7 +64,7 @@ const APP: () = {
     #[init(
         schedule = [],
         spawn = [
-            radio_chrono,
+            radio_event,
             blinker,
             ctrl_link_control
         ]
@@ -106,25 +108,6 @@ const APP: () = {
     }
 
     #[task(
-        priority = 5,
-        resources = [
-            &clocks,
-            radio_commands,
-            mecanum_wheels,
-        ],
-        schedule = [
-            radio_chrono,
-        ],
-        spawn = [
-            radio_chrono,
-        ]
-    )]
-    fn radio_chrono(cx: radio_chrono::Context) {
-        static mut STATE: tasks::radio::RadioChronoState = tasks::radio::RadioChronoState::Uninit;
-        tasks::radio::radio_chrono(cx, STATE);
-    }
-
-    #[task(
         binds = EXTI0,
         priority = 6,
         resources = [
@@ -153,6 +136,7 @@ const APP: () = {
             &clocks,
             radio,
             radio_commands,
+            event_state_data,
             wheel,
             mecanum_wheels,
         ],

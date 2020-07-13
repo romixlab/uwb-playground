@@ -7,3 +7,4 @@ pub mod scheduler;
 
 pub use types::Error;
 pub use types::Radio;
+pub use types::Event;
