@@ -1,12 +1,12 @@
 #![no_main]
 #![no_std]
 
+#[macro_use]
+mod util;
 mod board;
 mod panic_handler;
 mod radio;
 mod channels;
-#[macro_use]
-mod util;
 mod config;
 mod crc_framer;
 mod units;

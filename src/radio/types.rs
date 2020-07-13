@@ -16,7 +16,9 @@ use typenum::marker_traits::Unsigned;
 use heapless::spsc::{Queue, Producer, Consumer};
 use heapless::consts::*;
 use rtic::cyccnt::Instant as CycntInstant;
+use rtic::cyccnt::Duration as CycntDuration;
 use dw1000::time::Instant as RadioInstant;
+use core::fmt::Formatter;
 
 #[derive(Debug)]
 pub enum Error {
@@ -118,23 +120,36 @@ pub struct Window {
 pub enum Command {
     #[cfg(feature = "master")]
     GTSStart,
-    #[cfg(feature = "master")]
+
     GTSEnd,
     Listen(RadioConfig),
     SendGTSAnswer,
     DynWindowStart,
 }
 
-#[derive(Debug)]
 pub enum Event {
     //#[cfg(any(feature = "master", feature = "devnode"))]
     //GTSAnswerReceived(dw1000::mac::ShortAddress, message::GTSAnswer),
+    /// .0 is measured processing delay from rx timestamp, need to shift all further timings by that amount
     #[cfg(feature = "slave")]
-    GTSStartReceived,
+    GTSStartReceived(CycntDuration),
+    DynWindowAboutToStart,
     #[cfg(feature = "slave")]
-    DynWindowStarted,
     GTSAnswerSent,
-    GTSEnded,
+    GTSAboutToEnd,
+}
+
+impl core::fmt::Display for Event {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            #[cfg(feature = "slave")]
+            Event::GTSStartReceived(_) => { write!(f, "G_S") },
+            Event::DynWindowAboutToStart => { write!(f, "D_S") },
+            #[cfg(feature = "slave")]
+            Event::GTSAnswerSent => { write!(f, "G_AS") },
+            Event::GTSAboutToEnd => { write!(f, "G_E") },
+        }
+    }
 }
 
 pub type CommandQueue = Queue<Command, U8>;
@@ -154,6 +169,26 @@ pub struct Node {
 pub enum NodeState {
     Disconnected,
     Active(Node),
+}
+
+impl NodeState {
+    pub fn dyn_slot_dt(&self) -> Option<MicroSeconds> {
+        match self {
+            NodeState::Disconnected => { None },
+            NodeState::Active(node) => {
+                let from_gts_start = {
+                    if node.slots[2].is_some() {
+                        node.slots[2].unwrap().shift
+                    } else if node.slots[1].is_some() {
+                        node.slots[1].unwrap().shift
+                    } else {
+                        return None;
+                    }
+                };
+                Some(from_gts_start)
+            }
+        }
+    }
 }
 
 pub struct Radio {

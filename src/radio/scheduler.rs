@@ -61,4 +61,15 @@ impl Scheduler {
         window.window = MicroSeconds(5420);
         let _ = mux.mux(&window, LogicalDestination::Unicast(config::BR_UWB_ADDR), ctrl_ch);
     }
+
+    /// Stop receiving sync answers at this dt from start.
+    /// Start is the actual time when GTSStart message was sent / received +- minor error.
+    pub fn sync_period_end_shift() -> MicroSeconds {
+        MicroSeconds(7900)
+    }
+
+    /// Start dyn phase at this dt from start.
+    pub fn dyn_period_start_shift() -> MicroSeconds {
+        MicroSeconds(8000)
+    }
 }

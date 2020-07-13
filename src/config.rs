@@ -1,5 +1,8 @@
 use crate::board::hal;
-
+use crate::units::{
+    MilliSeconds,
+    ms
+};
 use hal::gpio::{PushPull, Output, Alternate, Input, PullDown};
 
 #[cfg(feature = "pozyx-board")]
@@ -43,7 +46,7 @@ pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
 
 /// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
 #[cfg(feature = "master")]
-pub const GTS_PERIOD_MS: u32 = 50;
+pub const GTS_PERIOD: MilliSeconds = ms(50);
 
 use dw1000::mac::{PanId, ShortAddress};
 pub const PAN_ID: PanId = PanId(0x666);

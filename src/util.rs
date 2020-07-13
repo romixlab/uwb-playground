@@ -33,9 +33,15 @@ macro_rules! us2cycles {
     };
 }
 
-macro_rules! us2cycles_raw {
+macro_rules! us2cycles_alt {
     ($cx:ident, $amount:expr) => {
-        $cx.resources.clocks.sysclk().0 / 1_000_000 * $amount
+        ($cx.clocks.sysclk().0 / 1_000_000 * $amount).cycles()
+    };
+}
+
+macro_rules! us2cycles_raw {
+    ($clocks:expr, $amount:expr) => {
+        $clocks.sysclk().0 / 1_000_000 * $amount
     };
 }
 
@@ -89,10 +95,12 @@ pub enum TraceEvent {
 
     DynWindowStart = 11,
 
-    RequestedSlotStarted,
-    MessageReceived,
-    MessageSent,
-    RequestedSlotEnded
+    RequestedSlotStarted = 12,
+    MessageReceived = 13,
+    MessageSent = 14,
+    RequestedSlotEnded = 15,
+
+    TimingMarker = 16,
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -113,6 +121,7 @@ impl core::fmt::Display for TraceEvent {
             TraceEvent::GTSAnswerSend => { write!(f, "G_AS") }
             TraceEvent::GTSStartReceived => { write!(f, "G_SS") }
             TraceEvent::DynWindowStart => { write!(f, "D_WS") }
+            TraceEvent::TimingMarker => { write!(f, "T0") }
         }
     }
 }
