@@ -54,8 +54,6 @@ pub enum RadioState {
     #[cfg(feature = "slave")]
     GTSStartWaiting(Option<ReceivingRadio>),
     #[cfg(feature = "slave")]
-    GTSWaitingForUplinkData(Option<ReadyRadio>),
-    #[cfg(feature = "slave")]
     GTSAnswerSending(Option<SendingRadio>),
 }
 

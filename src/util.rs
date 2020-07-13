@@ -14,57 +14,56 @@ macro_rules! busywait {
     };
 }
 
-/// * ms2cycles!(rtic_cx, 100);
+#[allow(unused_macros)]
 macro_rules! ms2cycles {
-    ($cx:ident, $amount:expr) => {
-        ($cx.resources.clocks.sysclk().0 / 1_000 * $amount).cycles()
+    ($clocks:expr, $amount:expr) => {
+        ($clocks.sysclk().0 / 1_000 * $amount).cycles()
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! ms2cycles_raw {
-    ($cx:ident, $amount:expr) => {
-        $cx.resources.clocks.sysclk().0 / 1_000 * $amount
+    ($clocks:expr, $amount:expr) => {
+        $clocks.sysclk().0 / 1_000 * $amount
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! us2cycles {
-    ($cx:ident, $amount:expr) => {
-        ($cx.resources.clocks.sysclk().0 / 1_000_000 * $amount).cycles()
+    ($clocks:expr, $amount:expr) => {
+        ($clocks.sysclk().0 / 1_000_000 * $amount).cycles()
     };
 }
 
-macro_rules! us2cycles_alt {
-    ($cx:ident, $amount:expr) => {
-        ($cx.clocks.sysclk().0 / 1_000_000 * $amount).cycles()
-    };
-}
-
+#[allow(unused_macros)]
 macro_rules! us2cycles_raw {
     ($clocks:expr, $amount:expr) => {
         $clocks.sysclk().0 / 1_000_000 * $amount
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! cycles2ms {
-    ($cx:ident, $amount:expr) => {
-        (($amount as u64) * 1_000) / $cx.resources.clocks.sysclk().0 as u64
+    ($clocks:expr, $amount:expr) => {
+        (($amount as u64) * 1_000) / $clocks.sysclk().0 as u64
     };
 }
 
 #[allow(unused_macros)]
 macro_rules! cycles2us {
-    ($cx:ident, $amount:expr) => {
-        (($amount as u64) * 1_000_000) / $cx.resources.clocks.sysclk().0 as u64
+    ($clocks:expr, $amount:expr) => {
+        (($amount as u64) * 1_000_000) / $clocks.sysclk().0 as u64
     };
 }
 
 #[allow(unused_macros)]
-macro_rules! cycles2us_raw {
+macro_rules! cycles2us_alt {
     ($sysclk:expr, $amount:expr) => {
         (($amount as u64) * 1_000_000) / $sysclk as u64
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! radio_command_l {
     ($cx:ident, $cmd:expr) => {
         $cx.resources.radio_commands.lock(|cmds| cmds.enqueue($cmd)).ok();
@@ -72,6 +71,7 @@ macro_rules! radio_command_l {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! radio_command {
     ($cx:ident, $cmd:expr) => {
         $cx.resources.radio_commands.enqueue($cmd).ok();

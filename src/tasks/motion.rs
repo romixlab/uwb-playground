@@ -20,7 +20,7 @@ pub fn motor_control(
     if e.is_move_event() {
         if last_command_instant.is_none() {
             cx.schedule.motor_control(
-                cx.scheduled + ms2cycles!(cx, config::motor_control::TIMING_CHECK_INTERVAL_MS),
+                cx.scheduled + ms2cycles!(cx.resources.clocks, config::motor_control::TIMING_CHECK_INTERVAL_MS),
                 motion::MotorControlEvent::TimingCheck
             ).ok(); // TODO: count errors, totally fail at this probably
         }
@@ -75,11 +75,11 @@ pub fn motor_control(
         TimingCheck => {
             let dt = last_command_instant.expect("motor_control::TimingCheck fail").elapsed();
 
-            let stop_timeout_cycles: u32 = ms2cycles_raw!(cx, config::motor_control::STOP_TIMEOUT_MS);
+            let stop_timeout_cycles: u32 = ms2cycles_raw!(cx.resources.clocks, config::motor_control::STOP_TIMEOUT_MS);
             rprintln!(=> 9, "TimingCheck dt:{} thresh:{}\n", dt.as_cycles(), stop_timeout_cycles,);
 
             if dt.as_cycles() >= stop_timeout_cycles {
-                rprintln!(=> 9, "ALL STOP {}\n", cycles2ms!(cx, dt.as_cycles()));
+                rprintln!(=> 9, "ALL STOP {}\n", cycles2ms!(cx.resources.clocks, dt.as_cycles()));
                 cfg_if::cfg_if! {
                         if #[cfg(feature = "master")] {
                             cx.resources.mecanum_wheels.lock(|wheels| wheels.all_stop() );
@@ -96,7 +96,7 @@ pub fn motor_control(
             }
 
             cx.schedule.motor_control(
-                cx.scheduled + ms2cycles!(cx, config::motor_control::TIMING_CHECK_INTERVAL_MS),
+                cx.scheduled + ms2cycles!(cx.resources.clocks, config::motor_control::TIMING_CHECK_INTERVAL_MS),
                 motion::MotorControlEvent::TimingCheck
             ).ok(); // TODO: count errors, totally fail at this probably
         },

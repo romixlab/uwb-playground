@@ -88,7 +88,7 @@ impl Arbiter for Channels {
         cfg_if! {
             if #[cfg(feature = "slave")] {
                 let tacho = Tachometer(1234);
-                mux.mux(&tacho, LogicalDestination::Implicit, ChannelId::new(1));
+                let _ = mux.mux(&tacho, LogicalDestination::Implicit, ChannelId::new(1));
             }
         }
     }

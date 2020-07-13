@@ -1,4 +1,3 @@
-pub mod message;
 pub mod state_machine;
 pub mod serdes;
 pub mod serdes_impl;

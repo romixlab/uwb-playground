@@ -73,7 +73,7 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
                 })
             );
             use rtic::cyccnt::U32Ext;
-            cx.schedule.ctrl_link_control(cx.scheduled + ms2cycles!(cx, 50)).ok();
+            cx.schedule.ctrl_link_control(cx.scheduled + ms2cycles!(cx.resources.clocks, 50)).ok();
         }
     }
 }

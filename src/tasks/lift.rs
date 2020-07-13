@@ -41,7 +41,7 @@ pub fn lift_control(
         Continue => {
             if *tokens != 0 {
                 cx.resources.lift_serial.write(*current_symbol).ok();
-                cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx, 10), Continue).ok();
+                cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx.resources.clocks, 10), Continue).ok();
                 *tokens -= 1;
             }
         },
@@ -59,6 +59,6 @@ pub fn lift_control(
     }
     if prev_tokens == 0 {
         cx.resources.lift_serial.write(*current_symbol).ok();
-        cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx, 10), Continue).ok();
+        cx.schedule.lift_control(cx.scheduled + ms2cycles!(cx.resources.clocks, 10), Continue).ok();
     }
 }

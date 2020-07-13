@@ -15,5 +15,5 @@ pub fn blinker(cx: crate::blinker::Context, led_state: &mut bool) {
     }
 
     //cx.spawn.lift_control(LiftControlCommand::AllUp);
-    cx.schedule.blinker(cx.scheduled + ms2cycles!(cx, config::BLINK_PERIOD_MS)).ok(); // TODO: count errors
+    cx.schedule.blinker(cx.scheduled + ms2cycles!(cx.resources.clocks, config::BLINK_PERIOD_MS)).ok(); // TODO: count errors
 }

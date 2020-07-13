@@ -28,7 +28,7 @@ pub enum RadioChronoState {
 }
 
 #[allow(unused_variables)]
-pub fn radio_chrono(mut cx: crate::radio_chrono::Context, state: &mut RadioChronoState) {
+pub fn radio_chrono(cx: crate::radio_chrono::Context, state: &mut RadioChronoState) {
     #[cfg(feature = "master")]
     const GTS_END: MicroSeconds = us(9550);
     use RadioChronoState::*;
@@ -36,7 +36,7 @@ pub fn radio_chrono(mut cx: crate::radio_chrono::Context, state: &mut RadioChron
         Uninit => {
             radio_command!(cx, Command::Listen(RadioConfig::default()));
             #[cfg(feature = "slave")]
-            cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok();
+            cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx.resources.clocks, config::DW1000_CHECK_PERIOD_MS)).ok();
             #[cfg(feature = "master")]
             cx.spawn.radio_chrono().ok();
             Idle
@@ -48,12 +48,12 @@ pub fn radio_chrono(mut cx: crate::radio_chrono::Context, state: &mut RadioChron
                     radio_command!(cx, Command::GTSStart);
 
                     let dt: MicroSeconds = GTS_END;
-                    cx.schedule.radio_chrono(cx.scheduled + us2cycles!(cx, dt.0)).ok(); // TODO: Count errors
+                    cx.schedule.radio_chrono(cx.scheduled + us2cycles!(cx.resources.clocks, dt.0)).ok(); // TODO: Count errors
                     GTSInProgress
                 } else if #[cfg(feature = "slave")] {
                     rprintln!(=>2, "radio_check\n");
                     rtic::pend(config::DW1000_IRQ_EXTI);
-                    cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx, config::DW1000_CHECK_PERIOD_MS)).ok();
+                    cx.schedule.radio_chrono(cx.scheduled + ms2cycles!(cx.resources.clocks, config::DW1000_CHECK_PERIOD_MS)).ok();
                     Idle
                 }
             }
@@ -64,7 +64,7 @@ pub fn radio_chrono(mut cx: crate::radio_chrono::Context, state: &mut RadioChron
             // radio_command!(cx, Command::GTSEnd);
 
             let dt: MicroSeconds = config::GTS_PERIOD - GTS_END;
-            cx.schedule.radio_chrono(cx.scheduled + us2cycles!(cx, dt.0)).ok(); // TODO: Count errors
+            cx.schedule.radio_chrono(cx.scheduled + us2cycles!(cx.resources.clocks, dt.0)).ok(); // TODO: Count errors
             Idle
         }
     };
@@ -106,8 +106,8 @@ impl Tracer for RttTracer {
         }
         self.prev = now;
 
-        let dt_gts = cycles2us_raw!(self.sysclk, dt_gts);
-        let dt_prev = cycles2us_raw!(self.sysclk, dt_prev);
+        let dt_gts = cycles2us_alt!(self.sysclk, dt_gts);
+        let dt_prev = cycles2us_alt!(self.sysclk, dt_prev);
         rprintln!(=> 13,
             "{}({}) +{}.{:03} d{}.{:03}\n",
             e,
@@ -212,7 +212,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 Some(dyn_window_dt) => {
                     let till_dyn_start = us2cycles_raw!(cx.resources.clocks, dyn_window_dt.0) - processing_delay.as_cycles();
                     //rprintln!(=>13, "till: {}", till_dyn_start);
-                    cx.schedule.radio_event(cx.scheduled + till_dyn_start.cycles(), Event::DynWindowAboutToStart);
+                    cx.schedule.radio_event(cx.scheduled + till_dyn_start.cycles(), Event::DynWindowAboutToStart).ok(); // TODO: count
                 },
                 None => {}
             }
