@@ -207,20 +207,20 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             let gt_slot = cx.resources.radio.lock(|radio| radio.master.gt_slot());
             match gt_slot {
                 Some(s) => {
-                    let duration: MicroSeconds = s.window;
+                    let duration: MicroSeconds = s.duration;
                     let duration = us2cycles_raw!(cx.resources.clocks, duration.0);
                     if s.shift == MicroSeconds(0) {
-                        radio_command!(cx, Command::SendGTSAnswer(s.window));
+                        radio_command!(cx, Command::SendGTSAnswer(s.duration));
 
-                        let instant = cx.scheduled + duration;
-                        cx.schedule.radio_event(instant, Event::GTSShouldHaveEnded(instant)).ok(); // TODO: count
+                        let instant = cx.scheduled + duration.cycles();
+                        cx.schedule.radio_event(instant, Event::GTSShouldHaveEnded).ok(); // TODO: count
                     } else {
                         let shift: MicroSeconds = s.shift;
                         let till_gts = us2cycles_raw!(cx.resources.clocks, shift.0) - processing_delay.as_cycles();
-                        cx.schedule.radio_event(cx.scheduled + till_gts.as_cycles(), Event::GTSAboutToStart(s.window)).ok(); // TODO: count
+                        cx.schedule.radio_event(cx.scheduled + till_gts.cycles(), Event::GTSAboutToStart(s.duration)).ok(); // TODO: count
 
-                        let instant = cx.scheduled + till_gts + duration;
-                        cx.schedule.radio_event(instant, Event::GTSShouldHaveEnded(instant)).ok(); // TODO: count
+                        let instant = cx.scheduled + till_gts.cycles() + duration.cycles();
+                        cx.schedule.radio_event(instant, Event::GTSShouldHaveEnded).ok(); // TODO: count
                     }
                 },
                 None => {}
@@ -231,9 +231,10 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             match aloha_slot {
                 Some(s) => {
                     let till_aloha = us2cycles_raw!(cx.resources.clocks, s.shift.0) - processing_delay.as_cycles();
-                    cx.schedule.radio_event(cx.scheduled + till_gts.as_cycles(), Event::AlohaSlotAboutToStart).ok(); // TODO: count
-                    cx.schedule.radio_event(cx.scheduled + till_gts.as_cycles(), Event::AlohaSlotEnd).ok(); // TODO: count
-                }
+                    cx.schedule.radio_event(cx.scheduled + till_aloha.cycles(), Event::AlohaSlotAboutToStart(s.duration)).ok(); // TODO: count
+                    cx.schedule.radio_event(cx.scheduled + till_aloha.cycles(), Event::AlohaSlotEnded).ok(); // TODO: count
+                },
+                None => {}
             }
 
             // Schedule the start of dyn slot, if any.
@@ -241,15 +242,15 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             match dyn_slot {
                 Some(s) => {
                     let till_dyn_start = us2cycles_raw!(cx.resources.clocks, s.shift.0) - processing_delay.as_cycles();
-                    let dyn_duration = us2cycles_raw!(cx.resources.clocks, s.window.0);
+                    let dyn_duration = us2cycles_raw!(cx.resources.clocks, s.duration.0);
                     //rprintln!(=>13, "till: {}", till_dyn_start);
                     cx.schedule.radio_event(
                         cx.scheduled + till_dyn_start.cycles(),
-                        Event::DynWindowAboutToStart(s.window)
+                        Event::DynAboutToStart(s.duration)
                     ).ok(); // TODO: count
                     cx.schedule.radio_event(
-                        cx.scheduled + till_dyn_start.cycles() + dyn_duration.as_cycles(),
-                        Event::DynWindowEnd
+                        cx.scheduled + till_dyn_start.cycles() + dyn_duration.cycles(),
+                        Event::DynShouldHaveEnded
                     ).ok(); // TODO: count
                 },
                 None => {}
@@ -278,7 +279,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         AlohaSlotAboutToStart(aloha_slot_duration) => {
 
         },
-        AlohaSlotShouldHaveEnded => {
+        AlohaSlotEnded => {
             radio_command!(cx, Command::ForceReady);
         },
         #[cfg(feature = "master")]

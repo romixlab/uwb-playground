@@ -4,8 +4,8 @@ use super::channelization::{
     LogicalDestination,
 };
 use super::types::{
-    Window,
-    WindowType,
+    Slot,
+    SlotType,
     RadioConfig,
 };
 use dw1000::{
@@ -26,10 +26,10 @@ impl Scheduler {
     #[cfg(feature = "master")]
     pub fn source_timeslots<M: Multiplex<Error = super::Error>>(mux: &mut M)
     {
-        let mut window = Window {
+        let mut slot = Slot {
             shift: MicroSeconds(0),
-            window: MicroSeconds(940),
-            window_type: WindowType::Uplink,
+            duration: MicroSeconds(940),
+            slot_type: SlotType::GtsUplink,
             radio_config: RadioConfig {
                 channel: UwbChannel::Channel5,
                 bitrate: BitRate::Kbps850,
@@ -38,28 +38,43 @@ impl Scheduler {
         };
         let ctrl_ch = ChannelId::ctrl();
         // GTS
-        let _ = mux.mux(&window, LogicalDestination::Unicast(config::TR_UWB_ADDR), ctrl_ch);
-        window.shift = MicroSeconds(1640);
-        window.window = MicroSeconds(940);
-        let _ = mux.mux(&window, LogicalDestination::Unicast(config::BL_UWB_ADDR), ctrl_ch);
-        window.shift = MicroSeconds(3280);
-        window.window = MicroSeconds(940);
-        let _ = mux.mux(&window, LogicalDestination::Unicast(config::BR_UWB_ADDR), ctrl_ch);
-        window.shift = MicroSeconds(4920);
-        window.window = MicroSeconds(1980);
-        let _ = mux.mux(&window, LogicalDestination::Implicit, ctrl_ch);
-        // Dynamic
-        window.radio_config.bitrate = BitRate::Kbps6800;
+        let _ = mux.mux(&slot, LogicalDestination::Unicast(config::TR_UWB_ADDR), ctrl_ch);
+        slot.shift = MicroSeconds(1640);
+        slot.duration = MicroSeconds(940);
+        let _ = mux.mux(&slot, LogicalDestination::Unicast(config::BL_UWB_ADDR), ctrl_ch);
+        slot.shift = MicroSeconds(3280);
+        slot.duration = MicroSeconds(940);
+        let _ = mux.mux(&slot, LogicalDestination::Unicast(config::BR_UWB_ADDR), ctrl_ch);
+        slot.shift = MicroSeconds(4920);
+        slot.duration = MicroSeconds(1980);
+        let _ = mux.mux(&slot, LogicalDestination::Implicit, ctrl_ch);
 
-        window.shift = MicroSeconds(7600);
-        window.window = MicroSeconds(4440);
-        let _ = mux.mux(&window, LogicalDestination::Unicast(config::TR_UWB_ADDR), ctrl_ch);
-        window.shift = MicroSeconds(12750);
-        window.window = MicroSeconds(4440);
-        let _ = mux.mux(&window, LogicalDestination::Unicast(config::BL_UWB_ADDR), ctrl_ch);
-        window.shift = MicroSeconds(17900);
-        window.window = MicroSeconds(5420);
-        let _ = mux.mux(&window, LogicalDestination::Unicast(config::BR_UWB_ADDR), ctrl_ch);
+        // Aloha
+        slot.slot_type = SlotType::Aloha;
+        slot.shift = MicroSeconds();
+        slot.duration = MicroSeconds();
+        let _ = mux.mux(&slot, LogicalDestination::Implicit, ctrl_ch);
+
+        // Dynamic
+        slot.radio_config.bitrate = BitRate::Kbps6800;
+        slot.slot_type = SlotType::DynUplink;
+
+        slot.shift = MicroSeconds(7600);
+        slot.duration = MicroSeconds(4440);
+        let _ = mux.mux(&slot, LogicalDestination::Unicast(config::TR_UWB_ADDR), ctrl_ch);
+        slot.shift = MicroSeconds(12750);
+        slot.duration = MicroSeconds(4440);
+        let _ = mux.mux(&slot, LogicalDestination::Unicast(config::BL_UWB_ADDR), ctrl_ch);
+        slot.shift = MicroSeconds(17900);
+        slot.duration = MicroSeconds(5420);
+        let _ = mux.mux(&slot, LogicalDestination::Unicast(config::BR_UWB_ADDR), ctrl_ch);
+
+        // Ranging
+        slot.radio_config.bitrate = BitRate::Kbps850;
+        slot.slot_type = SlotType::Ranging;
+        slot.shift = MicroSeconds();
+        slot.duration = MicroSeconds();
+        let _ = mux.mux(&slot, LogicalDestination::Implicit, ctrl_ch);
     }
 
     /// Guaranteed time slot phase duration.

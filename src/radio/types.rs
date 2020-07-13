@@ -28,6 +28,7 @@ pub enum Error {
     WindowTooLong,
     WrongChannel,
     WrongBitrate,
+    WrongSlotType,
     MuxTooBig,
     DemuxNotEnoughData,
 }
@@ -111,22 +112,28 @@ impl RadioConfig {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum WindowType {
+pub enum SlotType {
     /// Slave sends data to master, possibly with ACK request
-    Uplink = 0b0,
-    /// Slave listents for data from master
-    Downlink = 0b1
+    GtsUplink = 0b000,
+    /// Slave listents for data from master (not currently used).
+    Downlink = 0b001,
+    /// Everyone can send something, except master (only listens).
+    Aloha = 0b010,
+    /// Dynamic slot, master listens first
+    DynUplink = 0b011,
+    ///
+    Ranging = 0b100,
 }
 
 /// One window of message exchanges. Requested by slaves and granted by master.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Window {
+pub struct Slot {
     /// Beginning of the window from received GTSStart
     pub shift: MicroSeconds,
     /// Duration of the window
-    pub window: MicroSeconds,
+    pub duration: MicroSeconds,
     /// Who iniates transmissions in this window
-    pub window_type: WindowType,
+    pub slot_type: SlotType,
     /// Radio config used
     pub radio_config: RadioConfig,
 }
@@ -191,7 +198,7 @@ pub enum Event {
     //AlohaSlotProcessingFinished,
     /// * scheduled: at the `timing marker` a little bit into guard interval afterwards.
     /// * ▶ force idle state
-    AlohaSlotShouldHaveEnded,
+    AlohaSlotEnded,
 
     // Dyn slot handling
     /// * m: scheduled: when GTSStart was just sended.
@@ -231,10 +238,12 @@ impl core::fmt::Display for Event {
             Event::GTSProcessingFinished => { write!(f, "G_PF") },
             Event::GTSShouldHaveEnded => { write!(f, "G_SX") },
             Event::AlohaSlotAboutToStart(_) => { write!(f, "A_ATS") },
-            Event::AlohaSlotShouldHaveEnded => { write!(f, "A_SX") },
+            Event::AlohaSlotEnded => { write!(f, "A_X") },
             Event::DynAboutToStart(_) => { write!(f, "D_ATS") },
             Event::DynProcessingFinished => { write!(f, "D_PF") },
             Event::DynShouldHaveEnded => { write!(f, "D_SX") },
+            #[cfg(feature = "slave")]
+            Event::ReceiveCheck => { write!(f, "RC") }
         }
     }
 }
@@ -247,7 +256,7 @@ pub type CommandQueueC = Consumer<'static, Command, U8>;
 pub struct Node {
     //pub address: dw1000::mac::ShortAddress,
     pub last_seen: Option<(CycntInstant, RadioInstant)>,
-    pub slots: [Option<Window>; 3],
+    pub slots: [Option<Slot>; 3],
     //#[cfg(feature = "stats")]
     // stats: NodeStatistics
 }
@@ -260,7 +269,7 @@ pub enum NodeState {
 
 // TODO: Add slot type instead of blind search
 impl NodeState {
-    pub fn gt_slot(&self) -> Option<Window> {
+    pub fn gt_slot(&self) -> Option<Slot> {
         match self {
             NodeState::Disconnected => { None },
             NodeState::Active(node) => {
@@ -269,7 +278,7 @@ impl NodeState {
         }
     }
 
-    pub fn aloha_slot(&self) -> Option<Window> {
+    pub fn aloha_slot(&self) -> Option<Slot> {
         match self {
             NodeState::Disconnected => { None },
             NodeState::Active(node) => {
@@ -278,7 +287,7 @@ impl NodeState {
         }
     }
 
-    pub fn dyn_slot(&self) -> Option<Window> {
+    pub fn dyn_slot(&self) -> Option<Slot> {
         match self {
             NodeState::Disconnected => { None },
             NodeState::Active(node) => {

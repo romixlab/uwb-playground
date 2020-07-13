@@ -3,7 +3,7 @@ use super::types::{
     RadioState,
     RadioConfig,
     ReadyRadio, SendingRadio, ReceivingRadio,
-    Window, WindowType,
+    Slot, SlotType,
     Event,
     CommandQueueC,
     Node, NodeState,
@@ -315,7 +315,7 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
             let dt: MicroSeconds = Scheduler::aloha_period_end();
             cx.schedule.radio_event(
                 instant + us2cycles!(cx.clocks, dt.0),
-                Event::AlohaSlotShouldHaveEnded
+                Event::AlohaSlotEnded
             ).ok(); // TODO: count
 
             // Schedule dyn period start and end.
@@ -468,7 +468,7 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
         if channel.is_ctrl() {
             //rprint!(=>1, "ctrl_ch:{}", chunk.len());
             let mut buf = Buf::new(&chunk);
-            match Window::des(&mut buf) {
+            match Slot::des(&mut buf) {
                 Ok(window) => {
                     is_gts_start = true;
                     if slots_received == 0 {
@@ -602,7 +602,7 @@ fn advance_gts_answer_sending<A: Arbiter, T: Tracer>(
     match sending_radio.wait() {
         Ok(_) => {
             tracer.event(TraceEvent::GTSAnswerSent);
-            spawn.radio_event(Event::GTSAnswerSent).ok();
+            spawn.radio_event(Event::GTSProcessingFinished).ok(); // TODO: count
             let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
             RadioState::Ready(Some(ready_radio))
         },
