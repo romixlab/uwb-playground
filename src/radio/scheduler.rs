@@ -51,8 +51,8 @@ impl Scheduler {
 
         // Aloha
         slot.slot_type = SlotType::Aloha;
-        slot.shift = MicroSeconds();
-        slot.duration = MicroSeconds();
+        slot.shift = Self::aloha_period_start();
+        slot.duration = Self::aloha_phase_duration();
         let _ = mux.mux(&slot, LogicalDestination::Implicit, ctrl_ch);
 
         // Dynamic
@@ -72,8 +72,8 @@ impl Scheduler {
         // Ranging
         slot.radio_config.bitrate = BitRate::Kbps850;
         slot.slot_type = SlotType::Ranging;
-        slot.shift = MicroSeconds();
-        slot.duration = MicroSeconds();
+        slot.shift = MicroSeconds(24720);
+        slot.duration = MicroSeconds(5000);
         let _ = mux.mux(&slot, LogicalDestination::Implicit, ctrl_ch);
     }
 

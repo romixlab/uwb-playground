@@ -2,7 +2,7 @@ use crate::config;
 use crate::radio;
 use crate::motion;
 use crate::board::hal;
-use crate::radio::types::{Command, Event, RadioConfig};
+use crate::radio::types::{Command, Event, RadioConfig, SlotType};
 use rtic::Mutex;
 use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
@@ -204,7 +204,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             // Remove the time passed since actual message reception.
             // processing_delay is time passed since dw1000 timestamp and message actually pulled from it,
             // in cpu clock cycles.
-            let gt_slot = cx.resources.radio.lock(|radio| radio.master.gt_slot());
+            let gt_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::GtsUplink));
             match gt_slot {
                 Some(s) => {
                     let duration: MicroSeconds = s.duration;
@@ -227,7 +227,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             }
 
             // Schedule the start of Aloha slot, if any.
-            let aloha_slot = cx.resources.radio.lock(|radio| radio.master.aloha_slot() );
+            let aloha_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::Aloha) );
             match aloha_slot {
                 Some(s) => {
                     let till_aloha = us2cycles_raw!(cx.resources.clocks, s.shift.0) - processing_delay.as_cycles();
@@ -238,7 +238,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             }
 
             // Schedule the start of dyn slot, if any.
-            let dyn_slot = cx.resources.radio.lock(|radio| radio.master.dyn_slot() );
+            let dyn_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::DynUplink) );
             match dyn_slot {
                 Some(s) => {
                     let till_dyn_start = us2cycles_raw!(cx.resources.clocks, s.shift.0) - processing_delay.as_cycles();
@@ -252,6 +252,17 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                         cx.scheduled + till_dyn_start.cycles() + dyn_duration.cycles(),
                         Event::DynShouldHaveEnded
                     ).ok(); // TODO: count
+                },
+                None => {}
+            }
+
+            // Schedule the start of Ranging slot, if any.
+            let ranging_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::Ranging) );
+            match ranging_slot {
+                Some(s) => {
+                    let till_ranging = us2cycles_raw!(cx.resources.clocks, s.shift.0) - processing_delay.as_cycles();
+                    cx.schedule.radio_event(cx.scheduled + ranging_slot.cycles(), Event::RangingSlotAboutToStart(s.duration)).ok(); // TODO: count
+                    cx.schedule.radio_event(cx.scheduled + ranging_slot.cycles(), Event::RangingSlotEnd).ok(); // TODO: count
                 },
                 None => {}
             }
@@ -306,6 +317,12 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                     "Dyn"
                 );
             }
+        },
+        RangingSlotAboutToStart(raning_slot_duration) => {
+
+        },
+        RangingSlotEnd => {
+
         }
     }
 }

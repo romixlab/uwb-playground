@@ -131,7 +131,7 @@ const APP: () = {
 
     #[task(
         priority = 4,
-        capacity = 16,
+        capacity = 24,
         resources = [
             &clocks,
             radio,

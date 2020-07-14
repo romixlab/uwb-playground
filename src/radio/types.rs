@@ -215,6 +215,9 @@ pub enum Event {
 
     // Ranging slot handling
 
+    RangingSlotAboutToStart(MicroSeconds),
+    RangingSlotEnd,
+
     // Checking
     /// * Emitted from the SM if radio irq is pended but message was not received yet.
     /// * ▶ schedule itself and pend radio irq to re-enable receiver, if `config::DW1000_CHECK_PERIOD_MS` passed.
@@ -244,6 +247,8 @@ impl core::fmt::Display for Event {
             Event::DynShouldHaveEnded => { write!(f, "D_SX") },
             #[cfg(feature = "slave")]
             Event::ReceiveCheck => { write!(f, "RC") }
+            Event::RangingSlotAboutToStart(_) => { write!(f, "R_ATS") }
+            Event::RangingSlotEnd => { write!(f, "R_SX") }
         }
     }
 }
@@ -267,37 +272,19 @@ pub enum NodeState {
     Active(Node),
 }
 
-// TODO: Add slot type instead of blind search
 impl NodeState {
-    pub fn gt_slot(&self) -> Option<Slot> {
+    pub fn find_slot(&self, t: SlotType) -> Option<Slot> {
         match self {
             NodeState::Disconnected => { None },
             NodeState::Active(node) => {
-                node.slots[0]
-            }
-        }
-    }
-
-    pub fn aloha_slot(&self) -> Option<Slot> {
-        match self {
-            NodeState::Disconnected => { None },
-            NodeState::Active(node) => {
-                node.slots[1]
-            }
-        }
-    }
-
-    pub fn dyn_slot(&self) -> Option<Slot> {
-        match self {
-            NodeState::Disconnected => { None },
-            NodeState::Active(node) => {
-                if node.slots[2].is_some() {
-                    node.slots[2]
-                } else if node.slots[1].is_some() {
-                    node.slots[1]
-                } else {
-                    None
+                for s in node.slots.iter() {
+                    if s.is_some() {
+                        if s.unwrap().slot_type == t {
+                            return *s;
+                        }
+                    }
                 }
+                None
             }
         }
     }
