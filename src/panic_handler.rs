@@ -2,6 +2,7 @@ use core::panic::PanicInfo;
 use rtt_target::{rprintln};
 use cortex_m::asm::delay;
 use embedded_hal::digital::v2::OutputPin;
+use crate::color;
 
 #[cfg(feature = "pozyx-board")]
 fn blink_led_angrily() {
@@ -45,7 +46,9 @@ fn blink_led_angrily() {
 #[inline(never)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    rprintln!("\x1b[1;31;40mPANIC: {}", info);
+    rprintln!(=>6, "{}!!!!!!!", color::RED);
+    rprintln!(=>6, "PANIC: {}", info);
+    rprintln!(=>6, "!!!!!!!");
     blink_led_angrily();
     cortex_m::peripheral::SCB::sys_reset(); // -> !
     // loop {

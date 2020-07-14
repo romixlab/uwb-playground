@@ -101,6 +101,9 @@ pub enum TraceEvent {
     RequestedSlotEnded = 15,
 
     TimingMarker = 16,
+
+    ForceReadyIfSending = 17,
+    ForceReady = 18,
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -122,6 +125,8 @@ impl core::fmt::Display for TraceEvent {
             TraceEvent::GTSStartReceived => { write!(f, "G_SS") }
             TraceEvent::DynWindowStart => { write!(f, "D_WS") }
             TraceEvent::TimingMarker => { write!(f, "T0") }
+            TraceEvent::ForceReadyIfSending => { write!(f, "FR!S") }
+            TraceEvent::ForceReady => { write!(f, "FR") }
         }
     }
 }

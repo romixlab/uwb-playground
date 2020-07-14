@@ -66,6 +66,7 @@ struct SMContext<'a, A, T> {
     spawn: &'a crate::radio_irq::Spawn<'a>,
     schedule: &'a crate::radio_irq::Schedule<'a>,
     clocks: &'a crate::board::hal::rcc::Clocks,
+    scheduler: &'a mut Scheduler,
     #[cfg(feature = "slave")]
     master_node: &'a mut NodeState,
     state_instant: &'a mut Option<CycntInstant>,
@@ -99,6 +100,14 @@ fn prepare_radio(state: &mut RadioState) -> ReadyRadio {
             let sending_radio = rs.take().expect(SM_FAIL_MESSAGE);
             sending_radio.finish_sending().expect(SM_FAIL_MESSAGE)
         },
+        DynReceiving(rs) => {
+            let receiving_radio = rs.0.take().expect(SM_FAIL_MESSAGE);
+            receiving_radio.finish_receiving().expect(SM_FAIL_MESSAGE)
+        },
+        DynSending(rs) => {
+            let sending_radio = rs.take().expect(SM_FAIL_MESSAGE);
+            sending_radio.finish_sending().expect(SM_FAIL_MESSAGE)
+        }
     };
     ready_radio
 }
@@ -110,14 +119,15 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
     spawn: &crate::radio_irq::Spawn,
     schedule: &crate::radio_irq::Schedule,
     clocks: &crate::board::hal::rcc::Clocks,
+    scheduler: &mut Scheduler,
     tracer: &mut T
 ) {
     use RadioState::*;
     cfg_if! {
         if #[cfg(feature = "master")] {
-            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, state_instant: &mut radio.state_instant };
+            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
         } else if #[cfg(feature = "slave")] {
-            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
+            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
         }
     }
 
@@ -130,44 +140,46 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
                 commands_processed += 1;
 
                 use Command::*;
-                if command == ForceReadyIfSending {
-                    if radio.state.is_sending_state() {
-                        radio.state = Ready(Some(prepare_radio(&mut radio.state)));
-                    }
-                    continue;
-                }
-                if command == ForceReady {
-                    radio.state = Ready(Some(prepare_radio(&mut radio.state)));
-                    continue;
-                }
-
-                let ready_radio = prepare_radio(&mut radio.state);
-                radio.state = match command {
+                match command {
                     #[cfg(feature = "master")]
                     GTSStart => {
-                        send_gts_start(ready_radio, &mut cx, buffer)
+                        radio.state = send_gts_start(prepare_radio(&mut radio.state), &mut cx, buffer)
                     },
-                    DynWindowStart => {
+                    DynListen(dyn_slot_duration, radio_config) => { // right now dyn_phase_duration, fire for each slot later
                         cx.tracer.event(TraceEvent::DynWindowStart);
-                        Ready(Some(ready_radio))
+                        let receiving_radio = enable_receiver(prepare_radio(&mut radio.state), radio_config);
+                        radio.state = RadioState::DynReceiving((Some(receiving_radio), radio_config));
+                    },
+                    DynSend(dyn_slot_duration, radio_config) => {
+                        cx.tracer.event(TraceEvent::DynWindowStart);
+                        radio.state = send_dyn_data(prepare_radio(&mut radio.state), &mut cx, buffer, radio_config);
                     },
                     GTSEnd => {
                         cx.tracer.event(TraceEvent::GTSEnded);
-                        Ready(Some(ready_radio))
                     },
                     #[cfg(feature = "slave")]
                     ListenForGTSStart(RadioConfig) => {
                         cx.tracer.event(TraceEvent::Listening);
-                        let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
-                        RadioState::GTSStartWaiting(Some(receiving_radio))
+                        let receiving_radio = enable_receiver(prepare_radio(&mut radio.state), RadioConfig::default());
+                        radio.state = RadioState::GTSStartWaiting(Some(receiving_radio));
                     },
                     #[cfg(feature = "slave")]
-                    SendGTSAnswer(slot_duration) => {
+                    SendGTSAnswer(slot_duration, radio_config) => {
                         cx.tracer.event(TraceEvent::GTSAnswerSend);
-                        send_gts_answer(ready_radio, &mut cx, buffer)
+                        radio.state = send_gts_answer(prepare_radio(&mut radio.state), &mut cx, buffer);
                     },
-                    ForceReadyIfSending => { unreachable!() },
-                    ForceReady => { unreachable!() },
+                    ForceReadyIfSending => {
+                        if radio.state.is_sending_state() {
+                            radio.state = Ready(Some(prepare_radio(&mut radio.state)));
+                        }
+                        cx.tracer.event(TraceEvent::ForceReadyIfSending);
+                    },
+                    ForceReady => {
+                        radio.state = Ready(Some(prepare_radio(&mut radio.state)));
+                        cx.tracer.event(TraceEvent::ForceReady);
+                    },
+                    AlohaSlotStart(_, _) => {},
+                    RangingStart(_, _) => {}
                 };
             }
             _ => {}
@@ -206,7 +218,15 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
         #[cfg(feature = "slave")]
         GTSAnswerSending(sd) => {
             let sending_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_gts_answer_sending(sending_radio, arbiter, tracer, spawn)
+            advance_dyn_sending(sending_radio, &mut cx, buffer)
+        },
+        DynReceiving(sd) => {
+            let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_dyn_waiting(receiving_radio, &mut cx, buffer, sd.1)
+        },
+        DynSending(sd) => {
+            let sending_radio = sd.take().expect(SM_FAIL_MESSAGE);
+            advance_dyn_sending(sending_radio, &mut cx, buffer)
         }
     };
 }
@@ -270,7 +290,7 @@ fn send_gts_start<A: Arbiter<Error = Error>, T: Tracer>(
     let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
     let mut mux = MiniMultiplexer::new(bufmut);
 
-    Scheduler::source_timeslots(&mut mux);
+    Scheduler::source_timeslots(cx.scheduler, &mut mux);
     cx.arbiter.source_sync(&mut mux);
 
     let bufmut_taken = mux.take();
@@ -293,6 +313,7 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
         Ok(_) => {
             cx.tracer.event(TraceEvent::TimingMarker);
             let instant = CycntInstant::now();
+            cx.spawn.radio_event(Event::TimeMark(instant)).ok();
 
             // Enable receiver right away
             let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
@@ -310,7 +331,7 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
             let dt: MicroSeconds = Scheduler::aloha_period_start();
             cx.schedule.radio_event(
                 instant + us2cycles!(cx.clocks, dt.0),
-                Event::AlohaSlotAboutToStart(Scheduler::aloha_phase_duration())
+                Event::AlohaSlotAboutToStart(Scheduler::aloha_phase_duration(), RadioConfig::default())
             ).ok(); // TODO: count
             let dt: MicroSeconds = Scheduler::aloha_period_end();
             cx.schedule.radio_event(
@@ -318,17 +339,24 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
                 Event::AlohaSlotEnded
             ).ok(); // TODO: count
 
-            // Schedule dyn period start and end.
-            let dt: MicroSeconds = Scheduler::dyn_period_start();
-            cx.schedule.radio_event(
-                instant + us2cycles!(cx.clocks, dt.0),
-                Event::DynAboutToStart(Scheduler::dyn_phase_duration())
-            ).ok();
-            let dt: MicroSeconds = Scheduler::dyn_period_end();
-            cx.schedule.radio_event(
-                instant + us2cycles!(cx.clocks, dt.0),
-                Event::DynShouldHaveEnded
-            ).ok();
+            // Schedule dyn slots start and end.
+            let quarter_guard: MicroSeconds = Scheduler::quarter_guard();
+            let quarter_guard = us2cycles!(cx.clocks, quarter_guard.0);
+            //let mut dyn_uplink_slots = cx.scheduler.into_iter().filter(|s| s.slot_type == SlotType::DynUplink);
+            for s in cx.scheduler.into_iter().filter(|s| s.slot_type == SlotType::DynUplink) {
+                let shift: MicroSeconds = s.shift;
+                let shift = us2cycles!(cx.clocks, shift.0);
+                cx.schedule.radio_event(
+                    instant + shift,
+                    Event::DynUplinkAboutToStart(s.duration, s.radio_config)
+                ).ok();
+                let duration: MicroSeconds = s.duration;
+                let duration = us2cycles!(cx.clocks, duration.0);
+                cx.schedule.radio_event(
+                    instant + shift + duration + quarter_guard,
+                    Event::DynShouldHaveEnded
+                ).ok();
+            }
 
             RadioState::GTSAnswersReceiving((Some(receiving_radio), 0))
         },
@@ -337,7 +365,7 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
                 //rprintln!(=>1,"blockon:{:?}", e);
                 RadioState::GTSStartSending(Some(sending_radio))
             } else { // Actuall error while sending
-                rprintln!(=>1,"GTSStart send error: {:?}", e);
+                rprintln!(=>1,"{}GTSStart send error: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 //tracer.event(TraceEvent::XYZ);
                 RadioState::Ready(Some(ready_radio))
@@ -397,11 +425,117 @@ fn advance_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
                 //rprintln!(=>1,"sstY {:?}", sys_status);
                 RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
             } else { // Actuall error while receiving
-            rprintln!(=>1,"GTSAnswer receive error: {:?}", e);
+            rprintln!(=>1,"{}GTSAnswer receive error: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
                 RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
+            }
+        }
+    }
+}
+
+fn send_dyn_data<A: Arbiter<Error = Error>, T: Tracer>(
+    mut ready_radio: ReadyRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    radio_config: RadioConfig
+) -> RadioState
+{
+    let frame = default_mac_frame(&[]);
+    let mut len = frame.encode(buffer, mac::WriteFooter::No);
+
+    let mut bufmut = BufMut::new(&mut buffer[len..]);
+    let mut mux = MiniMultiplexer::new(bufmut);
+
+    cx.arbiter.source_async(&mut mux);
+
+    let bufmut_taken = mux.take();
+    len += bufmut_taken.written();
+
+    let tx_config = get_txconfig(radio_config);
+    ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
+    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
+    RadioState::DynSending(Some(sending_radio))
+}
+
+fn advance_dyn_sending<A: Arbiter<Error = Error>, T: Tracer>(
+    mut sending_radio: SendingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+) -> RadioState
+{
+    match sending_radio.wait() {
+        Ok(_) => {
+            cx.tracer.event(TraceEvent::MessageSent);
+            cx.spawn.radio_event(Event::DynProcessingFinished).ok(); // TODO: count
+            let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            RadioState::Ready(Some(ready_radio))
+        },
+        Err(e) => {
+            if let nb::Error::WouldBlock = e { // GTSAnswer is still sending
+                //rprintln!(=>1,"blockon:{:?}", e);
+                RadioState::DynSending(Some(sending_radio))
+            } else { // Actuall error while sending
+                rprintln!(=>1,"{}Dyn send error: {:?}{}", color::RED, e, color::DEFAULT);
+                let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                RadioState::Ready(Some(ready_radio))
+            }
+        }
+    }
+}
+
+fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
+    receiving_radio: ReceivingRadio,
+    mut cx: &mut SMContext<A, T>,
+    message: dw1000::hl::Message,
+) -> RadioState
+{
+    let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+
+    let payload = message.frame.payload;
+    let mut buf = Buf::new(payload);
+    let mut demux = MiniDemultiplexer::new(&mut buf);
+    demux.demux(config::UWB_ADDR, |channel, chunk| {
+        if channel.is_ctrl() {
+
+        } else {
+            cx.arbiter.sink_async(channel, chunk);
+        }
+    });
+    cx.spawn.radio_event(Event::DynProcessingFinished).ok();
+    RadioState::Ready(Some(ready_radio))
+}
+
+fn advance_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
+    mut receiving_radio: ReceivingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    radio_config: RadioConfig
+) -> RadioState
+{
+    match receiving_radio.wait(buffer) {
+        Ok((message, _sys_status_before)) => {
+            cx.tracer.event(TraceEvent::MessageReceived);
+            process_messages_dyn_waiting(receiving_radio, cx, message)
+        },
+        Err(e) => {
+            match e {
+                nb::Error::WouldBlock => {
+                    rprintln!(=>1, "{}dyn WB{}\n", color::YELLOW, color::DEFAULT);
+                    RadioState::DynReceiving((Some(receiving_radio), radio_config))
+                },
+                nb::Error::Other(e) => {
+                    if let dw1000::Error::SfdTimeout = e {
+
+                    } else {
+                        rprintln!(=>1, "{}dyn_uw err: {:?}{}\n", color::YELLOW, e, color::DEFAULT);
+                    }
+                    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                    // Switch back to GTSStart waiting state
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::DynReceiving((Some(receiving_radio), radio_config))
+                }
             }
         }
     }
@@ -454,7 +588,7 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
     let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
 
     let payload = message.frame.payload;
-    rprint!(=>1, "p:{}[", payload.len());
+    // rprint!(=>1, "p:{}[", payload.len());
     // for b in payload {
     //     rprint!(=>1, "{:02x} ", b);
     // }
@@ -466,7 +600,7 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
     let mut is_gts_start = false;
     demux.demux(config::UWB_ADDR, |channel, chunk| {
         if channel.is_ctrl() {
-            //rprint!(=>1, "ctrl_ch:{}", chunk.len());
+            //rprintln!(=>1, "ctrl_ch:{}\n", chunk.len());
             let mut buf = Buf::new(&chunk);
             match Slot::des(&mut buf) {
                 Ok(window) => {
@@ -486,7 +620,9 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
                     slots_received += 1;
                     //rprintln!(=>1, "{:?}", window);
                 },
-                Err(_) => {}
+                Err(e) => {
+                    rprintln!(=>1, "{}demux err:{:?}{}", color::YELLOW, e, color::DEFAULT);
+                }
             }
         } else {
             cx.arbiter.sink_sync(channel, chunk);
@@ -501,52 +637,12 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
         // rprintln!(=>13, "Mrt {}", message.rx_time.value() / 64);
         // rprintln!(=>13, "Pde {}", processing_delay.to_nanos());
         // let processing_delay = (cx.clocks.sysclk().0 / 1_000_000) * (processing_delay.to_nanos() / 1_000) as u32;
-        let processing_delay = us2cycles_raw!(cx.clocks, 500);
-        cx.spawn.radio_event(Event::GTSStartReceived(CycntDuration::from_cycles(processing_delay))).ok(); // TODO: count
+        let instant = CycntInstant::now();
+        let processing_delay = us2cycles!(cx.clocks, 400);
+        cx.spawn.radio_event(Event::GTSStartReceived(instant - processing_delay)).ok(); // TODO: count
     }
 
     RadioState::Ready(Some(ready_radio))
-
-    // let gts_start: Result<Option<RxMessage<GTSStart>>, dw1000::hl::Error<Dw1000Spi, Dw1000Cs>> = GTSStart::decode(&message);
-    // match gts_start {
-    //     Ok(gts_start) => {
-    //         match gts_start {
-    //             Some(gts_start) => {
-    //                 //rprintln!(=>1,"dest:{:?}\tgts_start:{:?}", frame.header.destination, gts_start);
-    //                 //rprintln!(=>1,"GTSStart: dt: {} window: {} rpm: {}", timeslot.delta, timeslot.window, downlink_data.rpm);
-    //                 cfg_if::cfg_if! {
-    //                     if #[cfg(feature = "devnode")] {
-    //
-    //                         let receiving_radio = enable_receiver(ready_radio, tracer);
-    //                         return RadioState::GTSStartWaiting(Some(receiving_radio));
-    //                     }
-    //                 }
-    //
-    //                 let timeslot = &gts_start.payload.timeslots[config::SLAVE_ID];
-    //                 //let downlink_data = timeslot.sync_no_ack_data;
-    //                 let tx_time = if timeslot.delta == 0 {
-    //                     None
-    //                 } else {
-    //                     Some(gts_start.rx_time + Duration::from_nanos(timeslot.delta as u32 * 1_000))
-    //                 };
-    //                 let last_timeslot = &gts_start.payload.timeslots[(config::REQUIRED_SLAVE_COUNT - 1) as usize];
-    //                 let gts_end_dt = super::NanoSeconds(last_timeslot.delta as u32 + last_timeslot.window as u32 + 2_000);
-    //                 spawn.radio_event(super::Event::GTSStartReceived(tx_time, gts_end_dt, *timeslot)).ok(); // TODO: count errors
-    //                 RadioState::GTSWaitingForUplinkData(Some(ready_radio))
-    //             },
-    //             None => {
-    //                 rprintln!(=>1,"Unkown message");
-    //                 let receiving_radio = enable_receiver(ready_radio);
-    //                 RadioState::GTSStartWaiting(Some(receiving_radio))
-    //             }
-    //         }
-    //     },
-    //     Err(e) => {
-    //         rprintln!(=>1,"Message decode error: {:?}", e);
-    //         let receiving_radio = enable_receiver(ready_radio);
-    //         RadioState::GTSStartWaiting(Some(receiving_radio))
-    //     }
-    // }
 }
 
 #[cfg(feature = "slave")]
@@ -561,6 +657,7 @@ fn advance_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 
     match receiving_radio.wait(buffer) {
         Ok((message, _sys_status_before)) => {
+            *cx.state_instant = None;
             cx.tracer.event(TraceEvent::MessageReceived);
             process_messages_gts_start_waiting(receiving_radio, cx, message)
         },
@@ -570,9 +667,10 @@ fn advance_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
                     *cx.state_instant = Some(CycntInstant::now());
                 } else {
                     let elapsed = cx.state_instant.unwrap().elapsed().as_cycles();
-                    if elapsed > 72_000_000 {
+                    if elapsed > 172_000_000 {
                         *cx.state_instant = Some(CycntInstant::now());
                         rprintln!(=>1,"ReListen");
+                        panic!("ReListen");
                         let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure");
                         let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
                         return RadioState::GTSStartWaiting(Some(receiving_radio));
@@ -580,7 +678,7 @@ fn advance_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
                 }
                 RadioState::GTSStartWaiting(Some(receiving_radio))
             } else { // Actuall error while receiving
-                rprintln!(=>1,"RX error: {:?}", e);
+                rprintln!(=>1,"{}RX error: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
@@ -591,18 +689,16 @@ fn advance_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(feature = "slave")]
-fn advance_gts_answer_sending<A: Arbiter, T: Tracer>(
+fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
     mut sending_radio: SendingRadio,
-    _arbiter: &mut A,
-    tracer: &mut T,
-    spawn: &crate::radio_irq::Spawn,
-
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
 ) -> RadioState
 {
     match sending_radio.wait() {
         Ok(_) => {
-            tracer.event(TraceEvent::GTSAnswerSent);
-            spawn.radio_event(Event::GTSProcessingFinished).ok(); // TODO: count
+            cx.tracer.event(TraceEvent::GTSAnswerSent);
+            cx.spawn.radio_event(Event::GTSProcessingFinished).ok(); // TODO: count
             let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
             RadioState::Ready(Some(ready_radio))
         },
@@ -611,7 +707,7 @@ fn advance_gts_answer_sending<A: Arbiter, T: Tracer>(
                 //rprintln!(=>1,"blockon:{:?}", e);
                 RadioState::GTSAnswerSending(Some(sending_radio))
             } else { // Actuall error while sending
-                rprintln!(=>1,"GTS ans send error: {:?}", e);
+                rprintln!(=>1,"{}GTS ans send error: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 // Switch back to GTSStart waiting state
                 let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());

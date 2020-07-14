@@ -7,6 +7,7 @@ use super::serdes::{
     BufMut,
 };
 use super::Error;
+use crate::color;
 
 /// Logical destination inside a multiplexed message.
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -78,7 +79,7 @@ pub trait Arbiter {
     fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, multiplexer: &mut M);
     /// Called whenever there is time to send more data (in additionaly requested slot).
     /// Semantics are the same as in `source_sync`.
-    fn source_async<M: Multiplex>(&mut self, multiplexer: &mut M);
+    fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, multiplexer: &mut M);
     // Called when request for additional time slot may be made. Return current amount of data
     // currently pending for transmission
     //fn size_hints(&self) ->
@@ -189,12 +190,14 @@ impl<'a> Demultiplex for MiniDemultiplexer<'a> {
                 len |= (self.buf.get_u8() as u16) << 7;
             }
             if self.buf.remaining() < len as usize { break; }
-            //rprintln!(=>1, "de5, re:{}", self.buf.remaining());
+            //rprintln!(=>1, "de5, len:{} re:{}", len, self.buf.remaining());
             if !skip_thing {
                 f(ChannelId(channel_id), self.buf.slice_to(len as usize));
             }
             self.buf.advance(len as usize);
         }
-        rprintln!(=>1, "demux :{}\n", self.buf.remaining());
+        if self.buf.remaining() != 0 {
+            rprintln!(=>1, "{}demux: {}{}\n", color::YELLOW, self.buf.remaining(), color::DEFAULT);
+        }
     }
 }

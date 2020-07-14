@@ -150,6 +150,17 @@ impl<'a> BufMut<'a> {
         }
         self.idx += 4;
     }
+
+    pub fn put_slice(&mut self, s: &[u8]) {
+        unsafe {
+            core::ptr::copy(
+                s.as_ptr(),
+                self.buf.as_mut_ptr().offset(self.idx as isize),
+                s.len()
+            );
+        }
+        self.idx += s.len();
+    }
 }
 
 // use serde::{ser::{SerializeStruct, Serializer}};

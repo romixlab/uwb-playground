@@ -28,6 +28,7 @@ const APP: () = {
 
         radio: radio::Radio,
         radio_commands: radio::types::CommandQueueP,
+        scheduler: radio::scheduler::Scheduler,
         channels: channels::Channels,
         event_state_data: tasks::radio::EventStateData,
 
@@ -114,6 +115,7 @@ const APP: () = {
             &clocks,
             radio,
             channels,
+            scheduler,
             idle_counter,
             exti,
         ],

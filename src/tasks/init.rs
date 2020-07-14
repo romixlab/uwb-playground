@@ -14,6 +14,7 @@ use embedded_hal::digital::v2::OutputPin;
 use cfg_if::cfg_if;
 use radio::types::Event;
 use radio::scheduler::Scheduler;
+use radio::types::RadioConfig;
 
 pub fn init(
     cx: crate::init::Context,
@@ -217,7 +218,10 @@ pub fn init(
     cx.spawn.blinker().expect("RTIC failure?");
     cfg_if! {
         if #[cfg(feature = "master")] {
-            cx.spawn.radio_event(radio::Event::GTSAboutToStart(Scheduler::gts_phase_duration())).ok();
+            cx.spawn.radio_event(
+                radio::Event::GTSAboutToStart(
+                    Scheduler::gts_phase_duration(), RadioConfig::default()
+                )).ok();
         } else if #[cfg(feature = "slave")] {
             cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();
             cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
@@ -240,6 +244,7 @@ pub fn init(
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
+                    scheduler: Scheduler::new(),
                     channels,
                     event_state_data,
 
@@ -265,6 +270,7 @@ pub fn init(
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
+                    scheduler: Scheduler::new(),
                     channels,
                     event_state_data,
 
@@ -290,6 +296,7 @@ pub fn init(
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
+                    scheduler: Scheduler::new(),
                     channels,
                     event_state_data,
 

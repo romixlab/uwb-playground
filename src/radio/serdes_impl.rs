@@ -45,6 +45,9 @@ fn slot_type_from_u8(n: u8) -> Option<SlotType> {
     match n {
         0b000 => Some(GtsUplink),
         0b001 => Some(Downlink),
+        0b010 => Some(Aloha),
+        0b011 => Some(DynUplink),
+        0b100 => Some(Ranging),
         _ => None
     }
 }
@@ -84,6 +87,23 @@ impl Serialize for Slot {
     }
 }
 
+impl Serialize for &[u8] {
+    type Error = super::Error;
+
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        if buf.remaining() <= self.len() { // 1 byte for ID
+            return Err(Error::NotEnoughSpace);
+        }
+        buf.put_u8(0xfd);
+        buf.put_slice(self);
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize {
+        self.len() + 1
+    }
+}
+
 impl Deserialize for Slot {
     type Output = Slot;
     type Error = super::Error;
@@ -109,7 +129,7 @@ impl Deserialize for Slot {
         use dw1000::configs::PulseRepetitionFrequency::*;
         let prf = if config & 0b0100_0000 == 0 { Mhz16 } else { Mhz64 };
         use SlotType::*;
-        let slot_type = slot_type_from_u8(buf.get_u8()).ok_or(Error::WrongSlotType)?;
+        let slot_type = slot_type_from_u8(buf.get_u8() & 0b0000_0111).ok_or(Error::WrongSlotType)?;
         Ok(Slot {
             shift: MicroSeconds(shift as u32),
             duration: MicroSeconds(window as u32),

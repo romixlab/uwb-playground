@@ -48,7 +48,8 @@ pub enum RadioState {
     #[cfg(feature = "master")]
     GTSAnswersReceiving((Option<ReceivingRadio>, u8)),
 
-    //DynamicWindowReceiving((Option<ReceivingRadio>)),
+    DynReceiving((Option<ReceivingRadio>, RadioConfig)),
+    DynSending(Option<SendingRadio>),
     //DynamicWindowAckSending(Option<SendingRadio>),
     //DynamicWindowDataSending(Option<SendingRadio>),
 
@@ -60,16 +61,19 @@ pub enum RadioState {
 
 impl RadioState {
     pub fn is_sending_state(&self) -> bool {
+        use RadioState::*;
         match self {
-            RadioState::Ready(_) => { false },
+            Ready(_) => { false },
             #[cfg(feature = "master")]
-            RadioState::GTSStartSending(_) => { true },
+            GTSStartSending(_) => { true },
             #[cfg(feature = "master")]
-            RadioState::GTSAnswersReceiving(_) => { false },
+            GTSAnswersReceiving(_) => { false },
             #[cfg(feature = "slave")]
-            RadioState::GTSStartWaiting(_) => { false },
+            GTSStartWaiting(_) => { false },
             #[cfg(feature = "slave")]
-            RadioState::GTSAnswerSending(_) => { true },
+            GTSAnswerSending(_) => { true },
+            DynReceiving(_) => { false },
+            DynSending(_) => { true },
         }
     }
 }
@@ -109,6 +113,14 @@ impl RadioConfig {
             BitRate::Kbps6800 => { Symbols64 },
         }
     }
+
+    pub fn fast() -> Self {
+        RadioConfig {
+            channel: UwbChannel::Channel5,
+            bitrate: BitRate::Kbps6800,
+            prf: PulseRepetitionFrequency::Mhz64
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -123,10 +135,15 @@ pub enum SlotType {
     DynUplink = 0b011,
     ///
     Ranging = 0b100,
+    Reserved = 0b111,
+}
+
+impl Default for SlotType {
+    fn default() -> Self { SlotType::Reserved }
 }
 
 /// One window of message exchanges. Requested by slaves and granted by master.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct Slot {
     /// Beginning of the window from received GTSStart
     pub shift: MicroSeconds,
@@ -146,8 +163,13 @@ pub enum Command {
     #[cfg(feature = "slave")]
     ListenForGTSStart(RadioConfig),
     #[cfg(feature = "slave")]
-    SendGTSAnswer(MicroSeconds),
-    DynWindowStart,
+    SendGTSAnswer(MicroSeconds, RadioConfig),
+    AlohaSlotStart(MicroSeconds, RadioConfig),
+
+    DynListen(MicroSeconds, RadioConfig),
+    DynSend(MicroSeconds, RadioConfig),
+
+    RangingStart(MicroSeconds, RadioConfig),
     ForceReady,
     ForceReadyIfSending,
 }
@@ -160,15 +182,15 @@ pub enum Event {
     #[cfg(feature = "slave")]
     GTSStartAboutToBeBroadcasted,
     /// * Emitted from the SM when GTSStart message received from the PAN master.
-    /// * .0 is measured processing delay from rx timestamp, need to shift all further timings by that amount
+    /// * .0 is a time when message was received, use to schedule tasks to the time mark irrelevant of processing delays
     /// * ▶ action: schedule gt, aloha and dyn slot starts and guards, if available.
     /// * ▶ action: if gt slot available with zero shift, execute GTSAboutToStart event right away.
     #[cfg(feature = "slave")]
-    GTSStartReceived(CycntDuration),
+    GTSStartReceived(CycntInstant),
 
     /// * Emitted from the SM when GTSStart message was just sent with the current cycle counter value.
     #[cfg(feature = "master")]
-    TimeMarker(CycntInstant),
+    TimeMark(CycntInstant),
 
     /// * m: scheduled: scheduled by itself or spawned after power on. `.0` is the sum of all gt slot durations.
     /// * dt: [GTS_PERIOD](config::GTS_PERIOD)
@@ -176,7 +198,7 @@ pub enum Event {
     /// * s: scheduled: after GTSStart received with gt slot available if shift is not 0. `.0` is the slot duration.
     /// * dt: `slot.shift`
     /// * s: ▶ issue command to the SM to send the uplink data.
-    GTSAboutToStart(MicroSeconds),
+    GTSAboutToStart(MicroSeconds, RadioConfig),
     /// * m: emitted from the SM when all pending answers has been received.
     /// If some is missed, `GTSShouldHaveEnded` will disable the receivier.
     /// * s: emitted from the SM when gt slot uplink data has been sent.
@@ -193,7 +215,7 @@ pub enum Event {
     /// * dt: GT phase duration + guard.
     /// * `.0` is the slot duration.
     /// * ▶ issue command to the SM to receive or transmit something.
-    AlohaSlotAboutToStart(MicroSeconds),
+    AlohaSlotAboutToStart(MicroSeconds, RadioConfig),
     // Can't know in advance if someone is going to transmit, wait `AlohaSlotShouldHaveEnded` event.
     //AlohaSlotProcessingFinished,
     /// * scheduled: at the `timing marker` a little bit into guard interval afterwards.
@@ -205,7 +227,7 @@ pub enum Event {
     /// * dt:
     /// * slave: scheduled after GTSStart received with dyn slot available.
     /// * ▶ action: issue command to the SM to receive or transmit something.
-    DynAboutToStart(MicroSeconds),
+    DynUplinkAboutToStart(MicroSeconds, RadioConfig),
     /// * Emitted from the SM when something had been actually sent.
     /// * ▶ set flag
     DynProcessingFinished,
@@ -215,7 +237,7 @@ pub enum Event {
 
     // Ranging slot handling
 
-    RangingSlotAboutToStart(MicroSeconds),
+    RangingSlotAboutToStart(MicroSeconds, RadioConfig),
     RangingSlotEnd,
 
     // Checking
@@ -236,18 +258,18 @@ impl core::fmt::Display for Event {
             #[cfg(feature = "slave")]
             Event::GTSStartReceived(_) => { write!(f, "G_SR") },
             #[cfg(feature = "master")]
-            Event::TimeMarker(_) => { write!(f, "TM") },
-            Event::GTSAboutToStart(_) => { write!(f, "G_AS") },
+            Event::TimeMark(_) => { write!(f, "TM") },
+            Event::GTSAboutToStart(_, _) => { write!(f, "G_AS") },
             Event::GTSProcessingFinished => { write!(f, "G_PF") },
             Event::GTSShouldHaveEnded => { write!(f, "G_SX") },
-            Event::AlohaSlotAboutToStart(_) => { write!(f, "A_ATS") },
+            Event::AlohaSlotAboutToStart(_, _) => { write!(f, "A_ATS") },
             Event::AlohaSlotEnded => { write!(f, "A_X") },
-            Event::DynAboutToStart(_) => { write!(f, "D_ATS") },
+            Event::DynUplinkAboutToStart(_, _) => { write!(f, "D_ATS") },
             Event::DynProcessingFinished => { write!(f, "D_PF") },
             Event::DynShouldHaveEnded => { write!(f, "D_SX") },
             #[cfg(feature = "slave")]
             Event::ReceiveCheck => { write!(f, "RC") }
-            Event::RangingSlotAboutToStart(_) => { write!(f, "R_ATS") }
+            Event::RangingSlotAboutToStart(_, _) => { write!(f, "R_ATS") }
             Event::RangingSlotEnd => { write!(f, "R_SX") }
         }
     }

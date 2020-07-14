@@ -93,8 +93,12 @@ impl Arbiter for Channels {
         }
     }
 
-    fn source_async<M: Multiplex>(&mut self, mux: &mut M) {
-        unimplemented!()
+    fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
+        let mut saw =[0u8; 84*4];
+        for i in 0..saw.len() {
+            saw[i] = i as u8;
+        }
+        mux.mux(&&saw[..], LogicalDestination::Implicit, ChannelId::new(11));
     }
 
     fn sink_sync(&mut self, channel: ChannelId, chunk: &[u8]) {
@@ -106,7 +110,11 @@ impl Arbiter for Channels {
     }
 
     fn sink_async(&mut self, channel: ChannelId, chunk: &[u8]) {
-        unimplemented!()
+        rprint!(=>1, "async: CH{}:{}[", channel, chunk.len());
+        for b in &chunk[..10] {
+            rprint!(=>1, "{:02x} ", b);
+        }
+        rprintln!(=>1, "]\n");
     }
 
 }
