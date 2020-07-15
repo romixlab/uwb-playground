@@ -1,8 +1,12 @@
 use crate::config;
 use crate::board::hal;
 use rtic::Mutex;
-
-//use rtt_target::{rprint, rprintln};
+use rtt_target::rprintln;
+use crate::motion::{
+    TelemetryArray,
+    TachoArray,
+    PowerArray,
+};
 
 #[allow(unused_variables)]
 pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
@@ -11,24 +15,36 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
             use crate::crc_framer;
             use rtic::Mutex;
 
-            // let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
-            //     (
-            //         wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
-            //         wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
-            //         wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
-            //         wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
-            //     )
-            // });
-            // let mut tacho_arr_frame = [0u8; 17];
-            // tacho_arr_frame[0] = config::VESC_TACHO_ARRAY_FRAME_ID;
-            // tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.to_be_bytes());
-            // tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.to_be_bytes());
-            // tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
-            // tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
-            // cx.resources.ctrl_bbbuffer_p.lock(|bb| {
-            //     crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
-            // });
-
+            loop {
+                let mut frame = [0u8; 17];
+                match cx.resources.motion_telemetry_c.dequeue() {
+                    Some(telem_array) => {
+                        match telem_array {
+                            TelemetryArray::Tachometer(tacho_array) => {
+                                frame[0] = config::VESC_TACHO_ARRAY_FRAME_ID;
+                                frame[1..=4].copy_from_slice(&tacho_array.top_left.0.to_be_bytes());
+                                frame[5..=8].copy_from_slice(&tacho_array.top_right.0.to_be_bytes());
+                                frame[9..=12].copy_from_slice(&tacho_array.bottom_left.0.to_be_bytes());
+                                frame[13..=16].copy_from_slice(&tacho_array.bottom_right.0.to_be_bytes());
+                            },
+                            TelemetryArray::Power(power_array) => {
+                                frame[0] = config::VESC_POWER_ARRAY_FRAME_ID;
+                                frame[1..=4].copy_from_slice(&power_array.top_left.0.to_bits().to_be_bytes());
+                                frame[5..=8].copy_from_slice(&power_array.top_right.0.to_bits().to_be_bytes());
+                                frame[9..=12].copy_from_slice(&power_array.bottom_left.0.to_bits().to_be_bytes());
+                                frame[13..=16].copy_from_slice(&power_array.bottom_right.0.to_bits().to_be_bytes());
+                            }
+                        }
+                        cx.resources.ctrl_bbbuffer_p.lock(|bb| {
+                            crc_framer::CrcFramerSer::commit_frame(&frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
+                        });
+                        rprintln!(=>5, "telem array consumed");
+                    },
+                    None => {
+                        break;
+                    }
+                }
+            }
             while cx.resources.lidar_queue_c.ready() {
                 match cx.resources.lidar_queue_c.dequeue() {
                     Some(frame) => {
@@ -42,7 +58,6 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
                     None => { }
                 }
             }
-
         } else if #[cfg(feature = "br")] {
             use rtic::Mutex;
             use rtt_target::{rprint, rprintln};
@@ -96,6 +111,7 @@ pub fn ctrl_serial_irq(
                 Ok(byte) => {
                     let framer = cx.resources.ctrl_framer;
                     //let bbbuffer_p = cx.resources.vesc_bbbuffer_p;
+                    let motion_channel_p = cx.resources.motion_channel_p;
                     let spawner = cx.spawn;
                     framer.eat_byte(byte, |frame| {
                         rprintln!(=> 5, "frame ctrl: {} {}\n", frame[0], frame.len());
@@ -110,7 +126,10 @@ pub fn ctrl_serial_irq(
                                 bottom_left: bl_rpm,
                                 bottom_right: br_rpm
                             };
-                            spawner.motor_control(MotorControlEvent::SetRpmArray(rpm_array)).ok(); // TODO: count errors;
+                            spawner.motor_control(MotorControlEvent::SetRpm(tl_rpm)).ok(); // TODO: count errors;
+                            spawner.motor_control(MotorControlEvent::RequestTelemetry).ok();
+                            let r = motion_channel_p.enqueue(rpm_array);
+                            rprintln!(=> 5, "enqueue RA:{:?}", r);
                             //rprintln!("{} {} {} {}", tl_rpm, tr_rpm, bl_rpm, br_rpm);
                         } else if frame[0] == config::VESC_LIFT_FRAME_ID && frame.len() == 2 {
                             rprintln!(=>5, "lift cmd: {}", frame[1] as char);
@@ -126,7 +145,7 @@ pub fn ctrl_serial_irq(
                             };
                         } else if frame[0] == config::VESC_RESET_ALL {
                             rprintln!(=>5, "\n\nRESET TACHO\n\n");
-                            spawner.motor_control(MotorControlEvent::ResetTacho).ok(); // TODO: count errors;
+                            //spawner.motor_control(MotorControlEvent::ResetTacho).ok(); // TODO: count errors;
                         }
                         //crc_framer::CrcFramerSer::commit_frame(frame, bbbuffer_p);
                         //rtic::pend(VESC_IRQ_EXTI);
@@ -148,7 +167,7 @@ pub fn ctrl_serial_irq(
                     lidar.eat_byte(byte,
                         |scan| {
                             if scan.len() == rplidar::FRAME_SIZE {
-                                let mut frame = [0u8; 84];
+                                let mut frame: [0u8; rplidar::FRAME_SIZE] = unsafe { core::mem::MaybeUninit() };
                                 frame.copy_from_slice(&scan[..rplidar::FRAME_SIZE]);
                                 let r = lidar_queue_p.enqueue(rplidar::Frame(frame));
                                 if r.is_err() {

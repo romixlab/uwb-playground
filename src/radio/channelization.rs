@@ -8,6 +8,7 @@ use super::serdes::{
 };
 use super::Error;
 use crate::color;
+use dw1000::mac::Address;
 
 /// Logical destination inside a multiplexed message.
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -84,9 +85,9 @@ pub trait Arbiter {
     // currently pending for transmission
     //fn size_hints(&self) ->
     /// Called when data for a given channel had been received in async slot.
-    fn sink_sync(&mut self, channel: ChannelId, chunk: &[u8]);
+    fn sink_sync(&mut self, source: Address, channel: ChannelId, chunk: &[u8]);
     /// Called when data for a given channel had been received in sync slot.
-    fn sink_async(&mut self, channel: ChannelId, chunk: &[u8]);
+    fn sink_async(&mut self, source: Address, channel: ChannelId, chunk: &[u8]);
 }
 
 /// Simple multiplexer that uses from 2 to 5 bytes for each muxed message.

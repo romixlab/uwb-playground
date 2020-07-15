@@ -92,7 +92,7 @@ impl RpLidar {
 
                             WaitingStart5_
                         } else {
-                            rprint!(=> 5, "E3: {:02x}", b);
+                            //rprint!(=> 5, "E3: {:02x}", b);
 
                             Unlocked
                         }
@@ -114,9 +114,9 @@ impl RpLidar {
                 self.timeout_ticks = TIMEOUT_TICKS;
                 if b > 30 { // scan response
                     self.scan_response_len = b;
-                    ResponseReceiving(4) // 4 byte to ignore
-                } else { // regular answer
                     ResponseReceiving(b + 4) // 4 byte to ignore
+                } else { // regular answer
+                    ResponseReceiving(4) // 4 byte to ignore
                 }
             },
             WaitingStart5_ => {

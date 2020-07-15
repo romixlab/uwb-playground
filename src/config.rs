@@ -131,10 +131,11 @@ pub const VESC_IRQ_EXTI: Interrupt = Interrupt::USART1;
 pub const VESC_RPM_ARRAY_FRAME_ID: u8 = 86;
 #[cfg(feature = "master")]
 pub const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
+pub const VESC_POWER_ARRAY_FRAME_ID: u8 = 91;
 pub const VESC_SETRPM_FRAME_ID: u8 = 8;
 pub const VESC_SETCURRENT_FRAME_ID: u8 = 6;
 pub const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
-pub const VESC_LIDAR_FRAME_ID: u8 = 88;
+pub const VESC_LIDAR_FRAME_ID: u8 = 90;
 #[cfg(feature = "master")]
 pub const VESC_LIFT_FRAME_ID: u8 = 88;
 #[cfg(feature = "master")]
@@ -150,6 +151,8 @@ pub type CtrlBBBufferP = bbqueue::Producer<'static, CtrlBBBufferSize>;
 pub type CtrlBBBufferC = bbqueue::Consumer<'static, CtrlBBBufferSize>;
 #[cfg(any(feature = "master", feature = "devnode", feature = "br"))] // for lidar
 pub const CTRL_IRQ_EXTI: Interrupt = Interrupt::USART2;
+
+pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 
 use hal::gpio::gpioc::{PC6};
 use hal::gpio::AF8;

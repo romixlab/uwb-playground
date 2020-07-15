@@ -391,7 +391,7 @@ fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
         if channel.is_ctrl() {
 
         } else {
-            cx.arbiter.sink_sync(channel, chunk);
+            cx.arbiter.sink_sync(message.frame.header.source, channel, chunk);
         }
     });
 
@@ -500,7 +500,7 @@ fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
         if channel.is_ctrl() {
 
         } else {
-            cx.arbiter.sink_async(channel, chunk);
+            cx.arbiter.sink_async(message.frame.header.source, channel, chunk);
         }
     });
     cx.spawn.ctrl_link_control().ok(); // TODO: HACK
@@ -626,7 +626,7 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
                 }
             }
         } else {
-            cx.arbiter.sink_sync(channel, chunk);
+            cx.arbiter.sink_sync(message.frame.header.source, channel, chunk);
         }
     });
 

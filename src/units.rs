@@ -131,3 +131,16 @@ impl U32UnitsExt for u32 {
 
 pub const fn us(amount: u32) -> MicroSeconds { MicroSeconds(amount) }
 pub const fn ms(amount: u32) -> MilliSeconds { MilliSeconds(amount) }
+
+#[derive(PartialEq, PartialOrd, Clone, Copy, Default)]
+pub struct Watts(pub f32);
+
+impl fmt::Display for Watts {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}W", self.0)
+    }
+}
+
+impl fmt::Debug for Watts {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { write!(f, "{}", self) }
+}

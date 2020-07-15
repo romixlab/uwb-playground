@@ -60,7 +60,18 @@ const APP: () = {
         lidar_queue_p: rplidar::LidarQueueP,
         #[cfg(feature = "master")]
         lidar_queue_c: rplidar::LidarQueueC,
-    }
+
+        #[cfg(feature = "master")]
+        motion_channel_p: motion::ChannelP,
+        #[cfg(feature = "slave")]
+        motion_channel_c: motion::ChannelC,
+        #[cfg(feature = "master")]
+        motion_telemetry_c: motion::TelemetryChannelC,
+        #[cfg(feature = "master")]
+        local_motion_telemetry_p: motion::TelemetryLocalChannelP, // receive from mc -> C in arbiter
+        #[cfg(feature = "slave")]
+        motion_telemetry_p: motion::TelemetryChannelP,
+}
 
     #[init(
         schedule = [],
@@ -75,12 +86,18 @@ const APP: () = {
         static mut VESC_BBBUFFER: BBBuffer<config::VescBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut CTRL_BBBUFFER: BBBuffer<config::CtrlBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut LIDAR_QUEUE: rplidar::LidarQueue = heapless::spsc::Queue(heapless::i::Queue::new());
+        static mut MOTION_CHANNEL: motion::Channel = heapless::spsc::Queue(heapless::i::Queue::new());
+        static mut TELEMETRY_CHANNEL: motion::TelemetryChannel = heapless::spsc::Queue(heapless::i::Queue::new());
+        static mut LOCAL_TELEMETRY_CHANNEL: motion::TelemetryLocalChannel = heapless::spsc::Queue(heapless::i::Queue::new());
         tasks::init::init(
             cx,
             RADIO_COMMANDS_QUEUE,
             VESC_BBBUFFER,
             CTRL_BBBUFFER,
-            LIDAR_QUEUE
+            LIDAR_QUEUE,
+            MOTION_CHANNEL,
+            TELEMETRY_CHANNEL,
+            LOCAL_TELEMETRY_CHANNEL
         )
     }
 
@@ -165,6 +182,7 @@ const APP: () = {
             ctrl_bbbuffer_p,
             lidar_queue_c,
             lidar,
+            motion_telemetry_c,
         ],
         schedule = [
             ctrl_link_control,
@@ -184,6 +202,7 @@ const APP: () = {
             ctrl_bbbuffer_c,
             lidar,
             lidar_queue_p,
+            motion_channel_p,
         ],
         spawn = [
             motor_control,
@@ -217,13 +236,31 @@ const APP: () = {
             vesc_framer,
             vesc_bbbuffer_c,
             mecanum_wheels,
-            wheel
+            wheel,
+            motion_telemetry_p,
+            local_motion_telemetry_p,
         ]
     )]
     fn vesc_serial_irq(cx: vesc_serial_irq::Context) {
         static mut SENDING: Option<bbqueue::GrantR<'static, config::VescBBBufferSize>> = None;
         static mut SENDING_IDX: usize = 0;
         tasks::motion::vesc_serial_irq(cx, SENDING, SENDING_IDX);
+    }
+
+    #[task(
+        binds = EXTI4,
+        priority = 3,
+        resources = [
+            motion_channel_c,
+            channels,
+        ],
+        spawn = [
+            motor_control,
+            ctrl_link_control,
+        ]
+    )]
+    fn channel_event(cx: channel_event::Context) {
+        tasks::channel_event::channel_event(cx);
     }
 
     #[task(

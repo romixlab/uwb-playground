@@ -22,6 +22,9 @@ pub fn init(
     vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
     ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>,
     lidar_queue: &'static mut crate::rplidar::LidarQueue,
+    motion_channel: &'static mut crate::motion::Channel,
+    telemetry_channel: &'static mut crate::motion::TelemetryChannel,
+    local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
 ) -> crate::init::LateResources {
     rtt_init_print!(NoBlockSkip);
     //rprintln!("\x1b[2J\x1b[0m");
@@ -228,18 +231,32 @@ pub fn init(
         }
     }
 
+    let (motion_channel_p, motion_channel_c) = motion_channel.split();
+    let (motion_telemetry_p, motion_telemetry_c) = telemetry_channel.split();
+    let (local_motion_telemetry_p, local_motion_telemetry_c) = local_telemetry_channel.split();
     let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
     cfg_if::cfg_if! {
         if #[cfg(feature = "br")] { // lidar ctrl
             cx.spawn.ctrl_link_control().unwrap();
             let channels = crate::channels::Channels {
-                move_command: None,
                 lidar_queue_c,
+                motion_p: motion_channel_p,
+                motion_telemetry_c,
             };
-        } else {
+        } else if #[cfg(feature = "master")] {
             let channels = crate::channels::Channels {
-                move_command: None,
-                lidar_queue_p
+                lidar_queue_p,
+                motion_c: motion_channel_c,
+                motion_telemetry_p,
+                local_motion_telemetry_c,
+                telemetry_staging_area_tacho: crate::channels::TelemetryStagingAreaTacho::default(),
+                telemetry_staging_area_power: crate::channels::TelemetryStagingAreaPower::default(),
+            }
+        } else { // TR, BL
+            let channels = crate::channels::Channels {
+                lidar_queue_p,
+                motion_p: motion_channel_p,
+                motion_telemetry_c,
             }
         }
     }
@@ -275,6 +292,9 @@ pub fn init(
                     exti,
 
                     lidar_queue_c,
+                    motion_channel_p,
+                    motion_telemetry_c,
+                    local_motion_telemetry_p
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl"))] {
                 crate::init::LateResources {
@@ -300,7 +320,10 @@ pub fn init(
 
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
-                    exti
+                    exti,
+
+                    motion_channel_c,
+                    motion_telemetry_p,
                 }
             } else if #[cfg(feature = "br")] {
                 crate::init::LateResources {
@@ -330,6 +353,8 @@ pub fn init(
 
                     lidar: crate::rplidar::RpLidar::new(),
                     lidar_queue_p,
+                    motion_channel_c,
+                    motion_telemetry_p,
                 }
             }
         }

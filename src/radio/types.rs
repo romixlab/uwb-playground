@@ -31,6 +31,7 @@ pub enum Error {
     WrongSlotType,
     MuxTooBig,
     DemuxNotEnoughData,
+    WrongDiscriminant,
 }
 
 pub type Dw1000Spi = hal::spi::Spi<hal::stm32::SPI1,

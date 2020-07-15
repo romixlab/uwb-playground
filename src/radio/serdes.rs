@@ -91,6 +91,11 @@ impl<'a> Buf<'a> {
         self.idx += 4;
         i32::from_le_bytes(le)
     }
+
+    pub fn get_f32(&mut self) -> f32 {
+        let bits = self.get_u32();
+        f32::from_bits(bits)
+    }
 }
 
 pub struct BufMut<'a> {
@@ -149,6 +154,10 @@ impl<'a> BufMut<'a> {
             *self.buf.get_unchecked_mut(self.idx + 3) = le[3];
         }
         self.idx += 4;
+    }
+
+    pub fn put_f32(&mut self, val: f32) {
+        self.put_u32(val.to_bits());
     }
 
     pub fn put_slice(&mut self, s: &[u8]) {

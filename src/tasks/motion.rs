@@ -6,6 +6,7 @@ use crate::crc_framer;
 use rtt_target::rprintln;
 use rtic::cyccnt::U32Ext;
 use rtic::Mutex;
+use crate::units::Watts;
 
 pub fn motor_control(
     mut cx: crate::motor_control::Context,
@@ -17,37 +18,37 @@ pub fn motor_control(
     use motion::MotorControlEvent;
     use motion::MotorControlEvent::*;
     // Schedule timing check when first move event is received
-    if e.is_move_event() {
-        if last_command_instant.is_none() {
-            cx.schedule.motor_control(
-                cx.scheduled + ms2cycles!(cx.resources.clocks, config::motor_control::TIMING_CHECK_INTERVAL_MS),
-                motion::MotorControlEvent::TimingCheck
-            ).ok(); // TODO: count errors, totally fail at this probably
-        }
-        *last_command_instant = Some(rtic::cyccnt::Instant::now());
-    }
+    // if e.is_move_event() {
+    //     if last_command_instant.is_none() {
+    //         cx.schedule.motor_control(
+    //             cx.scheduled + ms2cycles!(cx.resources.clocks, config::motor_control::TIMING_CHECK_INTERVAL_MS),
+    //             motion::MotorControlEvent::TimingCheck
+    //         ).ok(); // TODO: count errors, totally fail at this probably
+    //     }
+    //     *last_command_instant = Some(rtic::cyccnt::Instant::now());
+    // }
     match e {
-        #[cfg(feature = "master")]
-        SetRpmArray(rpms) => {
-            rprintln!(=> 9, "SetRpmArray: t:{:?} {:?}\n", rtic::cyccnt::Instant::now(), rpms);
-            cx.resources.mecanum_wheels.lock(|wheels| {
-                wheels.top_left.rpm = rpms.top_left;
-                wheels.top_right.rpm = rpms.top_right;
-                wheels.bottom_left.rpm = rpms.bottom_left;
-                wheels.bottom_right.rpm = rpms.bottom_right;
-            });
-            cx.spawn.motor_control( // TODO: schedule at the of GTS to send in sync with slaves
-                                    MotorControlEvent::SetRpm(rpms.top_left)
-            ).ok(); // TODO: count errors
-        },
-        #[cfg(feature = "master")]
-        MovePreserveHeading(_xyt) => {
-
-        },
-        #[cfg(feature = "master")]
-        MoveIgnoreHeading(_xyt) => {
-
-        },
+        // #[cfg(feature = "master")]
+        // SetRpmArray(rpms) => {
+        //     rprintln!(=> 9, "SetRpmArray: t:{:?} {:?}\n", rtic::cyccnt::Instant::now(), rpms);
+        //     cx.resources.mecanum_wheels.lock(|wheels| {
+        //         wheels.top_left.rpm = rpms.top_left;
+        //         wheels.top_right.rpm = rpms.top_right;
+        //         wheels.bottom_left.rpm = rpms.bottom_left;
+        //         wheels.bottom_right.rpm = rpms.bottom_right;
+        //     });
+        //     cx.spawn.motor_control( // TODO: schedule at the of GTS to send in sync with slaves
+        //                             MotorControlEvent::SetRpm(rpms.top_left)
+        //     ).ok(); // TODO: count errors
+        // },
+        // #[cfg(feature = "master")]
+        // MovePreserveHeading(_xyt) => {
+        //
+        // },
+        // #[cfg(feature = "master")]
+        // MoveIgnoreHeading(_xyt) => {
+        //
+        // },
         SetRpm(rpm) => {
             rprintln!(=> 9, "SetRpm t:{:?} {}\n", rtic::cyccnt::Instant::now(), rpm.0);
             if rpm.0 != 0 {
@@ -55,14 +56,14 @@ pub fn motor_control(
                 setrpm_frame[0] = config::VESC_SETRPM_FRAME_ID;
                 setrpm_frame[1..=4].copy_from_slice(&rpm.0.to_be_bytes());
                 crc_framer::CrcFramerSer::commit_frame(&setrpm_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok(); // TODO: count errors
-                *stopped = false;
-            } else if rpm.0 == 0 && !*stopped {
+                //*stopped = false;
+            } else if rpm.0 == 0 /*&& !*stopped*/ {
                 let mut setcurrent_frame = [0u8; 5];
                 setcurrent_frame[0] = config::VESC_SETCURRENT_FRAME_ID;
                 crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok(); // TODO: count errors
                 crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok();
                 crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok();
-                *stopped = true; // do not send 0 all the time, or tacho will count for some reason
+               // *stopped = true; // do not send 0 all the time, or tacho will count for some reason
                 rprintln!(=> 9, "SetI = 0\n");
             }
         },
@@ -72,47 +73,47 @@ pub fn motor_control(
             request[1..=4].copy_from_slice(&config::VESC_REQUESTED_VALUES.to_be_bytes());
             crc_framer::CrcFramerSer::commit_frame(&request, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok(); // TODO: count errors
         },
-        TimingCheck => {
-            let dt = last_command_instant.expect("motor_control::TimingCheck fail").elapsed();
-
-            let stop_timeout_cycles: u32 = ms2cycles_raw!(cx.resources.clocks, config::motor_control::STOP_TIMEOUT_MS);
-            rprintln!(=> 9, "TimingCheck dt:{} thresh:{}\n", dt.as_cycles(), stop_timeout_cycles,);
-
-            if dt.as_cycles() >= stop_timeout_cycles {
-                rprintln!(=> 9, "ALL STOP {}\n", cycles2ms!(cx.resources.clocks, dt.as_cycles()));
-                cfg_if::cfg_if! {
-                        if #[cfg(feature = "master")] {
-                            cx.resources.mecanum_wheels.lock(|wheels| wheels.all_stop() );
-                        } else if #[cfg(feature = "slave")] {
-                            cx.resources.wheel.lock(|wheel| wheel.stop() );
-                        }
-                    }
-                let mut setcurrent_frame = [0u8; 5];
-                setcurrent_frame[0] = config::VESC_SETCURRENT_FRAME_ID;
-                crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok(); // TODO: count errors
-                crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok();
-                crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok();
-                *stopped = true; // do not send 0 all the time, or tacho will count for some reason
-            }
-
-            cx.schedule.motor_control(
-                cx.scheduled + ms2cycles!(cx.resources.clocks, config::motor_control::TIMING_CHECK_INTERVAL_MS),
-                motion::MotorControlEvent::TimingCheck
-            ).ok(); // TODO: count errors, totally fail at this probably
-        },
-        #[cfg(feature = "master")]
-        ResetTacho => {
-            cfg_if::cfg_if! {
-                    if #[cfg(feature = "master")] {
-                        cx.resources.mecanum_wheels.lock(|wheels| {
-                            wheels.top_left.tacho_shift = wheels.top_left.tacho.0;
-                            wheels.top_right.tacho_shift = wheels.top_right.tacho.0;
-                            wheels.bottom_left.tacho_shift = wheels.bottom_left.tacho.0;
-                            wheels.bottom_right.tacho_shift = wheels.bottom_right.tacho.0;
-                        });
-                    }
-                }
-        }
+        // TimingCheck => {
+        //     let dt = last_command_instant.expect("motor_control::TimingCheck fail").elapsed();
+        //
+        //     let stop_timeout_cycles: u32 = ms2cycles_raw!(cx.resources.clocks, config::motor_control::STOP_TIMEOUT_MS);
+        //     rprintln!(=> 9, "TimingCheck dt:{} thresh:{}\n", dt.as_cycles(), stop_timeout_cycles,);
+        //
+        //     if dt.as_cycles() >= stop_timeout_cycles {
+        //         rprintln!(=> 9, "ALL STOP {}\n", cycles2ms!(cx.resources.clocks, dt.as_cycles()));
+        //         cfg_if::cfg_if! {
+        //                 if #[cfg(feature = "master")] {
+        //                     cx.resources.mecanum_wheels.lock(|wheels| wheels.all_stop() );
+        //                 } else if #[cfg(feature = "slave")] {
+        //                     cx.resources.wheel.lock(|wheel| wheel.stop() );
+        //                 }
+        //             }
+        //         let mut setcurrent_frame = [0u8; 5];
+        //         setcurrent_frame[0] = config::VESC_SETCURRENT_FRAME_ID;
+        //         crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok(); // TODO: count errors
+        //         crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok();
+        //         crc_framer::CrcFramerSer::commit_frame(&setcurrent_frame, cx.resources.vesc_bbbuffer_p, config::VESC_IRQ_EXTI).ok();
+        //         *stopped = true; // do not send 0 all the time, or tacho will count for some reason
+        //     }
+        //
+        //     cx.schedule.motor_control(
+        //         cx.scheduled + ms2cycles!(cx.resources.clocks, config::motor_control::TIMING_CHECK_INTERVAL_MS),
+        //         motion::MotorControlEvent::TimingCheck
+        //     ).ok(); // TODO: count errors, totally fail at this probably
+        // },
+        // #[cfg(feature = "master")]
+        // ResetTacho => {
+        //     cfg_if::cfg_if! {
+        //             if #[cfg(feature = "master")] {
+        //                 cx.resources.mecanum_wheels.lock(|wheels| {
+        //                     wheels.top_left.tacho_shift = wheels.top_left.tacho.0;
+        //                     wheels.top_right.tacho_shift = wheels.top_right.tacho.0;
+        //                     wheels.bottom_left.tacho_shift = wheels.bottom_left.tacho.0;
+        //                     wheels.bottom_right.tacho_shift = wheels.bottom_right.tacho.0;
+        //                 });
+        //             }
+        //         }
+        // }
     }
 }
 
@@ -130,11 +131,12 @@ pub fn vesc_serial_irq(
             Ok(byte) => {
                 let framer = cx.resources.vesc_framer;
                 //let bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
+
                 cfg_if::cfg_if! {
                         if #[cfg(feature = "master")] {
-                            let mut wheels = cx.resources.mecanum_wheels;
+                            let telemetry_p = cx.resources.local_motion_telemetry_p;
                         } else if  #[cfg(feature = "slave")] {
-                            let mut wheel = cx.resources.wheel;
+                            let telemetry_p = cx.resources.motion_telemetry_p;
                         }
                     }
                 //rprintln!(=> 5, "{} {:02x}\n", byte, byte);
@@ -145,24 +147,23 @@ pub fn vesc_serial_irq(
                         let current_in = (current_in as f32) / 100.0f32;
                         let voltage_in = i16::from_be_bytes(frame[9..=10].try_into().unwrap());
                         let voltage_in = voltage_in as f32;
-                        let power_in = current_in * voltage_in;
+                        let power_in = Watts(current_in * voltage_in);
                         let tacho = i32::from_be_bytes(frame[11..=14].try_into().unwrap());
                         let tacho = motion::Tachometer(tacho);
                         //rprintln!(=> 5, "i_in:{} v_in:{} tacho:{}", current_in, voltage_in, tacho.0);
 
+                        use crate::motion::TelemetryItem;
+                        telemetry_p.enqueue(TelemetryItem::Tachometer(tacho)).ok();
+                        //telemetry_p.enqueue(TelemetryItem::Rpm(rpm)).ok();
+                        telemetry_p.enqueue(TelemetryItem::Power(power_in)).ok();
+
                         cfg_if::cfg_if! {
-                                if #[cfg(feature = "master")] {
-                                    wheels.lock(|wheels| {
-                                        wheels.top_left.tacho = tacho;
-                                        wheels.top_left.power_in = power_in;
-                                    });
-                                } else if  #[cfg(feature = "slave")] {
-                                    wheel.lock(|wheel| {
-                                        wheel.tacho = tacho;
-                                        wheel.power_in = power_in;
-                                    });
-                                }
+                            if #[cfg(feature = "master")] {
+                                rtic::pend(config::CHANNEL_EVENT_IRQ); // notifies arbiter to grab the data
+                            } else if  #[cfg(feature = "slave")] {
+
                             }
+                        }
                     }
                 });
             },
