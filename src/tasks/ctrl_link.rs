@@ -1,5 +1,6 @@
 use crate::config;
 use crate::board::hal;
+use rtic::Mutex;
 
 //use rtt_target::{rprint, rprintln};
 
@@ -10,43 +11,41 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
             use crate::crc_framer;
             use rtic::Mutex;
 
-            let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
-                (
-                    wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
-                    wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
-                    wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
-                    wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
-                )
-            });
-            let mut tacho_arr_frame = [0u8; 17];
-            tacho_arr_frame[0] = config::VESC_TACHO_ARRAY_FRAME_ID;
-            tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.to_be_bytes());
-            tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.to_be_bytes());
-            tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
-            tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
-            cx.resources.ctrl_bbbuffer_p.lock(|bb| {
-                crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
-            });
-        } else if #[cfg(feature = "br")] {
-            use rtic::Mutex;
-            use rtt_target::{rprint, rprintln};
+            // let (tacho_tl, tacho_tr, tacho_bl, tacho_br) = cx.resources.mecanum_wheels.lock(|wheels| {
+            //     (
+            //         wheels.top_left.tacho.0 - wheels.top_left.tacho_shift,
+            //         wheels.top_right.tacho.0 - wheels.top_right.tacho_shift,
+            //         wheels.bottom_left.tacho.0 - wheels.bottom_left.tacho_shift,
+            //         wheels.bottom_right.tacho.0 - wheels.bottom_right.tacho_shift
+            //     )
+            // });
+            // let mut tacho_arr_frame = [0u8; 17];
+            // tacho_arr_frame[0] = config::VESC_TACHO_ARRAY_FRAME_ID;
+            // tacho_arr_frame[1..=4].copy_from_slice(&tacho_tl.to_be_bytes());
+            // tacho_arr_frame[5..=8].copy_from_slice(&tacho_tr.to_be_bytes());
+            // tacho_arr_frame[9..=12].copy_from_slice(&tacho_bl.to_be_bytes());
+            // tacho_arr_frame[13..=16].copy_from_slice(&tacho_br.to_be_bytes());
+            // cx.resources.ctrl_bbbuffer_p.lock(|bb| {
+            //     crc_framer::CrcFramerSer::commit_frame(&tacho_arr_frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
+            // });
 
             while cx.resources.lidar_queue_c.ready() {
                 match cx.resources.lidar_queue_c.dequeue() {
                     Some(frame) => {
-                        let scan = frame.0;
-                        let angle: u16 = ((scan[3] & 0b0111_1111) as u16) << 8 | scan[2] as u16;
-                        let angle_dec = angle / 64;
-                        let angle_frac = angle % 64;
-                        rprintln!(=> 5, "{}.{}\n", angle_dec, angle_frac);
-                        for i in 0..84 {
-                            rprint!(=>5, "{:02x} ", scan[i]);
-                        }
-                        rprintln!(=>5, "]\n");
+                        let mut vesc_frame = [0u8; crate::rplidar::FRAME_SIZE + 1];
+                        vesc_frame[0] = config::VESC_LIDAR_FRAME_ID;
+                        vesc_frame[1..].copy_from_slice(&frame.0);
+                        cx.resources.ctrl_bbbuffer_p.lock(|bb| {
+                            crc_framer::CrcFramerSer::commit_frame(&vesc_frame, bb, config::CTRL_IRQ_EXTI).ok();
+                        });
                     },
                     None => { }
                 }
             }
+
+        } else if #[cfg(feature = "br")] {
+            use rtic::Mutex;
+            use rtt_target::{rprint, rprintln};
 
             rprintln!(=>5, ".");
             let mut ctrl_bbbuffer_p = cx.resources.ctrl_bbbuffer_p;

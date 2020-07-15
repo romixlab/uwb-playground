@@ -134,6 +134,7 @@ pub const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
 pub const VESC_SETRPM_FRAME_ID: u8 = 8;
 pub const VESC_SETCURRENT_FRAME_ID: u8 = 6;
 pub const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
+pub const VESC_LIDAR_FRAME_ID: u8 = 88;
 #[cfg(feature = "master")]
 pub const VESC_LIFT_FRAME_ID: u8 = 88;
 #[cfg(feature = "master")]
@@ -144,7 +145,7 @@ use hal::gpio::gpioa::{PA2, PA3};
 pub type CtrlTxPin = PA2<Alternate<AF7>>;
 pub type CtrlRxPin = PA3<Alternate<AF7>>;
 pub type CtrlSerial = hal::serial::Serial<hal::stm32::USART2, (CtrlTxPin, CtrlRxPin)>;
-pub type CtrlBBBufferSize = generic_array::typenum::consts::U512;
+pub type CtrlBBBufferSize = generic_array::typenum::consts::U4096;
 pub type CtrlBBBufferP = bbqueue::Producer<'static, CtrlBBBufferSize>;
 pub type CtrlBBBufferC = bbqueue::Consumer<'static, CtrlBBBufferSize>;
 #[cfg(any(feature = "master", feature = "devnode", feature = "br"))] // for lidar

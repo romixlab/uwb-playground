@@ -91,7 +91,7 @@ impl Serialize for &[u8] {
     type Error = super::Error;
 
     fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
-        if buf.remaining() <= self.len() { // 1 byte for ID
+        if buf.remaining() < self.len() + 1 { // 1 byte for ID
             return Err(Error::NotEnoughSpace);
         }
         buf.put_u8(0xfd);

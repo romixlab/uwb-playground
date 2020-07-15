@@ -10,6 +10,7 @@ use rtt_target::{
     rprint,
     rprintln
 };
+use crate::rplidar;
 use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(feature = "slave")] {
@@ -63,9 +64,11 @@ pub struct Channels {
     ///// I/0/_/T/D/H/S/8 @72
     //pub heartbeat: Option<Heartbeat>
 
-    //#[cfg(any(feature = "master", feature = "br"))]
     ///// I/P/L/A/D/H/U/10 @170
-    //pub lidar_data: crate::rplidar::LidarQueue,
+    #[cfg(feature = "br")]
+    pub lidar_queue_c: rplidar::LidarQueueC,
+    #[cfg(feature = "master")]
+    pub lidar_queue_p: rplidar::LidarQueueP,
 
     ///// R/P/F/A/D/H/S/9 @171
     // pub reqrep
@@ -73,6 +76,7 @@ pub struct Channels {
 }
 
 impl Channels {
+    #[cfg(not(any(feature = "br", feature = "master")))]
     pub fn new() -> Self {
         Channels {
             move_command: None,
@@ -94,11 +98,39 @@ impl Arbiter for Channels {
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
-        let mut saw =[0u8; 84*4];
-        for i in 0..saw.len() {
-            saw[i] = i as u8;
+        // let mut saw =[0u8; 84*4];
+        // for i in 0..saw.len() {
+        //     saw[i] = i as u8;
+        // }
+        // mux.mux(&&saw[..], LogicalDestination::Implicit, ChannelId::new(11));
+
+        // let angle: u16 = ((scan[3] & 0b0111_1111) as u16) << 8 | scan[2] as u16;
+        // let angle_dec = angle / 64;
+        // let angle_frac = angle % 64;
+        // rprintln!(=> 5, "{}.{}\n", angle_dec, angle_frac);
+        // for i in 0..84 {
+        //     rprint!(=>5, "{:02x} ", scan[i]);
+        // }
+        // rprintln!(=>5, "]\n");
+
+        cfg_if! {
+            if #[cfg(feature = "br")] {
+                let mut scans_written = 0;
+                while self.lidar_queue_c.ready() {
+                    if scans_written > 5 {
+                        break;
+                    }
+                    match self.lidar_queue_c.dequeue() {
+                        Some(frame) => {
+                            mux.mux(&&frame.0[..], LogicalDestination::Implicit, ChannelId::new(11));
+                            scans_written += 1;
+
+                        },
+                        None => { }
+                    }
+                }
+            }
         }
-        mux.mux(&&saw[..], LogicalDestination::Implicit, ChannelId::new(11));
     }
 
     fn sink_sync(&mut self, channel: ChannelId, chunk: &[u8]) {
@@ -115,6 +147,15 @@ impl Arbiter for Channels {
             rprint!(=>1, "{:02x} ", b);
         }
         rprintln!(=>1, "]\n");
+        cfg_if! {
+            if #[cfg(feature = "master")] {
+                if channel == ChannelId::new(11) && chunk[0] == 0xfd && chunk.len() == rplidar::FRAME_SIZE + 1 {
+                    let mut frame = [0u8; rplidar::FRAME_SIZE];
+                    frame.copy_from_slice(&chunk[1..]);
+                    let frame = rplidar::Frame(frame);
+                    self.lidar_queue_p.enqueue(frame).ok();
+                }
+            }
+        }
     }
-
 }

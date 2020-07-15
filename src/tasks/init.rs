@@ -227,14 +227,24 @@ pub fn init(
             cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
         }
     }
+
+    let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
     cfg_if::cfg_if! {
         if #[cfg(feature = "br")] { // lidar ctrl
             cx.spawn.ctrl_link_control().unwrap();
+            let channels = crate::channels::Channels {
+                move_command: None,
+                lidar_queue_c,
+            };
+        } else {
+            let channels = crate::channels::Channels {
+                move_command: None,
+                lidar_queue_p
+            }
         }
     }
+
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
-    let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
-    let channels = crate::channels::Channels::new();
     let event_state_data = crate::tasks::radio::EventStateData::default();
 
     cfg_if::cfg_if! {
@@ -263,6 +273,8 @@ pub fn init(
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
                     exti,
+
+                    lidar_queue_c,
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl"))] {
                 crate::init::LateResources {
@@ -318,7 +330,6 @@ pub fn init(
 
                     lidar: crate::rplidar::RpLidar::new(),
                     lidar_queue_p,
-                    lidar_queue_c
                 }
             }
         }

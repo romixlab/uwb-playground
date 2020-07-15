@@ -2,7 +2,7 @@ use rtt_target::{rprint, rprintln};
 use crate::rplidar::LidarState::Disconnected;
 use heapless::spsc::{Queue, Producer, Consumer};
 
-const TIMEOUT_TICKS: u8 = 10;
+const TIMEOUT_TICKS: u8 = 30;
 const BUFFER_SIZE: usize = 135;
 pub const FRAME_SIZE: usize = 84;
 type QueueSize = typenum::consts::U64;

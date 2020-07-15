@@ -503,6 +503,7 @@ fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
             cx.arbiter.sink_async(channel, chunk);
         }
     });
+    cx.spawn.ctrl_link_control().ok(); // TODO: HACK
     cx.spawn.radio_event(Event::DynProcessingFinished).ok();
     RadioState::Ready(Some(ready_radio))
 }
@@ -707,11 +708,9 @@ fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
                 //rprintln!(=>1,"blockon:{:?}", e);
                 RadioState::GTSAnswerSending(Some(sending_radio))
             } else { // Actuall error while sending
-                rprintln!(=>1,"{}GTS ans send error: {:?}{}", color::RED, e, color::DEFAULT);
+                rprintln!(=>1,"{}GTS send error: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-                // Switch back to GTSStart waiting state
-                let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
-                RadioState::GTSStartWaiting(Some(receiving_radio))
+                RadioState::Ready(Some(ready_radio))
             }
         }
     }

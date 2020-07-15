@@ -40,7 +40,7 @@ const APP: () = {
         lift_serial: config::LiftSerial,
 
         ctrl_serial: config::CtrlSerial,
-        ctrl_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U512>,
+        ctrl_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U4096>,
         ctrl_bbbuffer_p: config::CtrlBBBufferP,
         ctrl_bbbuffer_c: config::CtrlBBBufferC,
 
@@ -58,7 +58,7 @@ const APP: () = {
         lidar: rplidar::RpLidar,
         #[cfg(feature = "br")]
         lidar_queue_p: rplidar::LidarQueueP,
-        #[cfg(feature = "br")]
+        #[cfg(feature = "master")]
         lidar_queue_c: rplidar::LidarQueueC,
     }
 
@@ -121,6 +121,7 @@ const APP: () = {
         ],
         spawn = [
             radio_event,
+            ctrl_link_control
         ],
         schedule = [
             radio_event,
@@ -159,10 +160,11 @@ const APP: () = {
         capacity = 4,
         resources = [
             &clocks,
+            channels,
             mecanum_wheels,
             ctrl_bbbuffer_p,
-            lidar,
             lidar_queue_c,
+            lidar,
         ],
         schedule = [
             ctrl_link_control,
@@ -174,7 +176,7 @@ const APP: () = {
 
     #[task(
         binds = USART2,
-        priority = 3,
+        priority = 7,
         resources = [
             ctrl_serial,
             ctrl_framer,
