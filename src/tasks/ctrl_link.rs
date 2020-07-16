@@ -162,19 +162,19 @@ pub fn ctrl_serial_irq(
                     let lidar = cx.resources.lidar;
                     //let spawner = cx.spawn;
                     let bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
-                    let lidar_queue_p = cx.resources.lidar_queue_p;
+                    //let lidar_queue_p = cx.resources.lidar_queue_p;
                     //rprintln!(=>5, "r:{:02x}\n", byte);
                     lidar.eat_byte(byte,
-                        |scan| {
-                            if scan.len() == rplidar::FRAME_SIZE {
-                                let mut frame: [0u8; rplidar::FRAME_SIZE] = unsafe { core::mem::MaybeUninit() };
-                                frame.copy_from_slice(&scan[..rplidar::FRAME_SIZE]);
-                                let r = lidar_queue_p.enqueue(rplidar::Frame(frame));
-                                if r.is_err() {
-                                    rprintln!(=> 5, "drop");
-                                }
-                            }
-                        },
+                        // |scan| {
+                        //     if scan.len() == rplidar::FRAME_SIZE {
+                        //         // let mut frame: [0u8; rplidar::FRAME_SIZE] = unsafe { core::mem::MaybeUninit() };
+                        //         // frame.copy_from_slice(&scan[..rplidar::FRAME_SIZE]);
+                        //         // let r = lidar_queue_p.enqueue(rplidar::Frame(frame));
+                        //         // if r.is_err() {
+                        //         //     rprintln!(=> 5, "drop");
+                        //         // }
+                        //     }
+                        // },
                         |tx_bytes| {
                             rprint!(=>5, "ctrl_irq:tx:[");
                             for b in tx_bytes {

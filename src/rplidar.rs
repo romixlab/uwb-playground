@@ -1,17 +1,24 @@
 use rtt_target::{rprint, rprintln};
+use crate::color;
 use crate::rplidar::LidarState::Disconnected;
-use heapless::spsc::{Queue, Producer, Consumer};
+//use heapless::spsc::{Queue, Producer, Consumer};
 
-const TIMEOUT_TICKS: u8 = 30;
+const TIMEOUT_TICKS: u8 = 60;
 const BUFFER_SIZE: usize = 135;
 pub const FRAME_SIZE: usize = 84;
-type QueueSize = typenum::consts::U64;
 
-pub struct Frame(pub [u8; FRAME_SIZE]);
+// type QueueSize = typenum::consts::U64;
+// pub struct Frame(pub [u8; FRAME_SIZE]);
+// pub type LidarQueue = Queue<Frame, QueueSize>;
+// pub type LidarQueueP = Producer<'static, Frame, QueueSize>;
+// pub type LidarQueueC = Consumer<'static, Frame, QueueSize>;
 
-pub type LidarQueue = Queue<Frame, QueueSize>;
-pub type LidarQueueP = Producer<'static, Frame, QueueSize>;
-pub type LidarQueueC = Consumer<'static, Frame, QueueSize>;
+use bbqueue::{BBBuffer, consts::*};
+use bbqueue::framed::{FrameProducer, FrameConsumer, FrameGrantW};
+
+pub type LidarBBufferSize = U2048;
+pub type LidarBBuffer = BBBuffer<LidarBBufferSize>;
+pub type LidarBBufferC = FrameConsumer<'static, LidarBBufferSize>;
 
 #[derive(PartialEq)]
 pub enum LidarState {
@@ -42,11 +49,13 @@ pub struct RpLidar {
     buffer_idx: usize,
     scan_response_len: u8,
     timeout_ticks: u8,
-    pub frame_queue: LidarQueue,
+    frame_p: FrameProducer<'static, LidarBBufferSize>,
+    frame_wgr: Option<FrameGrantW<'static, LidarBBufferSize>>,
+    //pub frame_queue: LidarQueue,
 }
 
 impl RpLidar {
-    pub fn new() -> Self {
+    pub fn new(frame_producer: FrameProducer<'static, LidarBBufferSize>) -> Self {
         RpLidar {
             state: LidarState::Disconnected,
             framer: FramerState::Unlocked,
@@ -54,13 +63,14 @@ impl RpLidar {
             buffer_idx: 0,
             scan_response_len: 0,
             timeout_ticks: TIMEOUT_TICKS,
-            frame_queue: heapless::spsc::Queue(heapless::i::Queue::new())
+            frame_p: frame_producer,
+            frame_wgr: None,
+            //frame_queue: heapless::spsc::Queue(heapless::i::Queue::new())
         }
     }
 
-    pub fn eat_byte<S, T>(&mut self, b: u8, on_scan: S, mut tx: T)
+    pub fn eat_byte<T>(&mut self, b: u8, mut tx: T)
         where
-            S: FnMut(&[u8]),
             T: FnMut(&[u8])
     {
         use FramerState::*;
@@ -71,11 +81,11 @@ impl RpLidar {
                 self.buffer_idx = 0;
                 match self.state {
                     Disconnected => {
-                        rprint!(=> 5, "E1");
+                        //rprint!(=> 5, "{}E1{}", color::RED, color::DEFAULT);
                         Unlocked
                     },
                     WaitingGetHealthAnswer | WaitingScanResponseHeader => {
-                        rprint!(=> 5, "E2");
+                        //rprint!(=> 5, "{}E2{}", color::RED, color::DEFAULT);
 
                         if b == 0xa5 {
                             self.timeout_ticks = TIMEOUT_TICKS;
@@ -92,8 +102,6 @@ impl RpLidar {
 
                             WaitingStart5_
                         } else {
-                            //rprint!(=> 5, "E3: {:02x}", b);
-
                             Unlocked
                         }
                     },
@@ -105,7 +113,7 @@ impl RpLidar {
                     self.timeout_ticks = TIMEOUT_TICKS;
                     WaitingLen
                 } else {
-                    rprint!(=> 5, "E5");
+                    //rprint!(=> 5, "{}E5{}", color::RED, color::DEFAULT);
 
                     Unlocked
                 }
@@ -124,6 +132,20 @@ impl RpLidar {
                     self.buffer[1] |= b;
                     self.buffer_idx = 2;
                     self.timeout_ticks = TIMEOUT_TICKS;
+                    if self.scan_response_len > 30 {
+                        let r = self.frame_p.grant(self.scan_response_len as usize);
+                        match r {
+                            Ok(mut wgr) => {
+                                wgr[0] = self.buffer[0];
+                                wgr[1] = self.buffer[1];
+                                self.frame_wgr = Some(wgr);
+                                //rprintln!(=> 5, "WG:{}\n", b);
+                            },
+                            Err(_) => {
+                                rprintln!(=> 5, "{}WGR:drop{}\n", color::YELLOW, color::DEFAULT);
+                            }
+                        }
+                    }
                     // 2 bytes for angle & sync bit + payload len received previously in payload descriptor response
                     ResponseReceiving(self.scan_response_len - 2)
                 } else {
@@ -134,16 +156,27 @@ impl RpLidar {
             },
             ResponseReceiving(bytes_left) => {
                 self.buffer[self.buffer_idx] = b;
+                match &mut self.frame_wgr {
+                    Some(wgr) => {
+                        wgr[self.buffer_idx] = b;
+                    }
+                    None => {}
+                }
                 self.buffer_idx += 1;
                 if self.buffer_idx == BUFFER_SIZE {
-                    rprint!(=> 5, "EO");
+                    rprint!(=> 5, "{}EO{}", color::RED, color::DEFAULT);
 
                     Unlocked
                 } else {
                     self.timeout_ticks = TIMEOUT_TICKS;
                     let bytes_left = bytes_left - 1;
                     if bytes_left == 0 {
-                        self.advance_state(on_scan, tx);
+                        if self.frame_wgr.is_some() {
+                            let wgr = self.frame_wgr.take().unwrap();
+                            wgr.commit(self.scan_response_len as usize);
+                            self.frame_wgr = None;
+                        }
+                        self.advance_state(tx);
                         Unlocked
                     } else {
                         ResponseReceiving(bytes_left)
@@ -153,13 +186,24 @@ impl RpLidar {
         };
     }
 
-    fn advance_state<S, T>(&mut self, mut on_scan: S, mut tx: T)
+    fn advance_state<T>(&mut self, mut tx: T)
         where
-            S: FnMut(&[u8]),
             T: FnMut(&[u8])
     {
         use LidarState::*;
         self.state = match self.state {
+            ReceivingScans => {
+                // if self.scan_response_len != 0 {
+                //     on_scan(&self.buffer[..self.scan_response_len as usize]);
+                // }
+                // self.scan_response_len = 0;
+                // if self.frame_wgr.is_some() {
+                //     let wgr = self.frame_wgr.take().unwrap();
+                //     wgr.commit(self.scan_response_len as usize);
+                //     self.frame_wgr = None;
+                // }
+                ReceivingScans
+            },
             Disconnected => {
                 tx(&[0xa5, 0x52]);
                 // get health status
@@ -167,28 +211,22 @@ impl RpLidar {
                 WaitingGetHealthAnswer
             },
             WaitingGetHealthAnswer => {
-                rprint!(=> 5, "get_health ans:[");
+                rprint!(=> 5, "{}get_health ans:[", color::GREEN);
                 for i in 0..3 {
                     rprint!(=> 5, "{:02x} ", self.buffer[i]);
                 }
-                rprintln!(=> 5, "]");
+                rprintln!(=> 5, "]{}", color::DEFAULT);
                 tx(&[0xa5, 0x82, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22]); // scan start
                 self.timeout_ticks = 70;
                 WaitingScanResponseHeader
             },
             WaitingScanResponseHeader => {
-                rprint!(=> 5, "scan_resp ans:[");
+                rprint!(=> 5, "{}scan_resp ans:[", color::GREEN,);
                 for i in 0..4 {
                     rprint!(=> 5, "{:02x} ", self.buffer[i]);
                 }
                 rprintln!(=> 5, "]");
-                rprintln!(=> 5, "scan_len: {}", self.scan_response_len);
-                ReceivingScans
-            },
-            ReceivingScans => {
-                if self.scan_response_len != 0 {
-                    on_scan(&self.buffer[..self.scan_response_len as usize]);
-                }
+                rprintln!(=> 5, "scan_len: {}{}", self.scan_response_len, color::DEFAULT);
                 ReceivingScans
             },
             Timeout => {
@@ -205,13 +243,13 @@ impl RpLidar {
     {
         if self.timeout_ticks == 0 {
             self.state = LidarState::Timeout;
-            self.advance_state(|_| {}, tx);
+            self.advance_state(tx);
             self.timeout_ticks = TIMEOUT_TICKS;
             return;
         }
         self.timeout_ticks -= 1;
         if self.state == Disconnected {
-            self.advance_state(|_| {}, tx);
+            self.advance_state(tx);
         }
     }
 }

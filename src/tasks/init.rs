@@ -21,7 +21,8 @@ pub fn init(
     radio_commands_queue: &'static mut radio::types::CommandQueue,
     vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
     ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>,
-    lidar_queue: &'static mut crate::rplidar::LidarQueue,
+    //lidar_queue: &'static mut crate::rplidar::LidarQueue,
+    lidar_bbuffer: &'static mut crate::rplidar::LidarBBuffer,
     motion_channel: &'static mut crate::motion::Channel,
     telemetry_channel: &'static mut crate::motion::TelemetryChannel,
     local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
@@ -234,18 +235,20 @@ pub fn init(
     let (motion_channel_p, motion_channel_c) = motion_channel.split();
     let (motion_telemetry_p, motion_telemetry_c) = telemetry_channel.split();
     let (local_motion_telemetry_p, local_motion_telemetry_c) = local_telemetry_channel.split();
-    let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
+    //let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
+    let (lidar_frame_p, lidar_frame_c) = lidar_bbuffer.try_split_framed().unwrap();
+
     cfg_if::cfg_if! {
         if #[cfg(feature = "br")] { // lidar ctrl
             cx.spawn.ctrl_link_control().unwrap();
             let channels = crate::channels::Channels {
-                lidar_queue_c,
+                lidar_bbuffer_c: lidar_frame_c,
                 motion_p: motion_channel_p,
                 motion_telemetry_c,
             };
         } else if #[cfg(feature = "master")] {
             let channels = crate::channels::Channels {
-                lidar_queue_p,
+                //lidar_queue_p,
                 motion_c: motion_channel_c,
                 motion_telemetry_p,
                 local_motion_telemetry_c,
@@ -254,7 +257,7 @@ pub fn init(
             }
         } else { // TR, BL
             let channels = crate::channels::Channels {
-                lidar_queue_p,
+                //lidar_queue_p,
                 motion_p: motion_channel_p,
                 motion_telemetry_c,
             }
@@ -263,6 +266,7 @@ pub fn init(
 
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let event_state_data = crate::tasks::radio::EventStateData::default();
+
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
@@ -351,8 +355,8 @@ pub fn init(
                     idle_counter: core::num::Wrapping(0u32),
                     exti,
 
-                    lidar: crate::rplidar::RpLidar::new(),
-                    lidar_queue_p,
+                    lidar: crate::rplidar::RpLidar::new(lidar_frame_p),
+                    //lidar_queue_p,
                     motion_channel_c,
                     motion_telemetry_p,
                 }

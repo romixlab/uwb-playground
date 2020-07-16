@@ -84,9 +84,10 @@ pub struct Channels {
 
     ///// I/P/L/A/D/H/U/10 @170
     #[cfg(feature = "br")]
-    pub lidar_queue_c: rplidar::LidarQueueC,
-    #[cfg(feature = "master")]
-    pub lidar_queue_p: rplidar::LidarQueueP,
+    pub lidar_bbuffer_c: rplidar::LidarBBufferC,
+    //pub lidar_queue_c: rplidar::LidarQueueC,
+    //#[cfg(feature = "master")]
+    //pub lidar_queue_p: rplidar::LidarQueueP,
 
     ///// R/P/F/A/D/H/S/9 @171
     // pub reqrep
@@ -212,17 +213,31 @@ impl Arbiter for Channels {
         cfg_if! {
             if #[cfg(feature = "br")] {
                 let mut scans_written = 0;
-                while self.lidar_queue_c.ready() {
+                // while self.lidar_queue_c.ready() {
+                //     if scans_written > 10 {
+                //         break;
+                //     }
+                //     match self.lidar_queue_c.dequeue() {
+                //         Some(frame) => {
+                //             mux.mux(&&frame.0[..], LogicalDestination::Implicit, ChannelId::new(11));
+                //             scans_written += 1;
+                //
+                //         },
+                //         None => { }
+                //     }
+                // }
+                loop {
                     if scans_written > 10 {
                         break;
                     }
-                    match self.lidar_queue_c.dequeue() {
-                        Some(frame) => {
-                            mux.mux(&&frame.0[..], LogicalDestination::Implicit, ChannelId::new(11));
+                    let rgr = self.lidar_bbuffer_c.read();
+                    match rgr {
+                        Some(rgr) => {
+                            mux.mux(&&rgr[..], LogicalDestination::Implicit, ChannelId::new(11));
                             scans_written += 1;
-
+                            rgr.release();
                         },
-                        None => { }
+                        None => { break; }
                     }
                 }
             }

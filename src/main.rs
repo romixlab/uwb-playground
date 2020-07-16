@@ -56,10 +56,10 @@ const APP: () = {
 
         #[cfg(feature = "br")]
         lidar: rplidar::RpLidar,
-        #[cfg(feature = "br")]
-        lidar_queue_p: rplidar::LidarQueueP,
-        #[cfg(feature = "master")]
-        lidar_queue_c: rplidar::LidarQueueC,
+        //#[cfg(feature = "br")]
+        //lidar_queue_p: rplidar::LidarQueueP,
+        //#[cfg(feature = "master")]
+        //lidar_queue_c: rplidar::LidarQueueC,
 
         #[cfg(feature = "master")]
         motion_channel_p: motion::ChannelP,
@@ -85,7 +85,8 @@ const APP: () = {
         static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut VESC_BBBUFFER: BBBuffer<config::VescBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut CTRL_BBBUFFER: BBBuffer<config::CtrlBBBufferSize> = BBBuffer(ConstBBBuffer::new());
-        static mut LIDAR_QUEUE: rplidar::LidarQueue = heapless::spsc::Queue(heapless::i::Queue::new());
+        //static mut LIDAR_QUEUE: rplidar::LidarQueue = heapless::spsc::Queue(heapless::i::Queue::new());
+        static mut LIDAR_BBUFFER: rplidar::LidarBBuffer = BBBuffer(ConstBBBuffer::new());
         static mut MOTION_CHANNEL: motion::Channel = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut TELEMETRY_CHANNEL: motion::TelemetryChannel = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut LOCAL_TELEMETRY_CHANNEL: motion::TelemetryLocalChannel = heapless::spsc::Queue(heapless::i::Queue::new());
@@ -94,7 +95,8 @@ const APP: () = {
             RADIO_COMMANDS_QUEUE,
             VESC_BBBUFFER,
             CTRL_BBBUFFER,
-            LIDAR_QUEUE,
+            //LIDAR_QUEUE,
+            LIDAR_BBUFFER,
             MOTION_CHANNEL,
             TELEMETRY_CHANNEL,
             LOCAL_TELEMETRY_CHANNEL
@@ -180,7 +182,6 @@ const APP: () = {
             channels,
             mecanum_wheels,
             ctrl_bbbuffer_p,
-            lidar_queue_c,
             lidar,
             motion_telemetry_c,
         ],
@@ -201,7 +202,6 @@ const APP: () = {
             ctrl_bbbuffer_p,
             ctrl_bbbuffer_c,
             lidar,
-            lidar_queue_p,
             motion_channel_p,
         ],
         spawn = [
