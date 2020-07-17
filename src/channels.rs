@@ -20,6 +20,7 @@ use cfg_if::cfg_if;
 use crate::motion::{TelemetryItem, Tachometer};
 use crate::units::Watts;
 use dw1000::mac::Address;
+use crate::color;
 
 /// **Reliability**
 /// * `R` - (Reliable) ACKed, with retransmission (as in TCP).
@@ -86,8 +87,8 @@ pub struct Channels {
     #[cfg(feature = "br")]
     pub lidar_bbuffer_c: rplidar::LidarBBufferC,
     //pub lidar_queue_c: rplidar::LidarQueueC,
-    //#[cfg(feature = "master")]
-    //pub lidar_queue_p: rplidar::LidarQueueP,
+    #[cfg(feature = "master")]
+    pub lidar_bbuffer_p: rplidar::LidarBBufferP,
 
     ///// R/P/F/A/D/H/S/9 @171
     // pub reqrep
@@ -227,7 +228,7 @@ impl Arbiter for Channels {
                 //     }
                 // }
                 loop {
-                    if scans_written > 10 {
+                    if scans_written > 11 {
                         break;
                     }
                     let rgr = self.lidar_bbuffer_c.read();
@@ -324,7 +325,7 @@ impl Arbiter for Channels {
     }
 
     fn sink_async(&mut self, source: Address, channel: ChannelId, chunk: &[u8]) {
-        rprintln!(=>1, "async: CH{}:[{}]\n", channel, chunk.len());
+        //rprintln!(=>1, "async: CH{}:[{}]\n", channel, chunk.len());
         // for b in &chunk[..10] {
         //     rprint!(=>1, "{:02x} ", b);
         // }
@@ -332,12 +333,25 @@ impl Arbiter for Channels {
         cfg_if! {
             if #[cfg(feature = "master")] {
                 if channel == ChannelId::new(11) && chunk[0] == 0xfd && chunk.len() == rplidar::FRAME_SIZE + 1 {
-                    let mut frame = [0u8; rplidar::FRAME_SIZE];
-                    frame.copy_from_slice(&chunk[1..]);
-                    let frame = rplidar::Frame(frame);
-                    let r = self.lidar_queue_p.enqueue(frame);
-                    rtic::pend(config::CHANNEL_EVENT_IRQ);
-                    rprintln!(=>1, "l.frame.enq: {}\n", r.is_ok());
+                    // let mut frame = [0u8; rplidar::FRAME_SIZE];
+                    // frame.copy_from_slice(&chunk[1..]);
+                    // let frame = rplidar::Frame(frame);
+                    // let r = self.lidar_queue_p.enqueue(frame);
+                    // rtic::pend(config::CHANNEL_EVENT_IRQ);
+                    // rprintln!(=>1, "l.frame.enq: {}\n", r.is_ok());
+
+                    let r = self.lidar_bbuffer_p.grant(rplidar::FRAME_SIZE);
+                    match r {
+                        Ok(mut wgr) => {
+                            wgr.copy_from_slice(&chunk[1..]);
+                            wgr.commit(rplidar::FRAME_SIZE);
+                            rprintln!(=>15, "{}sink.frame.enq OK\n{}", color::GREEN, color::DEFAULT);
+                            rtic::pend(config::CHANNEL_EVENT_IRQ);
+                        },
+                        Err(_) => {
+                            rprintln!(=>15, "{}sink.frame.DROP\n{}", color::YELLOW, color::DEFAULT);
+                        }
+                    }
                 }
             }
         }

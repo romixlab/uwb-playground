@@ -56,10 +56,14 @@ const APP: () = {
 
         #[cfg(feature = "br")]
         lidar: rplidar::RpLidar,
+        #[cfg(feature = "br")]
+        lidar_dma: tasks::ctrl_link::LidarDma, // for DMA IRQ
+        #[cfg(feature = "br")]
+        lidar_dma_c: tasks::ctrl_link::LidarDmaBufferC, // for ctrl_link to retreive the data
         //#[cfg(feature = "br")]
         //lidar_queue_p: rplidar::LidarQueueP,
-        //#[cfg(feature = "master")]
-        //lidar_queue_c: rplidar::LidarQueueC,
+        #[cfg(feature = "master")]
+        lidar_frame_c: rplidar::LidarBBufferC,
 
         #[cfg(feature = "master")]
         motion_channel_p: motion::ChannelP,
@@ -85,8 +89,8 @@ const APP: () = {
         static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut VESC_BBBUFFER: BBBuffer<config::VescBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut CTRL_BBBUFFER: BBBuffer<config::CtrlBBBufferSize> = BBBuffer(ConstBBBuffer::new());
-        //static mut LIDAR_QUEUE: rplidar::LidarQueue = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut LIDAR_BBUFFER: rplidar::LidarBBuffer = BBBuffer(ConstBBBuffer::new());
+        static mut LIDAR_DMABUFFER: tasks::ctrl_link::LidarDmaBuffer = BBBuffer(ConstBBBuffer::new());
         static mut MOTION_CHANNEL: motion::Channel = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut TELEMETRY_CHANNEL: motion::TelemetryChannel = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut LOCAL_TELEMETRY_CHANNEL: motion::TelemetryLocalChannel = heapless::spsc::Queue(heapless::i::Queue::new());
@@ -95,8 +99,8 @@ const APP: () = {
             RADIO_COMMANDS_QUEUE,
             VESC_BBBUFFER,
             CTRL_BBBUFFER,
-            //LIDAR_QUEUE,
             LIDAR_BBUFFER,
+            LIDAR_DMABUFFER,
             MOTION_CHANNEL,
             TELEMETRY_CHANNEL,
             LOCAL_TELEMETRY_CHANNEL
@@ -184,6 +188,7 @@ const APP: () = {
             ctrl_bbbuffer_p,
             lidar,
             motion_telemetry_c,
+            lidar_frame_c,
         ],
         schedule = [
             ctrl_link_control,
@@ -200,9 +205,10 @@ const APP: () = {
             ctrl_serial,
             ctrl_framer,
             ctrl_bbbuffer_p,
-            ctrl_bbbuffer_c,
             lidar,
             motion_channel_p,
+            exti,
+            lidar_dma_c,
         ],
         spawn = [
             motor_control,
@@ -210,9 +216,28 @@ const APP: () = {
         ]
     )]
     fn ctrl_serial_irq(cx: ctrl_serial_irq::Context) {
-        static mut SENDING: Option<bbqueue::GrantR<'static, config::CtrlBBBufferSize>> = None;
-        static mut SENDING_IDX: usize = 0;
-        tasks::ctrl_link::ctrl_serial_irq(cx, SENDING, SENDING_IDX);
+        tasks::ctrl_link::ctrl_serial_irq(cx);
+    }
+
+    #[task(
+        binds = DMA1_STREAM5,
+        priority = 6,
+        resources = [lidar_dma]
+    )]
+    fn lidar_dma_irq(cx: lidar_dma_irq::Context) {
+        #[cfg(feature = "br")]
+        tasks::dma::lidar_dma_irq(cx);
+    }
+
+    #[task(
+        binds = DMA1_STREAM6,
+        priority = 6,
+        resources = [ctrl_bbbuffer_c]
+    )]
+    fn dma_ctrl_serial_tx(cx: dma_ctrl_serial_tx::Context) {
+        static mut RGR: Option<bbqueue::GrantR<'static, config::CtrlBBBufferSize>> = None;
+        static mut RGR_LEN: usize = 0;
+        tasks::dma::dma_ctrl_serial_tx(cx, RGR, RGR_LEN);
     }
 
     #[task(

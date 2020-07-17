@@ -7,6 +7,7 @@ use crate::motion::{
     TachoArray,
     PowerArray,
 };
+use crate::color;
 
 #[allow(unused_variables)]
 pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
@@ -36,7 +37,7 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
                             }
                         }
                         cx.resources.ctrl_bbbuffer_p.lock(|bb| {
-                            crc_framer::CrcFramerSer::commit_frame(&frame, bb, config::CTRL_IRQ_EXTI).ok(); // TODO: count errors
+                            crc_framer::CrcFramerSer::commit_frame(&frame, bb, config::CTRL_TX_DMA).ok(); // TODO: count errors
                         });
                         rprintln!(=>5, "telem array consumed");
                     },
@@ -45,24 +46,45 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
                     }
                 }
             }
-            while cx.resources.lidar_queue_c.ready() {
-                match cx.resources.lidar_queue_c.dequeue() {
-                    Some(frame) => {
+            // while cx.resources.lidar_queue_c.ready() {
+            //     match cx.resources.lidar_queue_c.dequeue() {
+            //         Some(frame) => {
+            //             let mut vesc_frame = [0u8; crate::rplidar::FRAME_SIZE + 1];
+            //             vesc_frame[0] = config::VESC_LIDAR_FRAME_ID;
+            //             vesc_frame[1..].copy_from_slice(&frame.0);
+            //             cx.resources.ctrl_bbbuffer_p.lock(|bb| {
+            //                 crc_framer::CrcFramerSer::commit_frame(&vesc_frame, bb, config::CTRL_TX_DMA).ok();
+            //             });
+            //         },
+            //         None => { }
+            //     }
+            // }
+            loop {
+                let rgr = cx.resources.lidar_frame_c.read();
+                match rgr {
+                    Some(rgr) => {
                         let mut vesc_frame = [0u8; crate::rplidar::FRAME_SIZE + 1];
                         vesc_frame[0] = config::VESC_LIDAR_FRAME_ID;
-                        vesc_frame[1..].copy_from_slice(&frame.0);
-                        cx.resources.ctrl_bbbuffer_p.lock(|bb| {
-                            crc_framer::CrcFramerSer::commit_frame(&vesc_frame, bb, config::CTRL_IRQ_EXTI).ok();
+                        vesc_frame[1..].copy_from_slice(&rgr);
+                        let r = cx.resources.ctrl_bbbuffer_p.lock(|bb| {
+                            crc_framer::CrcFramerSer::commit_frame(&vesc_frame, bb, config::CTRL_TX_DMA)
                         });
+                        rgr.release();
+                        if r.is_ok() {
+                            rprintln!(=>15, "{}l.sent_to_ros{}", color::GREEN, color::DEFAULT);
+                        } else {
+                            rprintln!(=>15, "{}l.DROP_in_serial{}", color::YELLOW, color::DEFAULT);
+                            break;
+                        }
                     },
-                    None => { }
+                    None => { break; }
                 }
             }
         } else if #[cfg(feature = "br")] {
             use rtic::Mutex;
             use rtt_target::{rprint, rprintln};
 
-            rprintln!(=>5, ".");
+            //rprintln!(=>5, ".");
             let mut ctrl_bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
             cx.resources.lidar.lock(|lidar|
                 lidar.periodic_check(|tx_bytes| {
@@ -77,7 +99,7 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
                             Ok(mut wgr) => {
                                 wgr.copy_from_slice(tx_bytes);
                                 wgr.commit(tx_bytes.len());
-                                rtic::pend(config::CTRL_IRQ_EXTI);
+                                rtic::pend(config::CTRL_DMA_TX);
                             },
                             Err(_) => {
                                 rprintln!(=>5, "  failed");
@@ -92,13 +114,23 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
     }
 }
 
+use bbqueue::{BBBuffer, Consumer, GrantW, consts::*, Producer};
+pub type LidarDmaBufferSize = U256;
+pub type LidarDmaBuffer = BBBuffer<LidarDmaBufferSize>;
+pub type LidarDmaBufferC = Consumer<'static, LidarDmaBufferSize>;
+pub type LidarDmaBufferP = Producer<'static, LidarDmaBufferSize>;
+
+pub struct LidarDma {
+    pub producer: LidarDmaBufferP,
+    pub first_half: Option<GrantW<'static, LidarDmaBufferSize>>,
+    pub second_half: Option<GrantW<'static, LidarDmaBufferSize>>,
+}
+
 pub fn ctrl_serial_irq(
     cx: crate::ctrl_serial_irq::Context,
-    sending: &mut Option<bbqueue::GrantR<'static, config::CtrlBBBufferSize>>,
-    sending_idx: &mut usize
 ) {
     let serial = cx.resources.ctrl_serial;
-    //rprintln!(=> 5, "irq");
+    let bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "master")] {
@@ -129,7 +161,7 @@ pub fn ctrl_serial_irq(
                             spawner.motor_control(MotorControlEvent::SetRpm(tl_rpm)).ok(); // TODO: count errors;
                             spawner.motor_control(MotorControlEvent::RequestTelemetry).ok();
                             let r = motion_channel_p.enqueue(rpm_array);
-                            rprintln!(=> 5, "enqueue RA:{:?}", r);
+                            rprintln!(=> 5, "enqueue RA:{} {:?} {:?}", r.is_ok(), tl_rpm, br_rpm);
                             //rprintln!("{} {} {} {}", tl_rpm, tr_rpm, bl_rpm, br_rpm);
                         } else if frame[0] == config::VESC_LIFT_FRAME_ID && frame.len() == 2 {
                             rprintln!(=>5, "lift cmd: {}", frame[1] as char);
@@ -157,24 +189,23 @@ pub fn ctrl_serial_irq(
             use embedded_hal::serial::Read;
             use rtt_target::{rprint, rprintln};
             use crate::rplidar;
+            let lidar = cx.resources.lidar;
+            match cx.resources.lidar_dma_c.read() {
+                Ok(rgr) => {
+                    let len = rgr.len();
+                    rprintln!(=>5, "Eat {} from DMA\n", len);
+                    for byte in rgr.iter() {
+                        lidar.eat_byte(*byte, |_| {} );
+                    }
+                    rgr.release(len);
+                },
+                Err(_) => {}
+            }
             match serial.read() {
                 Ok(byte) => {
-                    let lidar = cx.resources.lidar;
                     //let spawner = cx.spawn;
-                    let bbbuffer_p = cx.resources.ctrl_bbbuffer_p;
-                    //let lidar_queue_p = cx.resources.lidar_queue_p;
-                    //rprintln!(=>5, "r:{:02x}\n", byte);
+
                     lidar.eat_byte(byte,
-                        // |scan| {
-                        //     if scan.len() == rplidar::FRAME_SIZE {
-                        //         // let mut frame: [0u8; rplidar::FRAME_SIZE] = unsafe { core::mem::MaybeUninit() };
-                        //         // frame.copy_from_slice(&scan[..rplidar::FRAME_SIZE]);
-                        //         // let r = lidar_queue_p.enqueue(rplidar::Frame(frame));
-                        //         // if r.is_err() {
-                        //         //     rprintln!(=> 5, "drop");
-                        //         // }
-                        //     }
-                        // },
                         |tx_bytes| {
                             rprint!(=>5, "ctrl_irq:tx:[");
                             for b in tx_bytes {
@@ -185,63 +216,28 @@ pub fn ctrl_serial_irq(
                                 Ok(mut wgr) => {
                                     wgr.copy_from_slice(tx_bytes);
                                     wgr.commit(tx_bytes.len());
-                                    rtic::pend(config::CTRL_IRQ_EXTI);
+                                    rtic::pend(config::CTRL_TX_DMA);
                                 },
                                 Err(_) => {
-                                    rprintln!(=>5, "  failed");
+                                    rprintln!(=>5, "failed");
                                 }
                             }
                         }
                     );
-                },
-                Err(e) => {
 
-                }
-            }
-        }
-    }
+                    if lidar.state() == rplidar::LidarState::ReceivingScans {
+                        rprintln!(=>5, "{}DMA enable\n{}", color::CYAN, color::DEFAULT);
 
-
-    use hal::serial::Event;
-    use embedded_hal::serial::Write;
-    //let _:() = cx.resources.vesc_bbbuffer_c.read().unwrap();
-    *sending = if sending.is_some() {
-        let rgr = sending.take().unwrap();
-        let already_sent = *sending_idx;
-        if already_sent == rgr.len() {
-            rgr.release(already_sent); // Previous block is finished
-            serial.unlisten(Event::Txe);
-            None // Try send more!
-        } else {
-            let next = rgr[already_sent];
-            match serial.write(next) {
-                Ok(_) => {
-                    *sending_idx += 1;
-                    Some(rgr)
-                },
-                _ => {
-                    Some(rgr)
-                }
-            }
-        }
-    } else {
-        match cx.resources.ctrl_bbbuffer_c.read() {
-            Ok(rgr) => {
-                let next = rgr[0];
-                serial.listen(Event::Txe);
-                match serial.write(next) {
-                    Ok(_) => {
-                        *sending_idx = 1;
-                        Some(rgr)
-                    },
-                    _ => {
-                        *sending_idx = 0;
-                        Some(rgr)
+                        unsafe {
+                            let dma1 = &(*hal::stm32::DMA1::ptr());
+                            let stream5 = &dma1.st[5];
+                            stream5.cr.modify(|_, w| w.en().enabled());
+                        }
+                        use hal::serial::Event;
+                        serial.unlisten(Event::Rxne);
                     }
-                }
-            },
-            Err(_) => {
-                None
+                },
+                Err(e) => { }
             }
         }
     }

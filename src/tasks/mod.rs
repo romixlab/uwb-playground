@@ -5,4 +5,5 @@ pub mod radio;
 pub mod ctrl_link;
 pub mod motion;
 pub mod channel_event;
+pub mod dma;
 pub mod lift;

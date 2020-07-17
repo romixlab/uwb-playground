@@ -19,8 +19,9 @@ use bbqueue::framed::{FrameProducer, FrameConsumer, FrameGrantW};
 pub type LidarBBufferSize = U2048;
 pub type LidarBBuffer = BBBuffer<LidarBBufferSize>;
 pub type LidarBBufferC = FrameConsumer<'static, LidarBBufferSize>;
+pub type LidarBBufferP = FrameProducer<'static, LidarBBufferSize>;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum LidarState {
     Disconnected,
     WaitingGetHealthAnswer,
@@ -69,6 +70,10 @@ impl RpLidar {
         }
     }
 
+    pub fn state(&self) -> LidarState {
+        self.state
+    }
+
     pub fn eat_byte<T>(&mut self, b: u8, mut tx: T)
         where
             T: FnMut(&[u8])
@@ -102,6 +107,7 @@ impl RpLidar {
 
                             WaitingStart5_
                         } else {
+                            rprint!(=> 5, "{}U{}", color::RED, color::DEFAULT);
                             Unlocked
                         }
                     },
@@ -149,8 +155,7 @@ impl RpLidar {
                     // 2 bytes for angle & sync bit + payload len received previously in payload descriptor response
                     ResponseReceiving(self.scan_response_len - 2)
                 } else {
-                    rprint!(=> 5, "E6");
-
+                    rprint!(=> 5, "{}V{}", color::RED, color::DEFAULT);
                     Unlocked
                 }
             },

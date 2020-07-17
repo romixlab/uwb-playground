@@ -10,7 +10,7 @@ pub fn channel_event(mut cx: crate::channel_event::Context) {
     cfg_if! {
         if #[cfg(feature = "master")] {
             cx.resources.channels.lock(|channels| channels.grab_local_telemetry()); // maybe grab received telem from mc
-            cx.spawn.ctrl_link_control(); // maybe send tacho/power array to ros
+            cx.spawn.ctrl_link_control(); // maybe send tacho/power array or lidar frames to ros
         } else if #[cfg(feature = "slave")] {
             match cx.resources.motion_channel_c.dequeue() {
                 Some(rpm) => {

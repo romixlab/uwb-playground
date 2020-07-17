@@ -153,9 +153,10 @@ pub fn vesc_serial_irq(
                         //rprintln!(=> 5, "i_in:{} v_in:{} tacho:{}", current_in, voltage_in, tacho.0);
 
                         use crate::motion::TelemetryItem;
-                        telemetry_p.enqueue(TelemetryItem::Tachometer(tacho)).ok();
+                        let r = telemetry_p.enqueue(TelemetryItem::Tachometer(tacho));
                         //telemetry_p.enqueue(TelemetryItem::Rpm(rpm)).ok();
                         telemetry_p.enqueue(TelemetryItem::Power(power_in)).ok();
+                        rprintln!(=> 5, "local_telem_enq:{} {:?}", r.is_ok(), tacho);
 
                         cfg_if::cfg_if! {
                             if #[cfg(feature = "master")] {

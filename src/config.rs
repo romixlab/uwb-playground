@@ -146,11 +146,12 @@ use hal::gpio::gpioa::{PA2, PA3};
 pub type CtrlTxPin = PA2<Alternate<AF7>>;
 pub type CtrlRxPin = PA3<Alternate<AF7>>;
 pub type CtrlSerial = hal::serial::Serial<hal::stm32::USART2, (CtrlTxPin, CtrlRxPin)>;
-pub type CtrlBBBufferSize = generic_array::typenum::consts::U4096;
+pub type CtrlBBBufferSize = generic_array::typenum::consts::U8192;
 pub type CtrlBBBufferP = bbqueue::Producer<'static, CtrlBBBufferSize>;
 pub type CtrlBBBufferC = bbqueue::Consumer<'static, CtrlBBBufferSize>;
 #[cfg(any(feature = "master", feature = "devnode", feature = "br"))] // for lidar
 pub const CTRL_IRQ_EXTI: Interrupt = Interrupt::USART2;
+pub const CTRL_TX_DMA: Interrupt = Interrupt::DMA1_STREAM6;
 
 pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 

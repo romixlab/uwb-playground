@@ -21,8 +21,8 @@ pub fn init(
     radio_commands_queue: &'static mut radio::types::CommandQueue,
     vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
     ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>,
-    //lidar_queue: &'static mut crate::rplidar::LidarQueue,
     lidar_bbuffer: &'static mut crate::rplidar::LidarBBuffer,
+    lidar_dmabuffer: &'static mut crate::tasks::ctrl_link::LidarDmaBuffer,
     motion_channel: &'static mut crate::motion::Channel,
     telemetry_channel: &'static mut crate::motion::TelemetryChannel,
     local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
@@ -184,7 +184,7 @@ pub fn init(
     // To Ctrl or lidar
     cfg_if! {
         if #[cfg(feature = "master")] {
-            let ctrl_baudrate = 115_200.bps();
+            let ctrl_baudrate = 921_600.bps();
         } else {
             let ctrl_baudrate = 256_000.bps();
         }
@@ -200,6 +200,133 @@ pub fn init(
     ctrl_serial.listen(Event::Rxne);
     let ctrl_framer = crc_framer::CrcFramerDe::new();
     let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
+    cfg_if! {
+        if #[cfg(feature = "br")] {
+            let (mut lidar_dma_buffer_p, lidar_dma_buffer_c) = lidar_dmabuffer.try_split().unwrap();
+            let mut lidar_dma = crate::tasks::ctrl_link::LidarDma{
+                producer: lidar_dma_buffer_p,
+                first_half: None,
+                second_half: None,
+            };
+
+            use typenum::marker_traits::Unsigned;
+            let dma_buf_size = crate::tasks::ctrl_link::LidarDmaBufferSize::USIZE;
+            let first_half_wgr = lidar_dma.producer.grant_exact(dma_buf_size / 2).unwrap();
+            let mem_addr = first_half_wgr.as_ptr() as *const _ as u32;
+            lidar_dma.first_half = Some(first_half_wgr);
+            rprintln!(=>5, "mem_addr: {}\n", mem_addr);
+
+            unsafe {
+                let rcc = &(*hal::stm32::RCC::ptr());
+                rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit());
+                let usart2 = &(*hal::stm32::USART2::ptr());
+
+                let dma1 = &(*hal::stm32::DMA1::ptr());
+                let stream5 = &dma1.st[5];
+                // Disable stream & Deinit
+                stream5.cr.modify(|_, w| w.en().disabled());
+                stream5.cr.write(|w| w.bits(0));
+                stream5.ndtr.write(|w| w.bits(0));
+                stream5.par.write(|w| w.bits(0));
+                stream5.m0ar.write(|w| w.bits(0));
+                stream5.m1ar.write(|w| w.bits(0));
+                // Clear interrupt pending flags
+                dma1.hifcr.write(|w| w
+                    .cfeif5().clear()
+                    .cdmeif5().clear()
+                    .cteif5().clear()
+                    .chtif5().clear()
+                    .ctcif5().clear()
+                );
+                // Clear transfer complete flag & enable DMA receive request
+                usart2.sr.write(|w| w.tc().set_bit());
+                usart2.cr3.modify(|_, w| w.dmar().set_bit());
+                // Configure addresses and transfer size
+                stream5.ndtr.write(|w| w.bits(dma_buf_size as u32)); // number of data items (bytes in this case)
+                let dr_addr: u32 = usart2 as *const _ as u32 + 0x04;
+                stream5.par.write(|w| w.bits(dr_addr));  // peripheral address
+                rprintln!(=>5, "periph_addr: {}\n", dr_addr);
+                stream5.m0ar.write(|w| w.bits(mem_addr)); // memory address
+                stream5.m1ar.write(|w| w.bits(mem_addr)); //? memory address
+                // Configure DMA stream
+                stream5.cr.modify(|_, w| w
+                    .dmeie().disabled()   // direct mode error irq
+                    .teie().disabled()    // transfer error irq
+                    .htie().enabled()     // half-transfer complete irq
+                    .tcie().enabled()     // transfer complete irq
+                    .pfctrl().dma()       // flow controller dma/peripheral (see ref.manual)
+                    .dir().peripheral_to_memory()
+                    .circ().enabled()     // circular mode
+                    .pinc().fixed()       // peripheral addr increment
+                    .psize().bits8()      // peripheral data size
+                    .pincos().psize()     // peripheral increment offset size as_psize/fixed4
+                    .pburst().single()    // peripheral burst size
+                    .minc().incremented() // memory addr increment
+                    .msize().bits8()      // memory data size
+                    .mburst().single()    // memory burst size
+                    .pl().high()          // priority
+                    .dbm().disabled()     // double buffer switching if en see also .ct()
+                    .chsel().bits(4)      // DMA request channel for USART2 RX
+                );
+            }
+        }
+    }
+
+    cfg_if! {
+        if #[cfg(any(feature = "master", feature = "br"))] {
+            unsafe {
+                let rcc = &(*hal::stm32::RCC::ptr());
+                rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit());
+                let usart2 = &(*hal::stm32::USART2::ptr());
+
+                let dma1 = &(*hal::stm32::DMA1::ptr());
+                let stream6 = &dma1.st[6];
+                // Disable stream & Deinit
+                stream6.cr.modify(|_, w| w.en().disabled());
+                stream6.cr.write(|w| w.bits(0));
+                stream6.ndtr.write(|w| w.bits(0));
+                stream6.par.write(|w| w.bits(0));
+                stream6.m0ar.write(|w| w.bits(0));
+                stream6.m1ar.write(|w| w.bits(0));
+                // Clear interrupt pending flags
+                dma1.hifcr.write(|w| w
+                    .cfeif6().clear()
+                    .cdmeif6().clear()
+                    .cteif6().clear()
+                    .chtif6().clear()
+                    .ctcif6().clear()
+                );
+                // Clear transfer complete flag & enable DMA for transmission
+                usart2.cr3.modify(|_, w| w.dmat().set_bit());
+                // Configure addresses and transfer size
+                stream6.ndtr.write(|w| w.bits(0)); // number of data items (bytes in this case)
+                let dr_addr: u32 = usart2 as *const _ as u32 + 0x04;
+                stream6.par.write(|w| w.bits(dr_addr));  // peripheral address
+                stream6.m0ar.write(|w| w.bits(0)); // memory address
+                stream6.m1ar.write(|w| w.bits(0)); //? memory address
+                // Configure DMA stream
+                stream6.cr.modify(|_, w| w
+                    .dmeie().disabled()   // direct mode error irq
+                    .teie().disabled()    // transfer error irq
+                    .htie().disabled()    // half-transfer complete irq
+                    .tcie().enabled()     // transfer complete irq
+                    .pfctrl().dma()       // flow controller dma/peripheral (see ref.manual)
+                    .dir().memory_to_peripheral()
+                    .circ().disabled()    // circular mode
+                    .pinc().fixed()       // peripheral addr increment
+                    .psize().bits8()      // peripheral data size
+                    .pincos().psize()     // peripheral increment offset size as_psize/fixed4
+                    .pburst().single()    // peripheral burst size
+                    .minc().incremented() // memory addr increment
+                    .msize().bits8()      // memory data size
+                    .mburst().single()    // memory burst size
+                    .pl().high()          // priority
+                    .dbm().disabled()     // double buffer switching if en see also .ct()
+                    .chsel().bits(4)      // DMA request channel for USART2 TX
+                );
+            }
+        }
+    }
 
     let usart6_tx = gpioc.pc6.into_alternate_af8();
     let lift_serial = Serial::usart6(
@@ -248,7 +375,7 @@ pub fn init(
             };
         } else if #[cfg(feature = "master")] {
             let channels = crate::channels::Channels {
-                //lidar_queue_p,
+                lidar_bbuffer_p: lidar_frame_p,
                 motion_c: motion_channel_c,
                 motion_telemetry_p,
                 local_motion_telemetry_c,
@@ -295,7 +422,7 @@ pub fn init(
                     idle_counter: core::num::Wrapping(0u32),
                     exti,
 
-                    lidar_queue_c,
+                    lidar_frame_c,
                     motion_channel_p,
                     motion_telemetry_c,
                     local_motion_telemetry_p
@@ -356,7 +483,8 @@ pub fn init(
                     exti,
 
                     lidar: crate::rplidar::RpLidar::new(lidar_frame_p),
-                    //lidar_queue_p,
+                    lidar_dma,
+                    lidar_dma_c: lidar_dma_buffer_c,
                     motion_channel_c,
                     motion_telemetry_p,
                 }
