@@ -29,8 +29,10 @@ pub fn init(
 ) -> crate::init::LateResources {
     rtt_init_print!(NoBlockSkip);
     //rprintln!("\x1b[2J\x1b[0m");
-    rprint!("\n{}==============\n= UWB v", color::CYAN);
-    rprintln!("{} =\n=============={}\n", env!("CARGO_PKG_VERSION"), color::DEFAULT);
+    rprint!("\n{}==============\n= UWB\n", color::CYAN);
+    rprintln!("= {}", config::DEVICE_NAME);
+    rprintln!("= v{}", env!("CARGO_PKG_VERSION"));
+    rprintln!("=============={}\n", color::DEFAULT);
     rprintln!("init...");
 
     let mut core/*: cortex_m::Peripherals */= cx.core;

@@ -44,7 +44,7 @@ impl Tracer for RttTracer {
         let dt_gts = now - self.prev_gts;
         let dt_prev = now - self.prev;
         if e == TraceEvent::GTSStart {
-            rprintln!(=> 13, "\n\n\n---\n");
+            rprintln!(=> 13, "\n\x1b[2J\x1b[0m---\n");
         } else if e == TraceEvent::TimingMarker {
             self.prev_gts = now;
         } else if e == TraceEvent::GTSStartReceived {
@@ -145,7 +145,7 @@ fn overlap_check(
         rprintln!(=>2, "{}{} slot overlap detected{}", color::YELLOW, name, color::DEFAULT);
     }
     let time_exceeded = actually_took > should_have_taken;
-    if time_exceeded {
+    if time_exceeded && done {
         // irq processing probably took too long, message could have overlapped with other slot.
         rprintln!(=>2,
             "{}{} slot hard overlap detected by={} already_sent={}{}",
@@ -225,6 +225,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                     let duration: MicroSeconds = s.duration;
                     let duration = us2cycles!(cx.resources.clocks, duration.0);
                     if s.shift == MicroSeconds(0) {
+                        cx.resources.event_state_data.gts_started = Some(CycntInstant::now());
                         radio_command!(cx, Command::SendGTSAnswer(s.duration, s.radio_config));
 
                         cx.schedule.radio_event(

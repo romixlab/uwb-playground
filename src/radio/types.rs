@@ -266,7 +266,7 @@ impl core::fmt::Display for Event {
             Event::AlohaSlotAboutToStart(_, _) => { write!(f, "A_ATS") },
             Event::AlohaSlotEnded => { write!(f, "A_X") },
             Event::DynUplinkAboutToStart(_, _) => { write!(f, "D_ATS") },
-            Event::DynProcessingFinished => { write!(f, "D_PF") },
+            Event::DynProcessingFinished => { write!(f, "Dyn_PF") },
             Event::DynShouldHaveEnded => { write!(f, "D_SX") },
             #[cfg(feature = "slave")]
             Event::ReceiveCheck => { write!(f, "RC") }
@@ -345,4 +345,8 @@ pub struct Stat {
     pub tr_gts_answers: u32,
     pub bl_gts_answers: u32,
     pub br_gts_answers: u32,
+}
+
+pub struct Pong {
+
 }

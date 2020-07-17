@@ -141,7 +141,7 @@ impl Channels {
     pub fn grab_local_telemetry(&mut self) {
         match self.local_motion_telemetry_c.dequeue() {
             Some(telem_item) => {
-                rprint!(=>1, "local telem grabbed");
+                rprint!(=>5, "{}local telem grabbed{}\n", color::GREEN, color::DEFAULT);
                 Self::stage(
                     telem_item,
                     &mut self.telemetry_staging_area_tacho.top_left,
@@ -184,6 +184,7 @@ impl Arbiter for Channels {
                 loop {
                     match self.motion_telemetry_c.dequeue() {
                         Some(telem_item) => {
+                            rprintln!(=> 5, "{}source ok: {:?}{}\n", color::GREEN, telem_item, color::DEFAULT);
                             let _ = mux.mux(&telem_item, LogicalDestination::Implicit, ChannelId::new(3));
                         },
                         None => {
@@ -196,37 +197,9 @@ impl Arbiter for Channels {
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
-        // let mut saw =[0u8; 84*4];
-        // for i in 0..saw.len() {
-        //     saw[i] = i as u8;
-        // }
-        // mux.mux(&&saw[..], LogicalDestination::Implicit, ChannelId::new(11));
-
-        // let angle: u16 = ((scan[3] & 0b0111_1111) as u16) << 8 | scan[2] as u16;
-        // let angle_dec = angle / 64;
-        // let angle_frac = angle % 64;
-        // rprintln!(=> 5, "{}.{}\n", angle_dec, angle_frac);
-        // for i in 0..84 {
-        //     rprint!(=>5, "{:02x} ", scan[i]);
-        // }
-        // rprintln!(=>5, "]\n");
-
         cfg_if! {
             if #[cfg(feature = "br")] {
                 let mut scans_written = 0;
-                // while self.lidar_queue_c.ready() {
-                //     if scans_written > 10 {
-                //         break;
-                //     }
-                //     match self.lidar_queue_c.dequeue() {
-                //         Some(frame) => {
-                //             mux.mux(&&frame.0[..], LogicalDestination::Implicit, ChannelId::new(11));
-                //             scans_written += 1;
-                //
-                //         },
-                //         None => { }
-                //     }
-                // }
                 loop {
                     if scans_written > 11 {
                         break;
@@ -261,18 +234,21 @@ impl Arbiter for Channels {
                         if let Address::Short(pan_id, short_addr) = source {
                             if pan_id == config::PAN_ID {
                                 if short_addr == config::TR_UWB_ADDR {
+                                    rprintln!(=>5, "{}Stage TR {:?}{}\n", color::CYAN, telem_item, color::DEFAULT);
                                     Channels::stage(
                                         telem_item,
                                         &mut self.telemetry_staging_area_tacho.top_right,
                                         &mut self.telemetry_staging_area_power.top_right
                                     );
                                 } else if short_addr == config::BL_UWB_ADDR {
+                                    rprintln!(=>5, "{}Stage BL {:?}{}\n", color::CYAN, telem_item, color::DEFAULT);
                                     Channels::stage(
                                         telem_item,
                                         &mut self.telemetry_staging_area_tacho.bottom_left,
                                         &mut self.telemetry_staging_area_power.bottom_left
                                     );
                                 } else if short_addr == config::BR_UWB_ADDR {
+                                    rprintln!(=>5, "{}Stage BR {:?}{}\n", color::CYAN, telem_item, color::DEFAULT);
                                     Channels::stage(
                                         telem_item,
                                         &mut self.telemetry_staging_area_tacho.bottom_right,
@@ -290,7 +266,7 @@ impl Arbiter for Channels {
                                 };
                                 let item = TelemetryArray::Tachometer(tacho_array);
                                 let r = self.motion_telemetry_p.enqueue(item);
-                                rprintln!(=>1, "tacho arr enq: {}", r.is_ok());
+                                rprintln!(=>5, "{}tacho arr enq: {}{}", color::GREEN, r.is_ok(), color::DEFAULT);
                                 self.telemetry_staging_area_tacho.remove_all();
                                 rtic::pend(config::CHANNEL_EVENT_IRQ);
                             }
@@ -303,7 +279,7 @@ impl Arbiter for Channels {
                                 };
                                 let item = TelemetryArray::Power(power_array);
                                 let r = self.motion_telemetry_p.enqueue(item);
-                                rprintln!(=>1, "power arr enq: {}", r.is_ok());
+                                rprintln!(=>5, "{}power arr enq: {}{}", color::GREEN, r.is_ok(), color::DEFAULT);
                                 self.telemetry_staging_area_power.remove_all();
                                 rtic::pend(config::CHANNEL_EVENT_IRQ);
                             }
@@ -315,7 +291,7 @@ impl Arbiter for Channels {
                 match motion::Rpm::des(&mut buf) {
                     Ok(rpm) => {
                         let r = self.motion_p.enqueue(rpm);
-                        rprintln!(=>1, "rpm enq: {} {:?}", r.is_ok(), rpm);
+                        rprintln!(=>5, "{}Rpm enq:{} {:?}{}", color::GREEN, r.is_ok(), rpm, color::DEFAULT);
                         rtic::pend(config::CHANNEL_EVENT_IRQ);
                     },
                     Err(_) => {}

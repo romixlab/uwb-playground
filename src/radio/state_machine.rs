@@ -10,7 +10,8 @@ use super::types::{
     Error
 };
 use super::types::{
-    Command
+    Command,
+    Pong
 };
 use super::channelization::{
     Arbiter,
@@ -383,7 +384,7 @@ fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
 ) -> RadioState
 {
     let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-
+    rprintln!(=>2,"{}G.RX {}{}\n", color::CYAN, message.frame.payload.len(), color::DEFAULT);
     let payload = message.frame.payload;
     let mut buf = Buf::new(payload);
     let mut demux = MiniDemultiplexer::new(&mut buf);
@@ -401,7 +402,7 @@ fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
         RadioState::Ready(Some(ready_radio))
     } else {
         let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
-        RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received + 1))
+        RadioState::GTSAnswersReceiving((Some(receiving_radio), answers_received))
     }
 }
 
@@ -450,8 +451,11 @@ fn send_dyn_data<A: Arbiter<Error = Error>, T: Tracer>(
 
     cx.arbiter.source_async(&mut mux);
 
-    let bufmut_taken = mux.take();
-    len += bufmut_taken.written();
+    let pong = Pong{};
+    mux.mux(&pong, LogicalDestination::Implicit, ChannelId::ctrl());
+
+    let bufmut = mux.take();
+    len += bufmut.written();
 
     let tx_config = get_txconfig(radio_config);
     ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
@@ -492,19 +496,23 @@ fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 ) -> RadioState
 {
     let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-
+    rprintln!(=>2,"{}D.RX{} from {:?}{}", color::CYAN, message.frame.payload.len(), message.frame.header.source, color::DEFAULT);
     let payload = message.frame.payload;
     let mut buf = Buf::new(payload);
     let mut demux = MiniDemultiplexer::new(&mut buf);
     demux.demux(config::UWB_ADDR, |channel, chunk| {
         if channel.is_ctrl() {
-
+            let mut buf = Buf::new(&chunk);
+            match Pong::des(&mut buf) {
+                Ok(_) => { rprintln!(=>2,"Pong from {:?}", message.frame.header.source); },
+                Err(_) => {}
+            };
         } else {
             cx.arbiter.sink_async(message.frame.header.source, channel, chunk);
         }
     });
     cx.spawn.ctrl_link_control().ok(); // TODO: HACK
-    cx.spawn.radio_event(Event::DynProcessingFinished).ok();
+    cx.spawn.radio_event(Event::DynProcessingFinished).ok(); // TODO: only after Pong is received!
     RadioState::Ready(Some(ready_radio))
 }
 
@@ -560,22 +568,13 @@ fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
     let bufmut_taken = mux.take();
     len += bufmut_taken.written();
 
+    rprintln!(=>5, "{}sourced:{}{}\n\n", color::CYAN, bufmut_taken.written(), color::DEFAULT);
+
     let tx_config = get_txconfig(RadioConfig::default());
 
-    if let NodeState::Active(node) = cx.master_node {
-        let slot = node.slots[0].unwrap();
-        let tx_time = if slot.shift.0 == 0 {
-            None
-        } else {
-            Some(node.last_seen.unwrap().1 + RadioDuration::from_nanos(slot.shift.0 * 1_000))
-        };
-        ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
-        let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
-        RadioState::GTSAnswerSending(Some(sending_radio))
-    } else {
-        rprintln!(=>1, "\x1b[1;31;40msend_gts_answer: no slots");
-        RadioState::Ready(Some(ready_radio))
-    }
+    ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
+    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
+    RadioState::GTSAnswerSending(Some(sending_radio))
 }
 
 #[cfg(feature = "slave")]
@@ -587,7 +586,7 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 {
     let cycnt_now = CycntInstant::now();
     let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-
+    rprintln!(=>2,"{}G.RX {}{}", color::CYAN, message.frame.payload.len(), /*message.frame.header.source,*/ color::DEFAULT);
     let payload = message.frame.payload;
     // rprint!(=>1, "p:{}[", payload.len());
     // for b in payload {

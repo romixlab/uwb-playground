@@ -161,3 +161,12 @@ use stm32f4xx_hal::serial::NoRx;
 
 pub type LiftTxPin = PC6<Alternate<AF8>>;
 pub type LiftSerial = hal::serial::Serial<hal::stm32::USART6, (LiftTxPin, NoRx)>;
+
+#[cfg(feature = "master")]
+pub const DEVICE_NAME: &str = "Master";
+#[cfg(feature = "tr")]
+pub const DEVICE_NAME: &str = "TopRight";
+#[cfg(feature = "bl")]
+pub const DEVICE_NAME: &str = "BottomLeft";
+#[cfg(feature = "br")]
+pub const DEVICE_NAME: &str = "BottomRight";

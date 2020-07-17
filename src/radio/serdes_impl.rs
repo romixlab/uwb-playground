@@ -16,6 +16,7 @@ use super::types::{
 };
 use super::Error;
 use crate::units::MicroSeconds;
+use crate::radio::types::Pong;
 
 fn channel_from_u8(n: u8) -> Option<UwbChannel> {
     use UwbChannel::*;
@@ -55,6 +56,42 @@ fn slot_type_from_u8(n: u8) -> Option<SlotType> {
 impl MessageSpec for Slot {
     const ID: u8 = 0x70;
     const SIZE: usize = 7;
+}
+
+impl MessageSpec for Pong {
+    const ID: u8 = 0x30;
+    const SIZE: usize = 1;
+}
+
+impl Serialize for Pong {
+    type Error = super::Error;
+
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        if buf.remaining() < Self::SIZE {
+            return Err(Error::NotEnoughSpace);
+        }
+        buf.put_u8(Self::ID);
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize { Self::SIZE }
+}
+
+impl Deserialize for Pong {
+    type Output = Pong;
+    type Error = super::Error;
+
+    fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
+        if buf.remaining() >= 1 {
+            if buf.peek_u8() != Self::ID {
+                return Err(Error::WrongId);
+            }
+        } else {
+            return Err(Error::Eof);
+        }
+        let _id = buf.get_u8();
+        Ok(Pong{})
+    }
 }
 
 impl Serialize for Slot {

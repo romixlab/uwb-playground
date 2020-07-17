@@ -99,7 +99,7 @@ pub fn ctrl_link_control(mut cx: crate::ctrl_link_control::Context) {
                             Ok(mut wgr) => {
                                 wgr.copy_from_slice(tx_bytes);
                                 wgr.commit(tx_bytes.len());
-                                rtic::pend(config::CTRL_DMA_TX);
+                                rtic::pend(config::CTRL_TX_DMA);
                             },
                             Err(_) => {
                                 rprintln!(=>5, "  failed");
@@ -145,6 +145,7 @@ pub fn ctrl_serial_irq(
                     //let bbbuffer_p = cx.resources.vesc_bbbuffer_p;
                     let motion_channel_p = cx.resources.motion_channel_p;
                     let spawner = cx.spawn;
+                    rprintln!(=> 5, "{:02x}", byte);
                     framer.eat_byte(byte, |frame| {
                         rprintln!(=> 5, "frame ctrl: {} {}\n", frame[0], frame.len());
                         if frame[0] == config::VESC_RPM_ARRAY_FRAME_ID {
@@ -193,9 +194,35 @@ pub fn ctrl_serial_irq(
             match cx.resources.lidar_dma_c.read() {
                 Ok(rgr) => {
                     let len = rgr.len();
-                    rprintln!(=>5, "Eat {} from DMA\n", len);
+                    //rprintln!(=>5, "Eat {} from DMA\n", len);
                     for byte in rgr.iter() {
-                        lidar.eat_byte(*byte, |_| {} );
+                        lidar.eat_byte(*byte,
+                            |tx_bytes| {
+                                rprint!(=>5, "ctrl_irq:tx_dma:[");
+                                for b in tx_bytes {
+                                    rprint!(=>5, "{:02x} ", b);
+                                }
+                                rprintln!(=>5, "]\n");
+                                match bbbuffer_p.grant_exact(tx_bytes.len()) {
+                                    Ok(mut wgr) => {
+                                        wgr.copy_from_slice(tx_bytes);
+                                        wgr.commit(tx_bytes.len());
+                                        rtic::pend(config::CTRL_TX_DMA);
+                                    },
+                                    Err(_) => {
+                                        rprintln!(=>5, "failed");
+                                    }
+                                }
+                                rprintln!(=>5, "{}DMA disable\n{}", color::CYAN, color::DEFAULT);
+
+                                unsafe {
+                                    let dma1 = &(*hal::stm32::DMA1::ptr());
+                                    let stream5 = &dma1.st[5];
+                                    stream5.cr.modify(|_, w| w.en().disabled());
+                                }
+                                use hal::serial::Event;
+                                serial.listen(Event::Rxne);
+                            });
                     }
                     rgr.release(len);
                 },

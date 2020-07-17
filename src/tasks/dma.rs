@@ -24,7 +24,7 @@ pub fn lidar_dma_irq(mut cx: crate::lidar_dma_irq::Context) {
         match lidar_dma.producer.grant_exact(dma_buf_size / 2) {
             Ok(wgr) => {
                 lidar_dma.second_half = Some(wgr);
-                rprintln!(=>5, "DMA:F->S\n");
+                //rprintln!(=>5, "DMA:F->S\n");
             },
             Err(_) => {
                 rprintln!(=>5, "{}DMA:ErrorA\n{}", color::RED, color::DEFAULT);
@@ -40,7 +40,7 @@ pub fn lidar_dma_irq(mut cx: crate::lidar_dma_irq::Context) {
         match lidar_dma.producer.grant_exact(dma_buf_size / 2) {
             Ok(wgr) => {
                 lidar_dma.first_half = Some(wgr);
-                rprintln!(=>5, "DMA:S->F\n");
+                //rprintln!(=>5, "DMA:S->F\n");
             },
             Err(_) => {
                 rprintln!(=>5, "{}DMA:ErrorB\n{}", color::RED, color::DEFAULT);
@@ -64,12 +64,12 @@ pub fn dma_ctrl_serial_tx(
         let stream_is_active = stream6.cr.read().en().is_enabled();
 
         if stream_is_active {
-            rprintln!(=>5, "{}DMA:pend\n{}", color::CYAN, color::DEFAULT);
+            //rprintln!(=>5, "{}DMA:pend\n{}", color::CYAN, color::DEFAULT);
             return; // transfer still in progress, someone tried to send smth and pended this irq
         }
         if cx_rgr.is_some() {
             // transfer is now complete, release the buffer
-            rprintln!(=>5, "{}DMA:tr.finished\n{}", color::GREEN, color::DEFAULT);
+            //rprintln!(=>5, "{}DMA:tr.finished\n{}", color::GREEN, color::DEFAULT);
             let rgr = cx_rgr.take().unwrap();
             rgr.release(*rgr_len);
             *cx_rgr = None;
@@ -82,7 +82,7 @@ pub fn dma_ctrl_serial_tx(
                 stream6.m0ar.write(|w| w.bits(mem_addr));
                 *cx_rgr = Some(rgr);
                 *rgr_len = len;
-                rprintln!(=>5, "{}DMA:send {}\n{}", color::GREEN, len, color::DEFAULT);
+                //rprintln!(=>5, "{}DMA:send {}\n{}", color::GREEN, len, color::DEFAULT);
 
                 stream6.cr.modify(|_, w| w.en().enabled());
             },
