@@ -2,7 +2,7 @@ pub mod init;
 pub mod idle;
 pub mod blinker;
 pub mod radio;
-pub mod ctrl_link;
+pub mod usart;
 pub mod motion;
 pub mod channel_event;
 pub mod dma;

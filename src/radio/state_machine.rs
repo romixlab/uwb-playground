@@ -511,7 +511,6 @@ fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
             cx.arbiter.sink_async(message.frame.header.source, channel, chunk);
         }
     });
-    cx.spawn.ctrl_link_control().ok(); // TODO: HACK
     cx.spawn.radio_event(Event::DynProcessingFinished).ok(); // TODO: only after Pong is received!
     RadioState::Ready(Some(ready_radio))
 }

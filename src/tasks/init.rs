@@ -1,7 +1,7 @@
 use crate::board::hal;
 use crate::radio;
 use crate::config;
-use crate::crc_framer;
+use crate::codec;
 use crate::color;
 
 use bbqueue::{BBBuffer};
@@ -16,13 +16,19 @@ use radio::types::Event;
 use radio::scheduler::Scheduler;
 use radio::types::RadioConfig;
 
+use core::sync::atomic::{
+    compiler_fence,
+    Ordering
+};
+
 pub fn init(
     cx: crate::init::Context,
     radio_commands_queue: &'static mut radio::types::CommandQueue,
-    vesc_bbbuffer: &'static mut BBBuffer<config::VescBBBufferSize>,
-    ctrl_bbbuffer: &'static mut BBBuffer<config::CtrlBBBufferSize>,
     lidar_bbuffer: &'static mut crate::rplidar::LidarBBuffer,
-    lidar_dmabuffer: &'static mut crate::tasks::ctrl_link::LidarDmaBuffer,
+    usart1_dma_rx_buffer: &'static mut config::Usart1DmaRxBuffer,
+    usart1_dma_tx_buffer: &'static mut config::Usart1DmaTxBuffer,
+    usart2_dma_rx_buffer: &'static mut config::Usart2DmaRxBuffer,
+    usart2_dma_tx_buffer: &'static mut config::Usart2DmaTxBuffer,
     motion_channel: &'static mut crate::motion::Channel,
     telemetry_channel: &'static mut crate::motion::TelemetryChannel,
     local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
@@ -173,60 +179,55 @@ pub fn init(
     use hal::serial::{Serial, Event, config::Config};
     let usart1_tx = gpiob.pb6.into_alternate_af7();
     let usart1_rx = gpiob.pb7.into_alternate_af7();
-    let mut vesc_serial = Serial::usart1(
+    let mut usart1 = Serial::usart1(
         device.USART1,
         (usart1_tx, usart1_rx),
-        Config::default().baudrate(115_200.bps()),
+        Config::default().baudrate(config::USART1_BAUD.bps()),
         clocks
     ).unwrap();
-    vesc_serial.listen(Event::Rxne);
-    let vesc_framer = crc_framer::CrcFramerDe::new();
-    let (vesc_bbbuffer_p, vesc_bbbuffer_c) = vesc_bbbuffer.try_split().unwrap();
+    let (mut usart1_dma_rx_buffer_p, usart1_c) = usart1_dma_rx_buffer.try_split().unwrap();
+    let (mut usart1_dma_rcx, usart1_dma_mem_addr) =
+        crate::tasks::dma::DmaRxContext::new(
+            usart1_dma_rx_buffer_p,
+            hal::stm32::USART1::ptr(),
+            hal::stm32::DMA2::ptr(),
+            5
+        );
+    let (mut usart1_p, usart1_dma_tx_buffer_c) = usart1_dma_tx_buffer.try_split().unwrap();
+    let usart1_dma_tcx = crate::tasks::dma::DmaTxContext::new(usart1_dma_tx_buffer_c);
+    let usart1_coder = codec::Usart1Coder::new(usart1_p, config::USART1_TX_DMA);
+    let usart1_decoder = codec::Usart1Decoder::new(usart1_c);
 
     // To Ctrl or lidar
-    cfg_if! {
-        if #[cfg(feature = "master")] {
-            let ctrl_baudrate = 921_600.bps();
-        } else {
-            let ctrl_baudrate = 256_000.bps();
-        }
-    }
     let usart2_tx = gpioa.pa2.into_alternate_af7();
     let usart2_rx = gpioa.pa3.into_alternate_af7();
-    let mut ctrl_serial = Serial::usart2(
+    let mut usart2 = Serial::usart2(
         device.USART2,
         (usart2_tx, usart2_rx),
-        Config::default().baudrate(ctrl_baudrate),
+        Config::default().baudrate(config::USART2_BAUD.bps()),
         clocks
     ).unwrap();
-    ctrl_serial.listen(Event::Rxne);
-    let ctrl_framer = crc_framer::CrcFramerDe::new();
-    let (ctrl_bbbuffer_p, ctrl_bbbuffer_c) = ctrl_bbbuffer.try_split().unwrap();
     cfg_if! {
-        if #[cfg(feature = "br")] {
-            let (mut lidar_dma_buffer_p, lidar_dma_buffer_c) = lidar_dmabuffer.try_split().unwrap();
-            let mut lidar_dma = crate::tasks::ctrl_link::LidarDma{
-                producer: lidar_dma_buffer_p,
-                first_half: None,
-                second_half: None,
-            };
-
-            use typenum::marker_traits::Unsigned;
-            let dma_buf_size = crate::tasks::ctrl_link::LidarDmaBufferSize::USIZE;
-            let first_half_wgr = lidar_dma.producer.grant_exact(dma_buf_size / 2).unwrap();
-            let mem_addr = first_half_wgr.as_ptr() as *const _ as u32;
-            lidar_dma.first_half = Some(first_half_wgr);
-            rprintln!(=>5, "mem_addr: {}\n", mem_addr);
+        if #[cfg(any(feature = "master", feature = "br"))] {
+            let (mut usart2_dma_rx_buffer_p, usart2_c) = usart2_dma_rx_buffer.try_split().unwrap();
+            let (mut usart2_dma_rcx, usart2_dma_mem_addr) =
+                crate::tasks::dma::DmaRxContext::new(
+                    usart2_dma_rx_buffer_p,
+                    hal::stm32::USART2::ptr(),
+                    hal::stm32::DMA1::ptr(),
+                    5
+                );
 
             unsafe {
                 let rcc = &(*hal::stm32::RCC::ptr());
                 rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit());
                 let usart2 = &(*hal::stm32::USART2::ptr());
-
                 let dma1 = &(*hal::stm32::DMA1::ptr());
                 let stream5 = &dma1.st[5];
                 // Disable stream & Deinit
                 stream5.cr.modify(|_, w| w.en().disabled());
+                compiler_fence(Ordering::Acquire);
+
                 stream5.cr.write(|w| w.bits(0));
                 stream5.ndtr.write(|w| w.bits(0));
                 stream5.par.write(|w| w.bits(0));
@@ -244,12 +245,11 @@ pub fn init(
                 usart2.sr.write(|w| w.tc().set_bit());
                 usart2.cr3.modify(|_, w| w.dmar().set_bit());
                 // Configure addresses and transfer size
-                stream5.ndtr.write(|w| w.bits(dma_buf_size as u32)); // number of data items (bytes in this case)
+                stream5.ndtr.write(|w| w.bits(usart2_dma_rcx.buf_size() as u32)); // number of data items (bytes in this case)
                 let dr_addr: u32 = usart2 as *const _ as u32 + 0x04;
                 stream5.par.write(|w| w.bits(dr_addr));  // peripheral address
-                rprintln!(=>5, "periph_addr: {}\n", dr_addr);
-                stream5.m0ar.write(|w| w.bits(mem_addr)); // memory address
-                stream5.m1ar.write(|w| w.bits(mem_addr)); //? memory address
+                stream5.m0ar.write(|w| w.bits(usart2_dma_mem_addr)); // memory address
+                stream5.m1ar.write(|w| w.bits(usart2_dma_mem_addr)); //? memory address
                 // Configure DMA stream
                 stream5.cr.modify(|_, w| w
                     .dmeie().disabled()   // direct mode error irq
@@ -270,12 +270,16 @@ pub fn init(
                     .dbm().disabled()     // double buffer switching if en see also .ct()
                     .chsel().bits(4)      // DMA request channel for USART2 RX
                 );
+                compiler_fence(Ordering::Release);
+                stream5.cr.modify(|_, w| w.en().enabled());
             }
         }
     }
-
     cfg_if! {
         if #[cfg(any(feature = "master", feature = "br"))] {
+            let (mut usart2_p, usart2_dma_tx_buffer_c) = usart2_dma_tx_buffer.try_split().unwrap();
+            let usart2_dma_tcx = crate::tasks::dma::DmaTxContext::new(usart2_dma_tx_buffer_c);
+
             unsafe {
                 let rcc = &(*hal::stm32::RCC::ptr());
                 rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit());
@@ -327,6 +331,15 @@ pub fn init(
                     .chsel().bits(4)      // DMA request channel for USART2 TX
                 );
             }
+            usart2.listen(Event::Idle);
+        }
+    }
+    cfg_if! {
+        if #[cfg(feature = "master")] {
+            let usart2_coder = codec::Usart2Coder::new(usart2_p, config::USART2_TX_DMA);
+            let usart2_decoder = codec::Usart2Decoder::new(usart2_c);
+        } else if  #[cfg(feature = "br")] {
+
         }
     }
 
@@ -408,13 +421,15 @@ pub fn init(
                     channels,
                     event_state_data,
 
-                    vesc_serial,
-                    vesc_framer,
-                    vesc_bbbuffer_p, vesc_bbbuffer_c,
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
 
-                    ctrl_serial,
-                    ctrl_framer,
-                    ctrl_bbbuffer_p, ctrl_bbbuffer_c,
+                    usart2_coder,
+                    usart2_dma_tcx,
+                    usart2_dma_rcx,
+                    usart2_decoder,
 
                     lift_serial,
 

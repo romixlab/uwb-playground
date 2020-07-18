@@ -8,7 +8,7 @@ mod panic_handler;
 mod radio;
 mod channels;
 mod config;
-mod crc_framer;
+mod codec;
 mod units;
 mod tasks;
 mod motion;
@@ -20,6 +20,10 @@ use core::num::Wrapping;
 use rtic::{app};
 use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
+use tasks::usart::{
+    Usart1WorkerEvent,
+    Usart2WorkerEvent
+};
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -32,17 +36,23 @@ const APP: () = {
         channels: channels::Channels,
         event_state_data: tasks::radio::EventStateData,
 
-        vesc_serial: config::VescSerial,
-        vesc_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U512>,
-        vesc_bbbuffer_p: config::VescBBBufferP,
-        vesc_bbbuffer_c: config::VescBBBufferC,
+        // USART1 - tl/tr/bl/br <-> vesc.
+        usart1_coder: codec::Usart1Coder,
+        usart1_dma_tcx: config::Usart1DmaTxContext,
+        usart1_dma_rcx: config::Usart1DmaRxContext,
+        usart1_decoder: codec::Usart1Decoder,
 
         lift_serial: config::LiftSerial,
 
-        ctrl_serial: config::CtrlSerial,
-        ctrl_framer: crc_framer::CrcFramerDe<generic_array::typenum::consts::U4096>,
-        ctrl_bbbuffer_p: config::CtrlBBBufferP,
-        ctrl_bbbuffer_c: config::CtrlBBBufferC,
+        // USART2 - master <-> ros, br <-> lidar.
+        #[cfg(feature = "master")]
+        usart2_coder: codec::Usart2Coder,
+        #[cfg(any(feature = "master", feature = "br"))]
+        usart2_dma_tcx: config::Usart2DmaTxContext,
+        #[cfg(any(feature = "master", feature = "br"))]
+        usart2_dma_rcx: config::Usart2DmaRxContext,
+        #[cfg(feature = "master")]
+        usart2_decoder: codec::Usart2Decoder,
 
         #[cfg(feature = "master")]
         mecanum_wheels: motion::MecanumWheels,
@@ -56,14 +66,12 @@ const APP: () = {
 
         #[cfg(feature = "br")]
         lidar: rplidar::RpLidar,
-        #[cfg(feature = "br")]
-        lidar_dma: tasks::ctrl_link::LidarDma, // for DMA IRQ
-        #[cfg(feature = "br")]
-        lidar_dma_c: tasks::ctrl_link::LidarDmaBufferC, // for ctrl_link to retreive the data
-        //#[cfg(feature = "br")]
-        //lidar_queue_p: rplidar::LidarQueueP,
         #[cfg(feature = "master")]
         lidar_frame_c: rplidar::LidarBBufferC,
+        #[cfg(feature = "br")]
+        usart2_c: config::Usart2DmaRxBufferC,
+        #[cfg(feature = "br")]
+        usart2_p: config::Usart2DmaTxBufferP,
 
         #[cfg(feature = "master")]
         motion_channel_p: motion::ChannelP,
@@ -82,25 +90,27 @@ const APP: () = {
         spawn = [
             radio_event,
             blinker,
-            ctrl_link_control
+            usart2_worker
         ]
     )]
     fn init(cx: init::Context) -> init::LateResources {
         static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
-        static mut VESC_BBBUFFER: BBBuffer<config::VescBBBufferSize> = BBBuffer(ConstBBBuffer::new());
-        static mut CTRL_BBBUFFER: BBBuffer<config::CtrlBBBufferSize> = BBBuffer(ConstBBBuffer::new());
         static mut LIDAR_BBUFFER: rplidar::LidarBBuffer = BBBuffer(ConstBBBuffer::new());
-        static mut LIDAR_DMABUFFER: tasks::ctrl_link::LidarDmaBuffer = BBBuffer(ConstBBBuffer::new());
+        static mut USART1_DMA_RX_BUFFER: config::Usart1DmaRxBuffer = BBBuffer(ConstBBBuffer::new());
+        static mut USART1_DMA_TX_BUFFER: config::Usart1DmaTxBuffer = BBBuffer(ConstBBBuffer::new());
+        static mut USART2_DMA_RX_BUFFER: config::Usart2DmaRxBuffer = BBBuffer(ConstBBBuffer::new());
+        static mut USART2_DMA_TX_BUFFER: config::Usart2DmaTxBuffer = BBBuffer(ConstBBBuffer::new());
         static mut MOTION_CHANNEL: motion::Channel = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut TELEMETRY_CHANNEL: motion::TelemetryChannel = heapless::spsc::Queue(heapless::i::Queue::new());
         static mut LOCAL_TELEMETRY_CHANNEL: motion::TelemetryLocalChannel = heapless::spsc::Queue(heapless::i::Queue::new());
         tasks::init::init(
             cx,
             RADIO_COMMANDS_QUEUE,
-            VESC_BBBUFFER,
-            CTRL_BBBUFFER,
             LIDAR_BBUFFER,
-            LIDAR_DMABUFFER,
+            USART1_DMA_RX_BUFFER,
+            USART1_DMA_TX_BUFFER,
+            USART2_DMA_RX_BUFFER,
+            USART2_DMA_TX_BUFFER,
             MOTION_CHANNEL,
             TELEMETRY_CHANNEL,
             LOCAL_TELEMETRY_CHANNEL
@@ -133,22 +143,16 @@ const APP: () = {
 
     #[task(
         binds = EXTI0,
-        priority = 6,
+        priority = 3,
         resources = [
             &clocks,
             radio,
             channels,
             scheduler,
             idle_counter,
-            exti,
         ],
-        spawn = [
-            radio_event,
-            ctrl_link_control
-        ],
-        schedule = [
-            radio_event,
-        ]
+        spawn = [radio_event],
+        schedule = [radio_event]
     )]
     fn radio_irq(cx: radio_irq::Context) {
         static mut BUFFER: [u8; 1024] = [0u8; 1024];
@@ -156,7 +160,7 @@ const APP: () = {
     }
 
     #[task(
-        priority = 4,
+        priority = 2,
         capacity = 24,
         resources = [
             &clocks,
@@ -168,7 +172,7 @@ const APP: () = {
         ],
         spawn = [
             motor_control,
-            ctrl_link_control,
+            usart2_worker,
         ],
         schedule = [
             radio_event,
@@ -179,97 +183,119 @@ const APP: () = {
     }
 
     #[task(
-        priority = 2,
-        capacity = 4,
-        resources = [
-            &clocks,
-            channels,
-            mecanum_wheels,
-            ctrl_bbbuffer_p,
-            lidar,
-            motion_telemetry_c,
-            lidar_frame_c,
-        ],
-        schedule = [
-            ctrl_link_control,
-        ]
+        priority = 4,
+
     )]
-    fn ctrl_link_control(cx: ctrl_link_control::Context) {
-        tasks::ctrl_link::ctrl_link_control(cx);
+    fn usart1_worker(cx: usart1_worker::Context, e: Usart1WorkerEvent) {
+        tasks::usart::usart1_worker(cx, e);
     }
 
     #[task(
-        binds = USART2,
-        priority = 7,
+        binds = USART1,
+        priority = 4,
+        resources = [usart1_dma_rcx],
+        spawn = [usart1_worker]
+    )]
+    fn usart1_irq(cx: usart1_irq::Context) {
+        let spawn = cx.spawn;
+        cx.resources.usart1_dma_rcx.handle_usart_irq(|| {
+            spawn.usart1_worker(Usart1WorkerEvent::Rx).ok();
+        });
+    }
+
+    #[task(
+        binds = DMA2_STREAM5,
+        priority = 4,
+        resources = [usart1_dma_rcx],
+        spawn = [usart1_worker]
+    )]
+    fn usart1_dma_rx_irq(cx: usart1_dma_rx_irq::Context) {
+        let spawn = cx.spawn;
+        cx.resources.usart1_dma_rcx.handle_dma_rx_irq(|| {
+            spawn.usart1_worker(Usart1WorkerEvent::Rx).ok();
+        });
+    }
+
+    #[task(
+    binds = DMA2_STREAM7,
+    priority = 4,
+    resources = [usart1_dma_tcx]
+    )]
+    fn usart1_dma_tx_irq(cx: usart1_dma_tx_irq::Context) {
+        cx.resources.usart1_dma_tcx.handle_dma_tx_irq();
+    }
+
+    #[task(
+        priority = 4,
         resources = [
-            ctrl_serial,
-            ctrl_framer,
-            ctrl_bbbuffer_p,
-            lidar,
+            usart2_coder,
+            usart2_decoder,
             motion_channel_p,
-            exti,
-            lidar_dma_c,
+            lidar,
+            usart2_p,
+            usart2_c,
         ],
         spawn = [
             motor_control,
             lift_control,
         ]
     )]
-    fn ctrl_serial_irq(cx: ctrl_serial_irq::Context) {
-        tasks::ctrl_link::ctrl_serial_irq(cx);
+    fn usart2_worker(cx: usart2_worker::Context, e: Usart2WorkerEvent) {
+        tasks::usart::usart2_worker(cx, e);
+    }
+
+    #[task(
+        binds = USART2,
+        priority = 4,
+        resources = [usart2_dma_rcx],
+        spawn = [usart2_worker]
+    )]
+    fn usart2_irq(cx: usart2_irq::Context) {
+        let spawn = cx.spawn;
+        cx.resources.usart2_dma_rcx.handle_usart_irq(|| {
+            spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
+        });
     }
 
     #[task(
         binds = DMA1_STREAM5,
-        priority = 6,
-        resources = [lidar_dma]
+        priority = 4,
+        resources = [usart2_dma_rcx],
+        spawn = [usart2_worker]
     )]
-    fn lidar_dma_irq(cx: lidar_dma_irq::Context) {
-        #[cfg(feature = "br")]
-        tasks::dma::lidar_dma_irq(cx);
+    #[cfg(any(feature = "master", feature = "br"))]
+    fn usart2_dma_rx_irq(cx: usart2_dma_rx_irq::Context) {
+        let spawn = cx.spawn;
+        cx.resources.usart2_dma_rcx.handle_dma_rx_irq(|| {
+            spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
+        });
     }
 
     #[task(
         binds = DMA1_STREAM6,
-        priority = 6,
-        resources = [ctrl_bbbuffer_c]
+        priority = 4,
+        resources = [usart2_dma_tcx]
     )]
-    fn dma_ctrl_serial_tx(cx: dma_ctrl_serial_tx::Context) {
-        static mut RGR: Option<bbqueue::GrantR<'static, config::CtrlBBBufferSize>> = None;
-        static mut RGR_LEN: usize = 0;
-        tasks::dma::dma_ctrl_serial_tx(cx, RGR, RGR_LEN);
+    fn usart2_dma_tx_irq(cx: usart2_dma_tx_irq::Context) {
+        cx.resources.usart2_dma_tcx.handle_dma_tx_irq();
     }
 
     #[task(
-        priority = 2,
+        priority = 4,
         capacity = 4,
-        resources = [&clocks, mecanum_wheels, wheel, vesc_bbbuffer_p],
+        resources = [
+            &clocks,
+            mecanum_wheels,
+            wheel,
+            usart1_coder,
+        ],
         schedule = [motor_control],
         spawn = [motor_control]
     )]
     fn motor_control(cx: motor_control::Context, e: motion::MotorControlEvent) {
-        static mut LAST_COMMAND_INSTANT: Option<rtic::cyccnt::Instant> = None;
-        static mut STOPPED: bool = false;
-        tasks::motion::motor_control(cx, e, LAST_COMMAND_INSTANT, STOPPED);
-    }
-
-    #[task(
-        binds = USART1,
-        priority = 3,
-        resources = [
-            vesc_serial,
-            vesc_framer,
-            vesc_bbbuffer_c,
-            mecanum_wheels,
-            wheel,
-            motion_telemetry_p,
-            local_motion_telemetry_p,
-        ]
-    )]
-    fn vesc_serial_irq(cx: vesc_serial_irq::Context) {
-        static mut SENDING: Option<bbqueue::GrantR<'static, config::VescBBBufferSize>> = None;
-        static mut SENDING_IDX: usize = 0;
-        tasks::motion::vesc_serial_irq(cx, SENDING, SENDING_IDX);
+        // static mut LAST_COMMAND_INSTANT: Option<rtic::cyccnt::Instant> = None;
+        // static mut STOPPED: bool = false;
+        tasks::motion::motor_control(cx, e);
     }
 
     #[task(
@@ -281,7 +307,7 @@ const APP: () = {
         ],
         spawn = [
             motor_control,
-            ctrl_link_control,
+            usart2_worker,
         ]
     )]
     fn channel_event(cx: channel_event::Context) {

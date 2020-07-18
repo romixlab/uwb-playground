@@ -3,6 +3,8 @@ use crate::units::{
     MilliSeconds,
     ms
 };
+use typenum::consts;
+use bbqueue::{BBBuffer, Consumer, Producer};
 use hal::gpio::{PushPull, Output, Alternate, Input, PullDown};
 
 #[cfg(feature = "pozyx-board")]
@@ -55,7 +57,7 @@ pub const PAN_ID: PanId = PanId(0x666);
 pub const REQUIRED_SLAVE_COUNT: u8 = 3;
 
 /// Maximum number of nodes in a PAN
-pub type TotalNodeCount = typenum::consts::U5;
+pub type TotalNodeCount = consts::U5;
 
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
@@ -120,13 +122,26 @@ pub type RadioTracePin = PC8<Output<PushPull>>;
 use hal::gpio::gpiob::{PB6, PB7};
 use hal::gpio::AF7;
 
-pub type VescTxPin = PB6<Alternate<AF7>>;
-pub type VescRxPin = PB7<Alternate<AF7>>;
-pub type VescSerial = hal::serial::Serial<hal::stm32::USART1, (VescTxPin, VescRxPin)>;
-pub type VescBBBufferSize = generic_array::typenum::consts::U512;
-pub type VescBBBufferP = bbqueue::Producer<'static, VescBBBufferSize>;
-pub type VescBBBufferC = bbqueue::Consumer<'static, VescBBBufferSize>;
-pub const VESC_IRQ_EXTI: Interrupt = Interrupt::USART1;
+// USART1 buffers & codec config (Vesc on master/tr/bl/br)
+pub type Usart1DmaRxBufferSize = consts::U256;
+pub type Usart1MaxFrameSize = consts::U512;
+pub type Usart1DmaTxBufferSize = consts::U512;
+pub const USART1_BAUD: u32 = 115_200;
+// USART1 pins
+pub type Usart1TxPin = PB6<Alternate<AF7>>;
+pub type Usart1RxPin = PB7<Alternate<AF7>>;
+pub type Usart1 = hal::serial::Serial<hal::stm32::USART1, (Usart1TxPin, Usart1RxPin)>;
+// USART1 stuff
+pub type Usart1DmaRxBuffer = BBBuffer<Usart1DmaRxBufferSize>;
+pub type Usart1DmaRxBufferC = Consumer<'static, Usart1DmaRxBufferSize>;
+pub type Usart1DmaRxContext = crate::tasks::dma::DmaRxContext<Usart1DmaRxBufferSize>;
+pub type Usart1DmaTxBuffer = BBBuffer<Usart1DmaTxBufferSize>;
+pub type Usart1DmaTxBufferP = Producer<'static, Usart1DmaTxBufferSize>;
+pub type Usart1DmaTxContext = crate::tasks::dma::DmaTxContext<Usart1DmaTxBufferSize>;
+/// Pend after any write to [tx buffer](Usart1DmaTxBufferP) to start the DMA.
+/// RX on DMA2_STREAM5, both - Ch4.
+pub const USART1_TX_DMA: Interrupt = Interrupt::DMA2_STREAM7;
+
 #[cfg(feature = "master")]
 pub const VESC_RPM_ARRAY_FRAME_ID: u8 = 86;
 #[cfg(feature = "master")]
@@ -142,16 +157,29 @@ pub const VESC_LIFT_FRAME_ID: u8 = 88;
 pub const VESC_RESET_ALL: u8 = 89;
 pub const VESC_REQUESTED_VALUES: u32 = (1 << 13) | (1 << 3) | (1 << 8); // tacho + i_in + v_in
 
+// USART2 buffers & codec config (ctrl on master, lidar on br)
+pub type Usart2DmaRxBufferSize = consts::U32;
+pub type Usart2MaxFrameSize = consts::U512;
+pub type Usart2DmaTxBufferSize = consts::U8192;
+#[cfg(feature = "master")]
+pub const USART2_BAUD: u32 = 921_600;
+#[cfg(feature = "br")]
+pub const USART2_BAUD: u32 = 256_000;
+// USART2 pins
 use hal::gpio::gpioa::{PA2, PA3};
-pub type CtrlTxPin = PA2<Alternate<AF7>>;
-pub type CtrlRxPin = PA3<Alternate<AF7>>;
-pub type CtrlSerial = hal::serial::Serial<hal::stm32::USART2, (CtrlTxPin, CtrlRxPin)>;
-pub type CtrlBBBufferSize = generic_array::typenum::consts::U8192;
-pub type CtrlBBBufferP = bbqueue::Producer<'static, CtrlBBBufferSize>;
-pub type CtrlBBBufferC = bbqueue::Consumer<'static, CtrlBBBufferSize>;
-#[cfg(any(feature = "master", feature = "devnode", feature = "br"))] // for lidar
-pub const CTRL_IRQ_EXTI: Interrupt = Interrupt::USART2;
-pub const CTRL_TX_DMA: Interrupt = Interrupt::DMA1_STREAM6;
+pub type Usart2TxPin = PA2<Alternate<AF7>>;
+pub type Usart2RxPin = PA3<Alternate<AF7>>;
+pub type Usart2 = hal::serial::Serial<hal::stm32::USART2, (Usart2TxPin, Usart2RxPin)>;
+// USART2 stuff
+pub type Usart2DmaRxBuffer = BBBuffer<Usart2DmaRxBufferSize>;
+pub type Usart2DmaRxBufferC = Consumer<'static, Usart2DmaRxBufferSize>;
+pub type Usart2DmaRxContext = crate::tasks::dma::DmaRxContext<Usart2DmaRxBufferSize>;
+pub type Usart2DmaTxBuffer = BBBuffer<Usart2DmaTxBufferSize>;
+pub type Usart2DmaTxBufferP = Producer<'static, Usart2DmaTxBufferSize>;
+pub type Usart2DmaTxContext = crate::tasks::dma::DmaTxContext<Usart2DmaTxBufferSize>;
+/// Pend after any write to [tx buffer](Usart2DmaTxBufferP) to start the DMA.
+/// RX on DMA1_STREAM5, both - Ch4.
+pub const USART2_TX_DMA: Interrupt = Interrupt::DMA1_STREAM6;
 
 pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 
