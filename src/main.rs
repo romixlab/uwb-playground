@@ -1,29 +1,31 @@
-#![deny(warnings)]
 #![no_main]
 #![no_std]
 
-extern crate cortex_m;
-extern crate cortex_m_rt as rt;
-//extern crate panic_halt;
-extern crate stm32g4xx_hal as hal;
+mod board;
+mod panic_handler;
+mod color;
 
-use hal::prelude::*;
-use hal::stm32;
+use cortex_m_rt as rt;
+use board::hal::prelude::*;
+use board::hal::stm32;
 use rt::entry;
+use stm32g4xx_hal::rcc::Config;
+use stm32g4xx_hal::cortex_m;
 
 #[entry]
 fn main() -> ! {
     let dp = stm32::Peripherals::take().expect("cannot take peripherals");
-    let mut rcc = dp.RCC.constrain();
+    let cp = cortex_m::Peripherals::take().expect("cannot take core peripherals");
+
+    let mut rcc = dp.RCC.freeze(Config::pll());
+    let mut delay = cp.SYST.delay(&rcc.clocks);
     let gpiob = dp.GPIOB.split(&mut rcc);
-    let mut led = gpiob.pb8.into_push_pull_output();
+    let gpioc = dp.GPIOC.split(&mut rcc);
+    let mut led_green = gpiob.pb15.into_push_pull_output();
+    let mut led_red = gpioc.pc6.into_push_pull_output();
 
     loop {
-        for _ in 0..1_000_000 {
-            led.set_low().unwrap();
-        }
-        for _ in 0..1_000_000 {
-            led.set_high().unwrap();
-        }
+        led_red.toggle().ok();
+        delay.delay(500.ms());
     }
 }
