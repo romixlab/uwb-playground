@@ -124,6 +124,7 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
     tracer: &mut T
 ) {
     use RadioState::*;
+    // Hint: do not try to put buffer into the SMContext struct, borrow checker would not be happy
     cfg_if! {
         if #[cfg(feature = "master")] {
             let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
@@ -167,20 +168,23 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
                     #[cfg(feature = "slave")]
                     SendGTSAnswer(slot_duration, radio_config) => {
                         cx.tracer.event(TraceEvent::GTSAnswerSend);
-                        radio.state = send_gts_answer(prepare_radio(&mut radio.state), &mut cx, buffer);
+                        radio.state = send_gts_answer(prepare_radio(&mut radio.state), &mut cx);
                     },
                     ForceReadyIfSending => {
+                        cx.tracer.event(TraceEvent::ForceReadyIfSending);
                         if radio.state.is_sending_state() {
                             radio.state = Ready(Some(prepare_radio(&mut radio.state)));
                         }
-                        cx.tracer.event(TraceEvent::ForceReadyIfSending);
                     },
                     ForceReady => {
-                        radio.state = Ready(Some(prepare_radio(&mut radio.state)));
                         cx.tracer.event(TraceEvent::ForceReady);
+                        radio.state = Ready(Some(prepare_radio(&mut radio.state)));
                     },
                     AlohaSlotStart(_, _) => {},
-                    RangingStart(_, _) => {}
+                    RangingStart(slot_duration, radio_config) => {
+                        cx.tracer.event(TraceEvent::RangingStarted);
+                        radio.state = advance_ranging(prepare_radio(&mut radio.state), &mut cx, slot_duration, radio_config);
+                    }
                 };
             }
             _ => {}
@@ -280,7 +284,7 @@ fn default_mac_frame(payload: &[u8]) -> mac::Frame {
 fn send_gts_start<A: Arbiter<Error = Error>, T: Tracer>(
     mut ready_radio: ReadyRadio,
     mut cx: &mut SMContext<A, T>,
-    buffer: &mut[u8]
+    buffer: &mut[u8],
 ) -> RadioState
 {
     cx.tracer.event(TraceEvent::GTSStart);
@@ -328,7 +332,7 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
                 Event::GTSShouldHaveEnded
             ).ok(); // TODO: count
 
-            // Schedule Aloha period start and end.
+            // Schedule Aloha slot start and end.
             let dt: MicroSeconds = Scheduler::aloha_period_start();
             cx.schedule.radio_event(
                 instant + us2cycles!(cx.clocks, dt.0),
@@ -358,6 +362,18 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
                     Event::DynShouldHaveEnded
                 ).ok();
             }
+
+            // Schedule ranging slot start and end.
+            let dt: MicroSeconds = Scheduler::ranging_period_start();
+            cx.schedule.radio_event(
+                instant + us2cycles!(cx.clocks, dt.0),
+                Event::RangingSlotAboutToStart(Scheduler::ranging_phase_duration(), RadioConfig::default())
+            ).ok(); // TODO: count
+            let dt: MicroSeconds = Scheduler::ranging_period_end();
+            cx.schedule.radio_event(
+                instant + us2cycles!(cx.clocks, dt.0),
+                Event::RangingSlotEnded
+            ).ok(); // TODO: count
 
             RadioState::GTSAnswersReceiving((Some(receiving_radio), 0))
         },
@@ -553,13 +569,12 @@ fn advance_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
     mut ready_radio: ReadyRadio,
     mut cx: &mut SMContext<A, T>,
-    buffer: &mut[u8],
 ) -> RadioState
 {
     let frame = default_mac_frame(&[]);
     let mut len = frame.encode(buffer, mac::WriteFooter::No);
 
-    let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
+    let mut bufmut = BufMut::new(&mut cx.buffer[len .. len + 128]);
     let mut mux = MiniMultiplexer::new(bufmut);
 
     cx.arbiter.source_sync(&mut mux);
@@ -712,4 +727,14 @@ fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
             }
         }
     }
+}
+
+fn advance_ranging<A: Arbiter, T: Tracer>(
+    mut ready_radio: ReadyRadio,
+    mut cx: &mut SMContext<A, T>,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    RadioState::Ready(Some(ready_radio))
 }

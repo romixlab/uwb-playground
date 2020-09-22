@@ -104,6 +104,8 @@ pub enum TraceEvent {
 
     ForceReadyIfSending = 17,
     ForceReady = 18,
+
+    RangingStarted = 19,
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -127,6 +129,7 @@ impl core::fmt::Display for TraceEvent {
             TraceEvent::TimingMarker => { write!(f, "T0") }
             TraceEvent::ForceReadyIfSending => { write!(f, "FR!S") }
             TraceEvent::ForceReady => { write!(f, "FR") }
+            TraceEvent::RangingStarted => { write!(f, "RS") }
         }
     }
 }

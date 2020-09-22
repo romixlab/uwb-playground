@@ -396,13 +396,13 @@ pub fn init(
                 local_motion_telemetry_c,
                 telemetry_staging_area_tacho: crate::channels::TelemetryStagingAreaTacho::default(),
                 telemetry_staging_area_power: crate::channels::TelemetryStagingAreaPower::default(),
-            }
+            };
         } else { // TR, BL
             let channels = crate::channels::Channels {
                 //lidar_queue_p,
                 motion_p: motion_channel_p,
                 motion_telemetry_c,
-            }
+            };
         }
     }
 

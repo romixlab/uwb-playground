@@ -239,7 +239,7 @@ pub enum Event {
     // Ranging slot handling
 
     RangingSlotAboutToStart(MicroSeconds, RadioConfig),
-    RangingSlotEnd,
+    RangingSlotEnded,
 
     // Checking
     /// * Emitted from the SM if radio irq is pended but message was not received yet.
@@ -271,7 +271,7 @@ impl core::fmt::Display for Event {
             #[cfg(feature = "slave")]
             Event::ReceiveCheck => { write!(f, "RC") }
             Event::RangingSlotAboutToStart(_, _) => { write!(f, "R_ATS") }
-            Event::RangingSlotEnd => { write!(f, "R_SX") }
+            Event::RangingSlotEnded => { write!(f, "R_SX") }
         }
     }
 }

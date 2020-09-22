@@ -15,8 +15,8 @@ cortex-m-rt = "0.6"
 #dw1000 = "0.4.0"
 dw1000 = { path = "../rust-dw1000/dw1000", version = "0.4.0" }
 embedded-timeout-macros = "0.2.0"
-#rtt-target = { version = "0.2.0", features = ["cortex-m"] }
-rtt-target = { path = "../rtt-target/rtt-target", version = "0.2.0", features = ["cortex-m"] }
+rtt-target = { version = "0.2.2", features = ["cortex-m"] }
+#rtt-target = { path = "../rtt-target/rtt-target", version = "0.2.0", features = ["cortex-m"] }
 cortex-m-rtic = "0.5.3"
 heapless = "0.5.5"
 cfg-if = "0.1.10"
