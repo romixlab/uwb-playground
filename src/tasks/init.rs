@@ -518,6 +518,17 @@ pub fn init(
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
                     exti,
+
+                    lift_serial,
+                    motion_channel_c,
+                    motion_telemetry_p,
+
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
+
+                    wheel,
                 }
             }
         }

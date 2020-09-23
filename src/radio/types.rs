@@ -5,12 +5,7 @@ use crate::units::{
 };
 use crate::config;
 use crate::board::hal;
-use dw1000::{
-    DW1000,
-    Ready,
-    Receiving,
-    Sending
-};
+use dw1000::{DW1000, Ready, Receiving, Sending, TxConfig};
 use crate::units;
 use typenum::marker_traits::Unsigned;
 use heapless::spsc::{Queue, Producer, Consumer};
@@ -58,6 +53,13 @@ pub enum RadioState {
     GTSStartWaiting(Option<ReceivingRadio>),
     #[cfg(feature = "slave")]
     GTSAnswerSending(Option<SendingRadio>),
+
+    RangingPingSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingPingWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingRequestSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingRequestWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingResponseSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingResponseWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
 }
 
 impl RadioState {
@@ -75,6 +77,8 @@ impl RadioState {
             GTSAnswerSending(_) => { true },
             DynReceiving(_) => { false },
             DynSending(_) => { true },
+            RangingPingSending(_) | RangingRequestSending(_) | RangingResponseSending(_)  => { true },
+            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false }
         }
     }
 }
@@ -84,6 +88,19 @@ pub struct RadioConfig {
     pub channel: UwbChannel,
     pub bitrate: BitRate,
     pub prf: PulseRepetitionFrequency,
+}
+
+impl Into<TxConfig> for RadioConfig {
+    fn into(self) -> TxConfig {
+        TxConfig {
+            bitrate: self.bitrate,
+            ranging_enable: false,
+            pulse_repetition_frequency: self.prf,
+            preamble_length: self.recommended_preamble(),
+            channel: self.channel,
+            sfd_sequence: self.recommended_sfd()
+        }
+    }
 }
 
 impl Default for RadioConfig {

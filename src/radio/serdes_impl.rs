@@ -17,6 +17,7 @@ use super::types::{
 use super::Error;
 use crate::units::MicroSeconds;
 use crate::radio::types::Pong;
+use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse};
 
 fn channel_from_u8(n: u8) -> Option<UwbChannel> {
     use UwbChannel::*;
@@ -58,9 +59,39 @@ impl MessageSpec for Slot {
     const SIZE: usize = 7;
 }
 
+// &[u8] ID = 0xfd
+
 impl MessageSpec for Pong {
     const ID: u8 = 0x30;
     const SIZE: usize = 1;
+}
+
+impl MessageSpec for RangingPing {
+    const ID: u8 = 0xc0;
+    const SIZE: usize = 6;
+}
+
+impl MessageSpec for RangingRequest {
+    const ID: u8 = 0xc1;
+    const SIZE: usize = 16;
+}
+
+impl MessageSpec for RangingResponse {
+    const ID: u8 = 0xc2;
+    const SIZE: usize = 21;
+}
+
+macro_rules! eat_id {
+    ($buf:ident, $id:expr) => {
+        if $buf.remaining() >= 1 {
+            if $buf.peek_u8() != $id {
+                return Err(Error::WrongId);
+            }
+        } else {
+            return Err(Error::Eof);
+        }
+        let _id = $buf.get_u8();
+    };
 }
 
 impl Serialize for Pong {
@@ -82,14 +113,7 @@ impl Deserialize for Pong {
     type Error = super::Error;
 
     fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
-        if buf.remaining() >= 1 {
-            if buf.peek_u8() != Self::ID {
-                return Err(Error::WrongId);
-            }
-        } else {
-            return Err(Error::Eof);
-        }
-        let _id = buf.get_u8();
+        eat_id!(buf, Self::ID);
         Ok(Pong{})
     }
 }
@@ -146,18 +170,10 @@ impl Deserialize for Slot {
     type Error = super::Error;
 
     fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
-        if buf.remaining() >= 1 {
-            if buf.peek_u8() != Self::ID {
-                return Err(Error::WrongId);
-            }
-        } else {
+        eat_id!(buf, Self::ID);
+        if buf.remaining() < Self::SIZE - 1 {
             return Err(Error::Eof);
         }
-        if buf.remaining() < Self::SIZE {
-            return Err(Error::Eof);
-        }
-
-        let _id = buf.get_u8();
         let shift = buf.get_u16();
         let window = buf.get_u16();
         let config = buf.get_u8();
@@ -177,5 +193,36 @@ impl Deserialize for Slot {
                 prf
             }
         })
+    }
+}
+
+impl Serialize for RangingPing {
+    type Error = super::Error;
+
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        if buf.remaining() < Self::SIZE {
+            return Err(Error::NotEnoughSpace);
+        }
+        buf.put_u8(Self::ID);
+        let tx_time = self.ping_tx_time.value().to_le_bytes();
+        buf.put_slice(&tx_time[0..5]);
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize { Self::SIZE }
+}
+
+impl Deserialize for RangingPing {
+    type Output = RangingPing;
+    type Error = super::Error;
+
+    fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
+        eat_id!(buf, Self::ID);
+        let mut tx_time = [0u8; 8];
+        tx_time[0..5].copy_from_slice(buf.slice_to(5));
+        let tx_time = u64::from_le_bytes(tx_time);
+        buf.advance(5);
+        let tx_time = dw1000::time::Instant::new(tx_time).unwrap();
+        Ok(RangingPing{ ping_tx_time: tx_time })
     }
 }

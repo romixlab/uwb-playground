@@ -49,7 +49,7 @@ use super::scheduler::{
 use rtic::cyccnt::Instant as CycntInstant;
 use rtic::cyccnt::Duration as CycntDuration;
 use rtic::cyccnt::U32Ext;
-use dw1000::time::Instant as RadioInstant;
+use dw1000::time::{Instant as RadioInstant, Instant};
 use dw1000::time::Duration as RadioDuration;
 use cfg_if::cfg_if;
 use embedded_hal::digital::v2::OutputPin;
@@ -109,6 +109,18 @@ fn prepare_radio(state: &mut RadioState) -> ReadyRadio {
         DynSending(rs) => {
             let sending_radio = rs.take().expect(SM_FAIL_MESSAGE);
             sending_radio.finish_sending().expect(SM_FAIL_MESSAGE)
+        }
+        RangingPingSending(rs) |
+        RangingRequestSending(rs) |
+        RangingResponseSending(rs) => {
+            let sending_radio = rs.0.take().expect(SM_FAIL_MESSAGE);
+            sending_radio.finish_sending().expect(SM_FAIL_MESSAGE)
+        }
+        RangingPingWaiting(rs) |
+        RangingRequestWaiting(rs) |
+        RangingResponseWaiting(rs) => {
+            let receiving_radio = rs.0.take().expect(SM_FAIL_MESSAGE);
+            receiving_radio.finish_receiving().expect(SM_FAIL_MESSAGE)
         }
     };
     ready_radio
@@ -184,7 +196,8 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
                     AlohaSlotStart(_, _) => {},
                     RangingStart(slot_duration, radio_config) => {
                         cx.tracer.event(TraceEvent::RangingStarted);
-                        radio.state = advance_ranging(prepare_radio(&mut radio.state), &mut cx, slot_duration, radio_config);
+                        let now = CycntInstant::now();
+                        radio.state = advance_ranging_ready(prepare_radio(&mut radio.state), &mut cx, buffer, now, slot_duration, radio_config);
                     }
                 };
             }
@@ -233,6 +246,30 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
         DynSending(sd) => {
             let sending_radio = sd.take().expect(SM_FAIL_MESSAGE);
             advance_dyn_sending(sending_radio, &mut cx, buffer)
+        }
+        RangingPingSending(sd) => {
+            let sending_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_ranging_ping_sending(sending_radio, &mut cx, buffer, sd.1, sd.2, sd.3)
+        }
+        RangingPingWaiting(sd) => {
+            let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_ranging_ping_receiving(receiving_radio, &mut cx, buffer, sd.1, sd.2, sd.3)
+        }
+        RangingRequestSending(sd) => {
+            let sending_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_ranging_request_sending(sending_radio, &mut cx, buffer, sd.1, sd.2, sd.3)
+        }
+        RangingRequestWaiting(sd) => {
+            let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_ranging_request_receiving(receiving_radio, &mut cx, buffer, sd.1, sd.2, sd.3)
+        }
+        RangingResponseSending(sd) => {
+            let sending_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_ranging_response_sending(sending_radio, &mut cx, buffer, sd.1, sd.2, sd.3)
+        }
+        RangingResponseWaiting(sd) => {
+            let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
+            advance_ranging_response_receiving(receiving_radio, &mut cx, buffer, sd.1, sd.2, sd.3)
         }
     };
 }
@@ -731,12 +768,149 @@ fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
     }
 }
 
-fn advance_ranging<A: Arbiter, T: Tracer>(
+use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse};
+use crate::radio::serdes_impl;
+
+fn advance_ranging_ready<A: Arbiter, T: Tracer>(
     mut ready_radio: ReadyRadio,
     mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
     slot_duration: MicroSeconds,
     radio_config: RadioConfig
 ) -> RadioState
 {
+    cfg_if! {
+        if #[cfg(feature = "anchor")] {
+            let ping = RangingPing{ ping_tx_time: Instant::new(12345678u64).unwrap() };
+
+            let frame = default_mac_frame(&[]);
+            let mut len = frame.encode(buffer, mac::WriteFooter::No);
+            let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
+            ping.ser(&mut bufmut);
+            len += bufmut.written();
+
+            ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
+            let mut sending_radio = ready_radio.send_raw(&buffer[0..len], SendTime::Now, radio_config.into()).expect("DW1000 internal failure?");
+            RadioState::RangingPingSending((Some(sending_radio), slot_started, slot_duration, radio_config))
+        } else {
+            let receiving_radio = enable_receiver(ready_radio, radio_config);
+            RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+        }
+    }
+
+}
+
+fn advance_ranging_ping_sending<A: Arbiter, T: Tracer>(
+    mut sending_radio: SendingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    match sending_radio.wait() {
+        Ok(_) => {
+            let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            RadioState::Ready(Some(ready_radio))
+        },
+        Err(e) => {
+            if let nb::Error::WouldBlock = e { // GTSAnswer is still sending
+                //rprintln!(=>1,"blockon:{:?}", e);
+                RadioState::RangingPingSending((Some(sending_radio), slot_started, slot_duration, radio_config))
+            } else { // Actuall error while sending
+            rprintln!(=>1,"{}GTS send error: {:?}{}", color::RED, e, color::DEFAULT);
+                let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                RadioState::Ready(Some(ready_radio))
+            }
+        }
+    }
+}
+
+fn advance_ranging_ping_receiving<A: Arbiter, T: Tracer>(
+    mut receiving_radio: ReceivingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    match receiving_radio.wait(buffer) {
+        Ok((message, _sys_status_before)) => {
+            cx.tracer.event(TraceEvent::MessageReceived);
+            let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            RadioState::Ready(Some(ready_radio))
+        },
+        Err(e) => {
+            match e {
+                nb::Error::WouldBlock => {
+                    rprintln!(=>1, "{}RR WB{}\n", color::YELLOW, color::DEFAULT);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                },
+                nb::Error::Other(e) => {
+                    if let dw1000::Error::SfdTimeout = e {
+
+                    } else {
+                        rprintln!(=>1, "{}RR err: {:?}{}\n", color::YELLOW, e, color::DEFAULT);
+                    }
+                    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                    RadioState::Ready(Some(ready_radio))
+                }
+            }
+        }
+    }
+}
+
+fn advance_ranging_request_sending<A: Arbiter, T: Tracer>(
+    mut sending_radio: SendingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    let ready_radio = sending_radio.finish_sending().unwrap();
+    RadioState::Ready(Some(ready_radio))
+}
+
+fn advance_ranging_request_receiving<A: Arbiter, T: Tracer>(
+    mut receiving_radio: ReceivingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    let ready_radio = receiving_radio.finish_receiving().unwrap();
+    RadioState::Ready(Some(ready_radio))
+}
+
+fn advance_ranging_response_sending<A: Arbiter, T: Tracer>(
+    mut sending_radio: SendingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    let ready_radio = sending_radio.finish_sending().unwrap();
+    RadioState::Ready(Some(ready_radio))
+}
+
+fn advance_ranging_response_receiving<A: Arbiter, T: Tracer>(
+    mut receiving_radio: ReceivingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+    slot_started: CycntInstant,
+    slot_duration: MicroSeconds,
+    radio_config: RadioConfig
+) -> RadioState
+{
+    let ready_radio = receiving_radio.finish_receiving().unwrap();
     RadioState::Ready(Some(ready_radio))
 }
