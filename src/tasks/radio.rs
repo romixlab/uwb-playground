@@ -304,7 +304,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                     ).ok(); // TODO: count
                     cx.schedule.radio_event(
                         time_mark + shift + duration + quarter_guard,
-                        Event::RangingSlotEnd
+                        Event::RangingSlotEnded
                     ).ok(); // TODO: count
                 },
                 None => {}

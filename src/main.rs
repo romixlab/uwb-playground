@@ -251,10 +251,14 @@ const APP: () = {
         spawn = [usart2_worker]
     )]
     fn usart2_irq(cx: usart2_irq::Context) {
-        let spawn = cx.spawn;
-        cx.resources.usart2_dma_rcx.handle_usart_irq(|| {
-            spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
-        });
+        cfg_if::cfg_if! {
+            if #[cfg(any(feature = "master", feature = "br"))] {
+                let spawn = cx.spawn;
+                cx.resources.usart2_dma_rcx.handle_usart_irq(|| {
+                    spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
+                });
+            }
+        }
     }
 
     #[task(
@@ -263,12 +267,16 @@ const APP: () = {
         resources = [usart2_dma_rcx],
         spawn = [usart2_worker]
     )]
-    #[cfg(any(feature = "master", feature = "br"))]
     fn usart2_dma_rx_irq(cx: usart2_dma_rx_irq::Context) {
-        let spawn = cx.spawn;
-        cx.resources.usart2_dma_rcx.handle_dma_rx_irq(|| {
-            spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
-        });
+        cfg_if::cfg_if! {
+            if #[cfg(any(feature = "master", feature = "br"))] {
+                let spawn = cx.spawn;
+                cx.resources.usart2_dma_rcx.handle_dma_rx_irq(|| {
+                    spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
+                });
+            }
+        }
+
     }
 
     #[task(
@@ -277,7 +285,12 @@ const APP: () = {
         resources = [usart2_dma_tcx]
     )]
     fn usart2_dma_tx_irq(cx: usart2_dma_tx_irq::Context) {
-        cx.resources.usart2_dma_tcx.handle_dma_tx_irq();
+        cfg_if::cfg_if! {
+            if #[cfg(any(feature = "master", feature = "br"))] {
+                cx.resources.usart2_dma_tcx.handle_dma_tx_irq();
+            }
+        }
+
     }
 
     #[task(

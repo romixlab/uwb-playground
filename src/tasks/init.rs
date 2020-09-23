@@ -384,13 +384,14 @@ pub fn init(
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "br")] { // lidar ctrl
-            cx.spawn.ctrl_link_control().unwrap();
+            //cx.spawn.ctrl_link_control().unwrap();
             let channels = crate::channels::Channels {
                 lidar_bbuffer_c: lidar_frame_c,
                 motion_p: motion_channel_p,
                 motion_telemetry_c,
             };
         } else if #[cfg(feature = "master")] {
+            //cx.spawn.ctrl_link_control().unwrap();
             let channels = crate::channels::Channels {
                 lidar_bbuffer_p: lidar_frame_p,
                 motion_c: motion_channel_c,
@@ -456,13 +457,10 @@ pub fn init(
                     channels,
                     event_state_data,
 
-                    vesc_serial,
-                    vesc_framer,
-                    vesc_bbbuffer_p, vesc_bbbuffer_c,
-
-                    ctrl_serial,
-                    ctrl_framer,
-                    ctrl_bbbuffer_p, ctrl_bbbuffer_c,
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
 
                     lift_serial,
 
@@ -485,13 +483,15 @@ pub fn init(
                     channels,
                     event_state_data,
 
-                    vesc_serial,
-                    vesc_framer,
-                    vesc_bbbuffer_p, vesc_bbbuffer_c,
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
 
-                    ctrl_serial,
-                    ctrl_framer,
-                    ctrl_bbbuffer_p, ctrl_bbbuffer_c,
+                    usart2_c,
+                    usart2_p,
+                    usart2_dma_tcx,
+                    usart2_dma_rcx,
 
                     lift_serial,
 
@@ -502,8 +502,6 @@ pub fn init(
                     exti,
 
                     lidar: crate::rplidar::RpLidar::new(lidar_frame_p),
-                    lidar_dma,
-                    lidar_dma_c: lidar_dma_buffer_c,
                     motion_channel_c,
                     motion_telemetry_p,
                 }

@@ -169,7 +169,7 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
                     #[cfg(feature = "slave")]
                     SendGTSAnswer(slot_duration, radio_config) => {
                         cx.tracer.event(TraceEvent::GTSAnswerSend);
-                        radio.state = send_gts_answer(prepare_radio(&mut radio.state), &mut cx);
+                        radio.state = send_gts_answer(prepare_radio(&mut radio.state), &mut cx, buffer);
                     },
                     ForceReadyIfSending => {
                         cx.tracer.event(TraceEvent::ForceReadyIfSending);
@@ -570,12 +570,13 @@ fn advance_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
     mut ready_radio: ReadyRadio,
     mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
 ) -> RadioState
 {
     let frame = default_mac_frame(&[]);
     let mut len = frame.encode(buffer, mac::WriteFooter::No);
 
-    let mut bufmut = BufMut::new(&mut cx.buffer[len .. len + 128]);
+    let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
     let mut mux = MiniMultiplexer::new(bufmut);
 
     cx.arbiter.source_sync(&mut mux);
@@ -588,7 +589,7 @@ fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
     let tx_config = get_txconfig(RadioConfig::default());
 
     ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
-    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
+    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], SendTime::Now, tx_config).expect("DW1000 internal failure?");
     RadioState::GTSAnswerSending(Some(sending_radio))
 }
 
