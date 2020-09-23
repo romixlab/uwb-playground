@@ -94,6 +94,9 @@ pub const SLAVE_ID: usize = REQUIRED_SLAVE_COUNT as usize - 1;
 #[cfg(feature = "devnode")]
 pub const UWB_ADDR: ShortAddress = DEV_UWB_ADDR;
 
+#[cfg(feature = "anchor")]
+pub const UWB_ADDR: ShortAddress = ShortAddress(0x666);
+
 pub mod motor_control {
     /// How often timing checks are performed.
     pub const TIMING_CHECK_INTERVAL_MS: u32 = 100;

@@ -142,7 +142,7 @@ pub enum SlotType {
 }
 
 impl Default for SlotType {
-    fn default() -> Self { SlotType::Reserved }
+    fn default() -> Self { SlotType::_Reserved1 }
 }
 
 /// One window of message exchanges. Requested by slaves and granted by master.

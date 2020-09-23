@@ -57,6 +57,7 @@ use crate::config;
 use crate::color;
 use crate::config::Dw1000Cs;
 use crate::util::{Tracer, TraceEvent};
+use dw1000::hl::SendTime;
 
 const SM_FAIL_MESSAGE: &'static str = "Radio state machine fail";
 
@@ -128,7 +129,7 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
     cfg_if! {
         if #[cfg(feature = "master")] {
             let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
-        } else if #[cfg(feature = "slave")] {
+        } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
             let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
         }
     }
@@ -303,7 +304,7 @@ fn send_gts_start<A: Arbiter<Error = Error>, T: Tracer>(
 
     ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
     let tx_config = get_txconfig(RadioConfig::default());
-    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
+    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], SendTime::Now, tx_config).expect("DW1000 internal failure?");
     cx.tracer.event(TraceEvent::GTSStart);
     RadioState::GTSStartSending(Some(sending_radio))
 }
@@ -475,7 +476,7 @@ fn send_dyn_data<A: Arbiter<Error = Error>, T: Tracer>(
 
     let tx_config = get_txconfig(radio_config);
     ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
-    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], None, tx_config).expect("DW1000 internal failure?");
+    let mut sending_radio = ready_radio.send_raw(&buffer[0..len], SendTime::Now, tx_config).expect("DW1000 internal failure?");
     RadioState::DynSending(Some(sending_radio))
 }
 

@@ -198,17 +198,19 @@ pub fn init(
     let usart1_coder = codec::Usart1Coder::new(usart1_p, config::USART1_TX_DMA);
     let usart1_decoder = codec::Usart1Decoder::new(usart1_c);
 
-    // To Ctrl or lidar
-    let usart2_tx = gpioa.pa2.into_alternate_af7();
-    let usart2_rx = gpioa.pa3.into_alternate_af7();
-    let mut usart2 = Serial::usart2(
-        device.USART2,
-        (usart2_tx, usart2_rx),
-        Config::default().baudrate(config::USART2_BAUD.bps()),
-        clocks
-    ).unwrap();
+
     cfg_if! {
         if #[cfg(any(feature = "master", feature = "br"))] {
+            // To Ctrl or lidar
+            let usart2_tx = gpioa.pa2.into_alternate_af7();
+            let usart2_rx = gpioa.pa3.into_alternate_af7();
+            let mut usart2 = Serial::usart2(
+                device.USART2,
+                (usart2_tx, usart2_rx),
+                Config::default().baudrate(config::USART2_BAUD.bps()),
+                clocks
+            ).unwrap();
+
             let (mut usart2_dma_rx_buffer_p, usart2_c) = usart2_dma_rx_buffer.try_split().unwrap();
             let (mut usart2_dma_rcx, usart2_dma_mem_addr) =
                 crate::tasks::dma::DmaRxContext::new(

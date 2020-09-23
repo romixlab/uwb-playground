@@ -4,4 +4,4 @@
 .gdb_history
 target/
 ./.idea/*.xml
-.idea/workspace.xml
+./.idea/workspace.xml
