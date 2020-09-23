@@ -136,7 +136,9 @@ pub enum SlotType {
     DynUplink = 0b011,
     ///
     Ranging = 0b100,
-    Reserved = 0b111,
+    _Reserved1 = 0b101,
+    _Reserved2 = 0b110,
+    _Reserved3 = 0b111,
 }
 
 impl Default for SlotType {

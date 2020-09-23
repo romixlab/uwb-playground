@@ -198,3 +198,5 @@ pub const DEVICE_NAME: &str = "TopRight";
 pub const DEVICE_NAME: &str = "BottomLeft";
 #[cfg(feature = "br")]
 pub const DEVICE_NAME: &str = "BottomRight";
+#[cfg(feature = "anchor")]
+pub const DEVICE_NAME: &str = "Anchor";

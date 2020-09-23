@@ -505,6 +505,20 @@ pub fn init(
                     motion_channel_c,
                     motion_telemetry_p,
                 }
+            } else if #[cfg(feature = "anchor")] {
+                crate::init::LateResources {
+                    clocks,
+
+                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                    radio_commands: radio_commands_p,
+                    scheduler: Scheduler::new(),
+                    channels,
+                    event_state_data,
+
+                    led_blinky,
+                    idle_counter: core::num::Wrapping(0u32),
+                    exti,
+                }
             }
         }
 }
