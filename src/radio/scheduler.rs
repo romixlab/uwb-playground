@@ -93,10 +93,10 @@ impl Scheduler {
         slot.duration = MicroSeconds(5420);
         slots[6] = slot;
         // Ranging
-        slot.radio_config.bitrate = BitRate::Kbps850;
+        slot.radio_config.bitrate = BitRate::Kbps6800;
         slot.slot_type = SlotType::Ranging;
         slot.shift = MicroSeconds(24720);
-        slot.duration = MicroSeconds(5000);
+        slot.duration = MicroSeconds(15000);
         slots[7] = slot;
 
         Scheduler {

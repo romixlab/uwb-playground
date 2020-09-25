@@ -50,7 +50,7 @@ pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
 pub const GTS_PERIOD: MilliSeconds = ms(50);
 
 use dw1000::mac::{PanId, ShortAddress};
-pub const PAN_ID: PanId = PanId(0x666);
+pub const PAN_ID: PanId = PanId(0x777);
 
 /// Allocate at least this amount of GTS and signal a failure (to all slaves and to uplink)
 /// if one or more is missing for >= THRESH

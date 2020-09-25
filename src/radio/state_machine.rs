@@ -405,7 +405,7 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
             let dt: MicroSeconds = Scheduler::ranging_period_start();
             cx.schedule.radio_event(
                 instant + us2cycles!(cx.clocks, dt.0),
-                Event::RangingSlotAboutToStart(Scheduler::ranging_phase_duration(), RadioConfig::default())
+                Event::RangingSlotAboutToStart(Scheduler::ranging_phase_duration(), RadioConfig::fast())
             ).ok(); // TODO: count
             let dt: MicroSeconds = Scheduler::ranging_period_end();
             cx.schedule.radio_event(
@@ -768,9 +768,30 @@ fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
     }
 }
 
-use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse};
+use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse, RxMessage};
 use crate::radio::serdes_impl;
+use dw1000::mac::Address;
 
+fn send_message_no_mux<S: crate::radio::serdes::Serialize>(
+    mut ready_radio: ReadyRadio,
+    message: S,
+    destination: Address,
+    buffer: &mut[u8],
+    radio_config: RadioConfig,
+    send_time: SendTime,
+) -> SendingRadio {
+    let mut frame = default_mac_frame(&[]);
+    frame.header.destination = destination;
+    let mut len = frame.encode(buffer, mac::WriteFooter::No);
+    let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
+    message.ser(&mut bufmut);
+    len += bufmut.written();
+
+    ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
+    ready_radio.send_raw(&buffer[0..len], send_time, radio_config.into()).expect("DW1000 internal failure?")
+}
+
+const RANGING_PROCESSING_DURATION_NS: u32 = 700_000_u32;
 fn advance_ranging_ready<A: Arbiter, T: Tracer>(
     mut ready_radio: ReadyRadio,
     mut cx: &mut SMContext<A, T>,
@@ -782,16 +803,9 @@ fn advance_ranging_ready<A: Arbiter, T: Tracer>(
 {
     cfg_if! {
         if #[cfg(feature = "anchor")] {
-            let ping = RangingPing{ ping_tx_time: Instant::new(12345678u64).unwrap() };
-
-            let frame = default_mac_frame(&[]);
-            let mut len = frame.encode(buffer, mac::WriteFooter::No);
-            let mut bufmut = BufMut::new(&mut buffer[len .. len + 128]);
-            ping.ser(&mut bufmut);
-            len += bufmut.written();
-
-            ready_radio.enable_tx_interrupts().ok(); // TODO: count errors
-            let mut sending_radio = ready_radio.send_raw(&buffer[0..len], SendTime::Now, radio_config.into()).expect("DW1000 internal failure?");
+            let ping = RangingPing::new(&mut ready_radio, RadioDuration::from_nanos(RANGING_PROCESSING_DURATION_NS)).expect("Ping::new()");
+            rprintln!(=>6, "\n----------\nPing to send: {:?}\r", ping);
+            let sending_radio = send_message_no_mux(ready_radio, ping.payload, Address::broadcast(&mac::AddressMode::Short), buffer, radio_config, SendTime::Delayed(ping.tx_time));
             RadioState::RangingPingSending((Some(sending_radio), slot_started, slot_duration, radio_config))
         } else {
             let receiving_radio = enable_receiver(ready_radio, radio_config);
@@ -812,17 +826,19 @@ fn advance_ranging_ping_sending<A: Arbiter, T: Tracer>(
 {
     match sending_radio.wait() {
         Ok(_) => {
+            cx.tracer.event(TraceEvent::MessageSent);
             let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-            RadioState::Ready(Some(ready_radio))
+            let receiving_radio = enable_receiver(ready_radio, radio_config);
+            RadioState::RangingRequestWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
         },
         Err(e) => {
-            if let nb::Error::WouldBlock = e { // GTSAnswer is still sending
-                //rprintln!(=>1,"blockon:{:?}", e);
+            if let nb::Error::WouldBlock = e {
                 RadioState::RangingPingSending((Some(sending_radio), slot_started, slot_duration, radio_config))
             } else { // Actuall error while sending
-            rprintln!(=>1,"{}GTS send error: {:?}{}", color::RED, e, color::DEFAULT);
+                rprintln!(=>6,"{}Ping send err: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-                RadioState::Ready(Some(ready_radio))
+                let receiving_radio = enable_receiver(ready_radio, radio_config);
+                RadioState::RangingRequestWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
             }
         }
     }
@@ -840,23 +856,52 @@ fn advance_ranging_ping_receiving<A: Arbiter, T: Tracer>(
     match receiving_radio.wait(buffer) {
         Ok((message, _sys_status_before)) => {
             cx.tracer.event(TraceEvent::MessageReceived);
-            let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-            RadioState::Ready(Some(ready_radio))
+            let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            cx.tracer.event(TraceEvent::MessageReceived);
+
+            let payload = message.frame.payload;
+            let mut buf = Buf::new(payload);
+            let ping = RangingPing::des(&mut buf);
+            match ping {
+                Ok(ping) => {
+                    let ping = RxMessage {
+                        rx_time: message.rx_time,
+                        source: message.frame.header.source,
+                        payload: ping
+                    };
+                    rprintln!(=>6, "\n-------\nPing rx_time (local)[ticks] {}\n", ping.rx_time.value());
+                    //rprintln!(=>6, "ping tx_time (received)[ticks]: {}\n", ping.payload.ping_tx_time.value());
+                    let ranging_request = RangingRequest::new(
+                        &mut ready_radio,
+                        &ping,
+                        RadioDuration::from_nanos(RANGING_PROCESSING_DURATION_NS)
+                    ).expect("RangingRequest::new()");
+                    //rprintln!(=>6, "request: ping_reply[ns]: {}\n", ranging_request.payload.ping_reply_time.to_nanos());
+                    //rprintln!(=>6, "request: req_tx[ticks]: {}\n", ranging_request.payload.ping_tx_time.value());
+
+                    let sending_radio = send_message_no_mux(ready_radio, ranging_request.payload, ping.source, buffer, radio_config, SendTime::Delayed(ranging_request.tx_time));
+                    RadioState::RangingRequestSending((Some(sending_radio), slot_started, slot_duration, radio_config))
+                },
+                Err(_) => {
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                }
+            }
         },
         Err(e) => {
             match e {
                 nb::Error::WouldBlock => {
-                    rprintln!(=>1, "{}RR WB{}\n", color::YELLOW, color::DEFAULT);
                     RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
                 },
                 nb::Error::Other(e) => {
                     if let dw1000::Error::SfdTimeout = e {
 
                     } else {
-                        rprintln!(=>1, "{}RR err: {:?}{}\n", color::YELLOW, e, color::DEFAULT);
+                        rprintln!(=>6, "{}Ping rx err: {:?}{}\n", color::YELLOW, e, color::DEFAULT);
                     }
                     let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
-                    RadioState::Ready(Some(ready_radio))
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
                 }
             }
         }
@@ -872,8 +917,24 @@ fn advance_ranging_request_sending<A: Arbiter, T: Tracer>(
     radio_config: RadioConfig
 ) -> RadioState
 {
-    let ready_radio = sending_radio.finish_sending().unwrap();
-    RadioState::Ready(Some(ready_radio))
+    match sending_radio.wait() {
+        Ok(_) => {
+            cx.tracer.event(TraceEvent::MessageSent);
+            let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            let receiving_radio = enable_receiver(ready_radio, radio_config);
+            RadioState::RangingResponseWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+        },
+        Err(e) => {
+            if let nb::Error::WouldBlock = e {
+                RadioState::RangingRequestSending((Some(sending_radio), slot_started, slot_duration, radio_config))
+            } else { // Actuall error while sending
+                rprintln!(=>6,"{}Request tx err: {:?}{}", color::RED, e, color::DEFAULT);
+                let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                let receiving_radio = enable_receiver(ready_radio, radio_config);
+                RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+            }
+        }
+    }
 }
 
 fn advance_ranging_request_receiving<A: Arbiter, T: Tracer>(
@@ -885,8 +946,62 @@ fn advance_ranging_request_receiving<A: Arbiter, T: Tracer>(
     radio_config: RadioConfig
 ) -> RadioState
 {
-    let ready_radio = receiving_radio.finish_receiving().unwrap();
-    RadioState::Ready(Some(ready_radio))
+    match receiving_radio.wait(buffer) {
+        Ok((message, _sys_status_before)) => {
+            cx.tracer.event(TraceEvent::MessageReceived);
+            let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            cx.tracer.event(TraceEvent::MessageReceived);
+
+            let payload = message.frame.payload;
+            let mut buf = Buf::new(payload);
+            let ranging_request = RangingRequest::des(&mut buf);
+            match ranging_request {
+                Ok(ranging_request) => {
+                    let ranging_request = RxMessage {
+                        rx_time: message.rx_time,
+                        source: message.frame.header.source,
+                        payload: ranging_request
+                    };
+                    rprintln!(=>6, "request: ping_reply[ticks]: {}\n", ranging_request.payload.ping_tx_time.value());
+                    //rprintln!(=>6, "request: ping_reply[ns]: {}\n", ranging_request.payload.ping_reply_time.to_nanos());
+                    //rprintln!(=>6, "request: req_tx[ticks]: {}\n", ranging_request.payload.ping_tx_time.value());
+                    let ranging_response = RangingResponse::new(
+                        &mut ready_radio,
+                        &ranging_request,
+                        RadioDuration::from_nanos(RANGING_PROCESSING_DURATION_NS)
+                    ).expect("RangingResponse::new()");
+                    //rprintln!(=>6, "response: ping_reply_time[ns]: {}\n", ranging_response.payload.ping_reply_time.to_nanos());
+                    //rprintln!(=>6, "response: ping_reply_time[ticks]: {}\n", ranging_response.payload.request_tx_time.value());
+                    //rprintln!(=>6, "response: ping_round_trip_time[ns]: {}\n", ranging_response.payload.ping_round_trip_time.to_nanos());
+                    //rprintln!(=>6, "response: request_reply_time[ns]: {}\n", ranging_response.payload.request_reply_time.to_nanos());
+
+                    let sending_radio = send_message_no_mux(ready_radio, ranging_response.payload, ranging_request.source, buffer, radio_config, SendTime::Delayed(ranging_response.tx_time));
+                    RadioState::RangingResponseSending((Some(sending_radio), slot_started, slot_duration, radio_config))
+                },
+                Err(_) => {
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                }
+            }
+        },
+        Err(e) => {
+            match e {
+                nb::Error::WouldBlock => {
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                },
+                nb::Error::Other(e) => {
+                    if let dw1000::Error::SfdTimeout = e {
+
+                    } else {
+                        rprintln!(=>6, "{}R.Request rx err: {:?}{}\n", color::YELLOW, e, color::DEFAULT);
+                    }
+                    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                }
+            }
+        }
+    }
 }
 
 fn advance_ranging_response_sending<A: Arbiter, T: Tracer>(
@@ -898,8 +1013,24 @@ fn advance_ranging_response_sending<A: Arbiter, T: Tracer>(
     radio_config: RadioConfig
 ) -> RadioState
 {
-    let ready_radio = sending_radio.finish_sending().unwrap();
-    RadioState::Ready(Some(ready_radio))
+    match sending_radio.wait() {
+        Ok(_) => {
+            cx.tracer.event(TraceEvent::MessageSent);
+            let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            let receiving_radio = enable_receiver(ready_radio, radio_config);
+            RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+        },
+        Err(e) => {
+            if let nb::Error::WouldBlock = e { // GTSAnswer is still sending
+                RadioState::RangingResponseSending((Some(sending_radio), slot_started, slot_duration, radio_config))
+            } else { // Actuall error while sending
+            rprintln!(=>6,"{}R.Response tx error: {:?}{}", color::RED, e, color::DEFAULT);
+                let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                let receiving_radio = enable_receiver(ready_radio, radio_config);
+                RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+            }
+        }
+    }
 }
 
 fn advance_ranging_response_receiving<A: Arbiter, T: Tracer>(
@@ -911,6 +1042,84 @@ fn advance_ranging_response_receiving<A: Arbiter, T: Tracer>(
     radio_config: RadioConfig
 ) -> RadioState
 {
-    let ready_radio = receiving_radio.finish_receiving().unwrap();
-    RadioState::Ready(Some(ready_radio))
+    match receiving_radio.wait(buffer) {
+        Ok((message, _sys_status_before)) => {
+            cx.tracer.event(TraceEvent::MessageReceived);
+            let quality = receiving_radio.read_rx_quality();
+            //rprintln!(=>6, "Quality: {:?}", quality);
+            let mut ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            let (rssi, los) = match quality {
+                Ok(quality) => {
+                    (quality.rssi, quality.los_confidence_level)
+                },
+                Err(_) => (-1.0, -1.0)
+            };
+
+
+            let payload = message.frame.payload;
+            let mut buf = Buf::new(payload);
+            let ranging_response = RangingResponse::des(&mut buf);
+            match ranging_response {
+                Ok(ranging_response) => {
+                    let ranging_response = RxMessage {
+                        rx_time: message.rx_time,
+                        source: message.frame.header.source,
+                        payload: ranging_response
+                    };
+                    //rprintln!(=>6, "response: ping_reply_time[ns]: {}\n", ranging_response.payload.ping_reply_time.to_nanos());
+                    //rprintln!(=>6, "response: ping_reply_time[ticks]: {}\n", ranging_response.payload.request_tx_time.value());
+                    //rprintln!(=>6, "response: ping_round_trip_time[ns]: {}\n", ranging_response.payload.ping_round_trip_time.to_nanos());
+                    //rprintln!(=>6, "response: request_reply_time[ns]: {}\n", ranging_response.payload.request_reply_time.to_nanos());
+                    let ping_rt = ranging_response.payload.ping_reply_time.value();
+                    let ping_rtt = ranging_response.payload.ping_round_trip_time.value();
+                    let request_rt = ranging_response.payload.request_reply_time.value();
+                    let request_rtt = ranging_response.rx_time
+                        .duration_since(ranging_response.payload.request_tx_time)
+                        .value();
+
+                    let distance = dw1000::ranging::compute_distance_mm(&ranging_response);
+                    match distance {
+                        Ok(d) => {
+                            rprintln!(=>6, "{}.{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}\n",
+                                d / 1000, d % 1000,
+                                ping_rtt,
+                                request_rtt,
+                                ping_rt,
+                                request_rt,
+                                rssi,
+                                los
+                                );
+                        },
+                        Err(e) => {
+                            rprintln!(=>6, "D err: {:?}\n", e);
+                        }
+                    }
+
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                },
+                Err(_) => {
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                }
+            }
+        },
+        Err(e) => {
+            match e {
+                nb::Error::WouldBlock => {
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                },
+                nb::Error::Other(e) => {
+                    if let dw1000::Error::SfdTimeout = e {
+
+                    } else {
+                        rprintln!(=>6, "{}R.Response rx err: {:?}{}\n", color::YELLOW, e, color::DEFAULT);
+                    }
+                    let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                    let receiving_radio = enable_receiver(ready_radio, radio_config);
+                    RadioState::RangingPingWaiting((Some(receiving_radio), slot_started, slot_duration, radio_config))
+                }
+            }
+        }
+    }
 }
