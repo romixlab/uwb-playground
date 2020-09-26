@@ -106,7 +106,7 @@ impl Into<TxConfig> for RadioConfig {
 impl Default for RadioConfig {
     fn default() -> Self {
         RadioConfig {
-            channel: UwbChannel::Channel5,
+            channel: UwbChannel::Channel3,
             bitrate: BitRate::Kbps850,
             prf: PulseRepetitionFrequency::Mhz64
         }
@@ -134,7 +134,7 @@ impl RadioConfig {
 
     pub fn fast() -> Self {
         RadioConfig {
-            channel: UwbChannel::Channel5,
+            channel: RadioConfig::default().channel,
             bitrate: BitRate::Kbps6800,
             prf: PulseRepetitionFrequency::Mhz64
         }

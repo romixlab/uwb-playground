@@ -175,7 +175,7 @@ pub fn init(
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
     dw1000.configure_leds(false, false, true, true, 1).unwrap();
     //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
-    dw1000.set_antenna_delay(0, 0).expect("Failed to set antenna delay");
+    dw1000.set_antenna_delay(8262, 8262).expect("Failed to set antenna delay");
 
 
     // To VESC
