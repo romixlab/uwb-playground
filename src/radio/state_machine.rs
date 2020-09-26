@@ -199,6 +199,11 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
                         let now = CycntInstant::now();
                         radio.state = advance_ranging_ready(prepare_radio(&mut radio.state), &mut cx, buffer, now, slot_duration, radio_config);
                     }
+                    SetAntennaDelay(tx_delay, rx_delay) => {
+                        let mut ready_radio = prepare_radio(&mut radio.state);
+                        ready_radio.set_antenna_delay(rx_delay, tx_delay);
+                        radio.state = RadioState::Ready(Some(ready_radio));
+                    }
                 };
             }
             _ => {}

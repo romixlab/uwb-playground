@@ -33,7 +33,23 @@ pub fn init(
     telemetry_channel: &'static mut crate::motion::TelemetryChannel,
     local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
 ) -> crate::init::LateResources {
-    rtt_init_print!(NoBlockSkip);
+    // rtt_init_print!(NoBlockSkip);
+    let rtt_channels = rtt_target::rtt_init! {
+        up: {
+            0: { // channel number
+                size: 1024 // buffer size in bytes
+                mode: NoBlockSkip // mode (optional, default: NoBlockSkip, see enum ChannelMode)
+                name: "Terminal" // name (optional, default: no name)
+            }
+        }
+        down: {
+            0: {
+                size: 128
+                name: "Terminal"
+            }
+        }
+    };
+    rtt_target::set_print_channel(rtt_channels.up.0);
     //rprintln!("\x1b[2J\x1b[0m");
     rprint!("\n{}==============\n= UWB\n", color::CYAN);
     rprintln!("= {}", config::DEVICE_NAME);
@@ -175,7 +191,8 @@ pub fn init(
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
     dw1000.configure_leds(false, false, true, true, 1).unwrap();
     //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
-    dw1000.set_antenna_delay(8262, 8262).expect("Failed to set antenna delay");
+    //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
+    dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
 
 
     // To VESC
@@ -448,7 +465,9 @@ pub fn init(
                     lidar_frame_c,
                     motion_channel_p,
                     motion_telemetry_c,
-                    local_motion_telemetry_p
+                    local_motion_telemetry_p,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl"))] {
                 crate::init::LateResources {
@@ -475,6 +494,8 @@ pub fn init(
 
                     motion_channel_c,
                     motion_telemetry_p,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             } else if #[cfg(feature = "br")] {
                 crate::init::LateResources {
@@ -507,6 +528,8 @@ pub fn init(
                     lidar: crate::rplidar::RpLidar::new(lidar_frame_p),
                     motion_channel_c,
                     motion_telemetry_p,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             } else if #[cfg(feature = "anchor")] {
                 crate::init::LateResources {
@@ -532,6 +555,8 @@ pub fn init(
                     usart1_decoder,
 
                     wheel,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             }
         }

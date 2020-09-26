@@ -192,6 +192,8 @@ pub enum Command {
     RangingStart(MicroSeconds, RadioConfig),
     ForceReady,
     ForceReadyIfSending,
+
+    SetAntennaDelay(u16, u16), // tx, rx
 }
 
 pub enum Event {

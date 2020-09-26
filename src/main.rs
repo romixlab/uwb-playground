@@ -83,6 +83,8 @@ const APP: () = {
         local_motion_telemetry_p: motion::TelemetryLocalChannelP, // receive from mc -> C in arbiter
         #[cfg(feature = "slave")]
         motion_telemetry_p: motion::TelemetryChannelP,
+
+        rtt_down_channel: rtt_target::DownChannel
 }
 
     #[init(
@@ -121,6 +123,8 @@ const APP: () = {
         resources = [
             idle_counter,
             mecanum_wheels,
+            rtt_down_channel,
+            radio_commands
         ]
     )]
     fn idle(cx: idle::Context) -> ! {
