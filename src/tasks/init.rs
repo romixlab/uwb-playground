@@ -54,6 +54,7 @@ pub fn init(
     rprint!("\n{}==============\n= UWB\n", color::CYAN);
     rprintln!("= {}", config::DEVICE_NAME);
     rprintln!("= v{}", env!("CARGO_PKG_VERSION"));
+    rprintln!("= {:?}", config::DEFAULT_UWB_CHANNEL);
     rprintln!("=============={}\n", color::DEFAULT);
     rprintln!("init...");
 

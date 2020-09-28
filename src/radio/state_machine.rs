@@ -297,7 +297,7 @@ fn enable_receiver(mut ready_radio: ReadyRadio, radio_config: RadioConfig) -> Re
         bitrate: radio_config.bitrate,
         expected_preamble_length: radio_config.recommended_preamble(),
         sfd_sequence: radio_config.recommended_sfd(),
-        frame_filtering: false,
+        frame_filtering: true,
         pulse_repetition_frequency: radio_config.prf,
     };
     ready_radio.enable_rx_interrupts().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
@@ -796,7 +796,7 @@ fn send_message_no_mux<S: crate::radio::serdes::Serialize>(
     ready_radio.send_raw(&buffer[0..len], send_time, radio_config.into()).expect("DW1000 internal failure?")
 }
 
-const RANGING_PROCESSING_DURATION_NS: u32 = 700_000_u32;
+const RANGING_PROCESSING_DURATION_NS: u32 = 700_000_u32; // TODO: timing trainer!
 fn advance_ranging_ready<A: Arbiter, T: Tracer>(
     mut ready_radio: ReadyRadio,
     mut cx: &mut SMContext<A, T>,
@@ -808,7 +808,7 @@ fn advance_ranging_ready<A: Arbiter, T: Tracer>(
 {
     cfg_if! {
         if #[cfg(feature = "anchor")] {
-            let ping = RangingPing::new(&mut ready_radio, RadioDuration::from_nanos(RANGING_PROCESSING_DURATION_NS)).expect("Ping::new()");
+            let ping = RangingPing::new(&mut ready_radio, RadioDuration::from_nanos(8_000_000)).expect("Ping::new()");
             rprintln!(=>6, "\n----------\nPing to send: {:?}\r", ping);
             let sending_radio = send_message_no_mux(ready_radio, ping.payload, Address::broadcast(&mac::AddressMode::Short), buffer, radio_config, SendTime::Delayed(ping.tx_time));
             RadioState::RangingPingSending((Some(sending_radio), slot_started, slot_duration, radio_config))
@@ -874,12 +874,12 @@ fn advance_ranging_ping_receiving<A: Arbiter, T: Tracer>(
                         source: message.frame.header.source,
                         payload: ping
                     };
-                    rprintln!(=>6, "\n-------\nPing rx_time (local)[ticks] {}\n", ping.rx_time.value());
+                    //rprintln!(=>6, "\n-------\nPing rx_time (local)[ticks] {}\n", ping.rx_time.value());
                     //rprintln!(=>6, "ping tx_time (received)[ticks]: {}\n", ping.payload.ping_tx_time.value());
                     let ranging_request = RangingRequest::new(
                         &mut ready_radio,
                         &ping,
-                        RadioDuration::from_nanos(RANGING_PROCESSING_DURATION_NS)
+                        RadioDuration::from_nanos(400_000)
                     ).expect("RangingRequest::new()");
                     //rprintln!(=>6, "request: ping_reply[ns]: {}\n", ranging_request.payload.ping_reply_time.to_nanos());
                     //rprintln!(=>6, "request: req_tx[ticks]: {}\n", ranging_request.payload.ping_tx_time.value());
@@ -973,7 +973,7 @@ fn advance_ranging_request_receiving<A: Arbiter, T: Tracer>(
                     let ranging_response = RangingResponse::new(
                         &mut ready_radio,
                         &ranging_request,
-                        RadioDuration::from_nanos(RANGING_PROCESSING_DURATION_NS)
+                        RadioDuration::from_nanos(400_000)
                     ).expect("RangingResponse::new()");
                     //rprintln!(=>6, "response: ping_reply_time[ns]: {}\n", ranging_response.payload.ping_reply_time.to_nanos());
                     //rprintln!(=>6, "response: ping_reply_time[ticks]: {}\n", ranging_response.payload.request_tx_time.value());
@@ -1083,9 +1083,12 @@ fn advance_ranging_response_receiving<A: Arbiter, T: Tracer>(
                         .value();
 
                     let distance = dw1000::ranging::compute_distance_mm(&ranging_response);
+                    static mut DIST_COUNTER: u32 = 0u32;
+                    unsafe { DIST_COUNTER += 1; }
                     match distance {
                         Ok(d) => {
-                            rprintln!(=>6, "{}.{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}\n",
+                            rprintln!(=>6, "{},{}.{},{},{},{},{},{:.2},{:.2}\n",
+                                unsafe { DIST_COUNTER },
                                 d / 1000, d % 1000,
                                 ping_rtt,
                                 request_rtt,

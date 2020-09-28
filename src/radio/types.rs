@@ -106,7 +106,7 @@ impl Into<TxConfig> for RadioConfig {
 impl Default for RadioConfig {
     fn default() -> Self {
         RadioConfig {
-            channel: UwbChannel::Channel3,
+            channel: config::DEFAULT_UWB_CHANNEL,
             bitrate: BitRate::Kbps850,
             prf: PulseRepetitionFrequency::Mhz64
         }

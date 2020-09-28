@@ -96,7 +96,7 @@ impl Scheduler {
         slot.radio_config.bitrate = BitRate::Kbps6800;
         slot.slot_type = SlotType::Ranging;
         slot.shift = MicroSeconds(24720);
-        slot.duration = MicroSeconds(15000);
+        slot.duration = Self::ranging_phase_duration();
         slots[7] = slot;
 
         Scheduler {
@@ -171,7 +171,7 @@ impl Scheduler {
     /// (not implemented) May be 0 if no slots had been given to anyone.
     pub fn dyn_phase_duration() -> MicroSeconds { MicroSeconds(15700) }
 
-    pub fn ranging_phase_duration() -> MicroSeconds { MicroSeconds(4500) }
+    pub fn ranging_phase_duration() -> MicroSeconds { MicroSeconds(15000) }
 
     /// GTS phase should definitely end at this moment.
     pub fn gts_period_end() -> MicroSeconds {

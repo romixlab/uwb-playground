@@ -59,6 +59,8 @@ pub const REQUIRED_SLAVE_COUNT: u8 = 3;
 /// Maximum number of nodes in a PAN
 pub type TotalNodeCount = consts::U5;
 
+pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel3;
+
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
 
@@ -189,6 +191,7 @@ pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 use hal::gpio::gpioc::{PC6};
 use hal::gpio::AF8;
 use stm32f4xx_hal::serial::NoRx;
+use dw1000::configs::UwbChannel;
 
 pub type LiftTxPin = PC6<Alternate<AF8>>;
 pub type LiftSerial = hal::serial::Serial<hal::stm32::USART6, (LiftTxPin, NoRx)>;
