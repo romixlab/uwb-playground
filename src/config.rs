@@ -5,6 +5,7 @@ use crate::units::{
 };
 use typenum::consts;
 use bbqueue::{BBBuffer, Consumer, Producer};
+#[cfg(feature = "pozyx-board")]
 use hal::gpio::{PushPull, Output, Alternate, Input, PullDown};
 
 #[cfg(feature = "pozyx-board")]
@@ -19,19 +20,19 @@ pub type Dw1000Mosi = PA7<Alternate<AF5>>;
 #[cfg(feature = "pozyx-board")]
 pub type Dw1000Cs = PA4<Output<PushPull>>;
 
-#[cfg(feature = "dragonfly-board")]
-use hal::gpio::{AF5};
-#[cfg(feature = "dragonfly-board")]
-use hal::gpio::{gpioa::{PA8}, gpiob::{PB3, PB4, PB5}};
+#[cfg(feature = "gcharger-board")]
+use hal::gpio::{gpioa::*, gpiob::*, gpioc::*, gpiod::*};
+#[cfg(feature = "gcharger-board")]
+use hal::gpio::{Output, Input, PushPull, PullDown, DefaultMode};
 
-#[cfg(feature = "dragonfly-board")]
-pub type Dw1000Clk = PB3<Alternate<AF5, Input<Floating>>>;
-#[cfg(feature = "dragonfly-board")]
-pub type Dw1000Miso = PB4<Alternate<AF5, Input<Floating>>>;
-#[cfg(feature = "dragonfly-board")]
-pub type Dw1000Mosi = PB5<Alternate<AF5, Input<Floating>>>;
-#[cfg(feature = "dragonfly-board")]
-pub type Dw1000Cs = PA8<Output<PushPull>>;
+#[cfg(feature = "gcharger-board")]
+pub type Dw1000Clk = PC10<DefaultMode>;
+#[cfg(feature = "gcharger-board")]
+pub type Dw1000Miso = PC11<DefaultMode>;
+#[cfg(feature = "gcharger-board")]
+pub type Dw1000Mosi = PC12<DefaultMode>;
+#[cfg(feature = "gcharger-board")]
+pub type Dw1000Cs = PD2<Output<PushPull>>;
 
 /// Blink LED with specified period (alive indicator).
 pub const BLINK_PERIOD_MS: u32 = 500;
@@ -108,93 +109,25 @@ pub mod motor_control {
 
 #[cfg(feature = "pozyx-board")]
 use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB5}};
+use dw1000::configs::UwbChannel;
+
 #[cfg(feature = "pozyx-board")]
 pub type LedBlinkyPin = PB5<Output<PushPull>>;
-#[cfg(feature = "dragonfly-board")]
-pub type LedBlinkyPin = PC10<Output<PushPull>>;
+#[cfg(feature = "gcharger-board")]
+pub type LedBlinkyPin = PB15<Output<PushPull>>;
 
 #[cfg(feature = "pozyx-board")]
 pub type RadioIrqPin = PA0<Input<PullDown>>;
 //type RadioIrqPin = PC4<Input<PullDown>>;
-#[cfg(feature = "dragonfly-board")]
-pub type RadioIrqPin = PC9<Input<PullDown>>;
+#[cfg(feature = "gcharger-board")]
+pub type RadioIrqPin = PC15<Input<PullDown>>;
 
 #[cfg(feature = "pozyx-board")]
 pub type RadioTracePin = PA1<Output<PushPull>>;
-#[cfg(feature = "dragonfly-board")]
-pub type RadioTracePin = PC8<Output<PushPull>>;
-
-use hal::gpio::gpiob::{PB6, PB7};
-use hal::gpio::AF7;
-
-// USART1 buffers & codec config (Vesc on master/tr/bl/br)
-pub type Usart1DmaRxBufferSize = consts::U256;
-pub type Usart1MaxFrameSize = consts::U512;
-pub type Usart1DmaTxBufferSize = consts::U512;
-pub const USART1_BAUD: u32 = 115_200;
-// USART1 pins
-pub type Usart1TxPin = PB6<Alternate<AF7>>;
-pub type Usart1RxPin = PB7<Alternate<AF7>>;
-pub type Usart1 = hal::serial::Serial<hal::stm32::USART1, (Usart1TxPin, Usart1RxPin)>;
-// USART1 stuff
-pub type Usart1DmaRxBuffer = BBBuffer<Usart1DmaRxBufferSize>;
-pub type Usart1DmaRxBufferC = Consumer<'static, Usart1DmaRxBufferSize>;
-pub type Usart1DmaRxContext = crate::tasks::dma::DmaRxContext<Usart1DmaRxBufferSize>;
-pub type Usart1DmaTxBuffer = BBBuffer<Usart1DmaTxBufferSize>;
-pub type Usart1DmaTxBufferP = Producer<'static, Usart1DmaTxBufferSize>;
-pub type Usart1DmaTxContext = crate::tasks::dma::DmaTxContext<Usart1DmaTxBufferSize>;
-/// Pend after any write to [tx buffer](Usart1DmaTxBufferP) to start the DMA.
-/// RX on DMA2_STREAM5, both - Ch4.
-pub const USART1_TX_DMA: Interrupt = Interrupt::DMA2_STREAM7;
-
-#[cfg(feature = "master")]
-pub const VESC_RPM_ARRAY_FRAME_ID: u8 = 86;
-#[cfg(feature = "master")]
-pub const VESC_TACHO_ARRAY_FRAME_ID: u8 = 87;
-pub const VESC_POWER_ARRAY_FRAME_ID: u8 = 91;
-pub const VESC_SETRPM_FRAME_ID: u8 = 8;
-pub const VESC_SETCURRENT_FRAME_ID: u8 = 6;
-pub const VESC_REQUEST_VALUES_SELECTIVE_FRAME_ID: u8 = 50;
-pub const VESC_LIDAR_FRAME_ID: u8 = 90;
-#[cfg(feature = "master")]
-pub const VESC_LIFT_FRAME_ID: u8 = 88;
-#[cfg(feature = "master")]
-pub const VESC_RESET_ALL: u8 = 89;
-pub const VESC_REQUESTED_VALUES: u32 = (1 << 13) | (1 << 3) | (1 << 8); // tacho + i_in + v_in
-
-// USART2 buffers & codec config (ctrl on master, lidar on br)
-pub type Usart2DmaRxBufferSize = consts::U32;
-pub type Usart2MaxFrameSize = consts::U512;
-pub type Usart2DmaTxBufferSize = consts::U8192;
-#[cfg(feature = "master")]
-pub const USART2_BAUD: u32 = 921_600;
-#[cfg(feature = "br")]
-pub const USART2_BAUD: u32 = 256_000;
-// USART2 pins
-use hal::gpio::gpioa::{PA2, PA3};
-pub type Usart2TxPin = PA2<Alternate<AF7>>;
-pub type Usart2RxPin = PA3<Alternate<AF7>>;
-pub type Usart2 = hal::serial::Serial<hal::stm32::USART2, (Usart2TxPin, Usart2RxPin)>;
-// USART2 stuff
-pub type Usart2DmaRxBuffer = BBBuffer<Usart2DmaRxBufferSize>;
-pub type Usart2DmaRxBufferC = Consumer<'static, Usart2DmaRxBufferSize>;
-pub type Usart2DmaRxContext = crate::tasks::dma::DmaRxContext<Usart2DmaRxBufferSize>;
-pub type Usart2DmaTxBuffer = BBBuffer<Usart2DmaTxBufferSize>;
-pub type Usart2DmaTxBufferP = Producer<'static, Usart2DmaTxBufferSize>;
-pub type Usart2DmaTxContext = crate::tasks::dma::DmaTxContext<Usart2DmaTxBufferSize>;
-/// Pend after any write to [tx buffer](Usart2DmaTxBufferP) to start the DMA.
-/// RX on DMA1_STREAM5, both - Ch4.
-pub const USART2_TX_DMA: Interrupt = Interrupt::DMA1_STREAM6;
+#[cfg(feature = "gcharger-board")]
+pub type RadioTracePin = PA10<Output<PushPull>>;
 
 pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
-
-use hal::gpio::gpioc::{PC6};
-use hal::gpio::AF8;
-use stm32f4xx_hal::serial::NoRx;
-use dw1000::configs::UwbChannel;
-
-pub type LiftTxPin = PC6<Alternate<AF8>>;
-pub type LiftSerial = hal::serial::Serial<hal::stm32::USART6, (LiftTxPin, NoRx)>;
 
 #[cfg(feature = "master")]
 pub const DEVICE_NAME: &str = "Master";

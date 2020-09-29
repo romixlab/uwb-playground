@@ -1,20 +1,20 @@
 use crate::board::hal;
 use crate::radio;
 use crate::config;
-use crate::codec;
 use crate::color;
 
 use bbqueue::{BBBuffer};
 use rtt_target::{rtt_init_print, rprint, rprintln};
 use cortex_m::peripheral::DWT;
+#[cfg(feature = "pozyx-board")]
 use hal::gpio::{Edge, ExtiPin};
 use dw1000::DW1000;
-use hal::spi::Spi;
 use embedded_hal::digital::v2::OutputPin;
 use cfg_if::cfg_if;
 use radio::types::Event;
 use radio::scheduler::Scheduler;
 use radio::types::RadioConfig;
+use crate::hal::spi::Spi;
 
 use core::sync::atomic::{
     compiler_fence,
@@ -24,14 +24,6 @@ use core::sync::atomic::{
 pub fn init(
     cx: crate::init::Context,
     radio_commands_queue: &'static mut radio::types::CommandQueue,
-    lidar_bbuffer: &'static mut crate::rplidar::LidarBBuffer,
-    usart1_dma_rx_buffer: &'static mut config::Usart1DmaRxBuffer,
-    usart1_dma_tx_buffer: &'static mut config::Usart1DmaTxBuffer,
-    usart2_dma_rx_buffer: &'static mut config::Usart2DmaRxBuffer,
-    usart2_dma_tx_buffer: &'static mut config::Usart2DmaTxBuffer,
-    motion_channel: &'static mut crate::motion::Channel,
-    telemetry_channel: &'static mut crate::motion::TelemetryChannel,
-    local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
 ) -> crate::init::LateResources {
     // rtt_init_print!(NoBlockSkip);
     let rtt_channels = rtt_target::rtt_init! {
@@ -70,43 +62,43 @@ pub fn init(
     use hal::time::U32Ext;
     // If you change clock frequency, make sure to also change tracer sysclk!
     cfg_if! {
-            if #[cfg(feature = "pozyx-board")] {
-                let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
-            } else if #[cfg(feature = "dragonfly-board")] {
-                let mut flash = device.FLASH.constrain();
-                let mut pwr = device.PWR.constrain(&mut rcc.apb1r1);
-                let clocks = rcc.cfgr.sysclk(72.mhz()).freeze(&mut flash.acr, &mut pwr);
-            }
+        if #[cfg(feature = "pozyx-board")] {
+            let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
+        } else if #[cfg(feature = "gcharger-board")] {
+            let mut rcc = rcc.freeze(stm32g4xx_hal::rcc::Config::default());
+            let clocks = rcc.clocks;
         }
+    }
     let mut syscfg = device.SYSCFG;
     let mut exti = device.EXTI;
 
     use hal::gpio::GpioExt;
     cfg_if! {
-            if #[cfg(feature = "pozyx-board")] {
-                let gpioa = device.GPIOA.split();
-                let gpiob = device.GPIOB.split();
-                let gpioc = device.GPIOC.split();
-            } else if #[cfg(feature = "dragonfly-board")] {
-                let mut gpioa = device.GPIOA.split(&mut rcc.ahb2);
-                let mut gpiob = device.GPIOB.split(&mut rcc.ahb2);
-                let mut gpioc = device.GPIOC.split(&mut rcc.ahb2);
-            }
+        if #[cfg(feature = "pozyx-board")] {
+            let gpioa = device.GPIOA.split();
+            let gpiob = device.GPIOB.split();
+            let gpioc = device.GPIOC.split();
+        } else if #[cfg(feature = "gcharger-board")] {
+            let mut gpioa = device.GPIOA.split(&mut rcc);
+            let mut gpiob = device.GPIOB.split(&mut rcc);
+            let mut gpioc = device.GPIOC.split(&mut rcc);
+            let mut gpiod = device.GPIOD.split(&mut rcc);
         }
+    }
 
     cfg_if! {
-            if #[cfg(feature = "pozyx-board")] {
-                let mut led1_red = gpiob.pb4.into_push_pull_output();
-                let mut led_blinky = gpiob.pb5.into_push_pull_output();
-                let mut led2_red = gpiob.pb8.into_push_pull_output();
-                let mut led2_green = gpiob.pb9.into_push_pull_output();
-                led1_red.set_low().ok();
-                led2_green.set_high().ok();
-                led2_red.set_low().ok();
-            } else if #[cfg(feature = "dragonfly-board")] {
-                let mut led_blinky = gpioc.pc10.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
-            }
+        if #[cfg(feature = "pozyx-board")] {
+            let mut led1_red = gpiob.pb4.into_push_pull_output();
+            let mut led_blinky = gpiob.pb5.into_push_pull_output();
+            let mut led2_red = gpiob.pb8.into_push_pull_output();
+            let mut led2_green = gpiob.pb9.into_push_pull_output();
+            led1_red.set_low().ok();
+            led2_green.set_high().ok();
+            led2_red.set_low().ok();
+        } else if #[cfg(feature = "gcharger-board")] {
+            let mut led_blinky = gpiob.pb15.into_push_pull_output();
         }
+    }
     led_blinky.set_low().ok();
 
     // DW1000
@@ -134,22 +126,21 @@ pub fn init(
                 dw1000_spi_freq.into(),
                 clocks
             );
-        } else if #[cfg(feature = "dragonfly-board")] {
-            let mut dw1000_reset  = gpioc.pc11.into_open_drain_output(&mut gpioc.moder, &mut gpioc.otyper); // open drain, do not pull high
-            let mut dw1000_cs = gpioa.pa8.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
-            let dw1000_clk    = gpiob.pb3.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
-            let dw1000_mosi   = gpiob.pb5.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
-            let dw1000_miso   = gpiob.pb4.into_af5(&mut gpiob.moder, &mut gpiob.afrl);
+        } else if #[cfg(feature = "gcharger-board")] {
+            let mut dw1000_reset  = gpioc.pc14.into_open_drain_output(); // open drain, do not pull high
+            let mut dw1000_cs = gpiod.pd2.into_push_pull_output();
+            let dw1000_clk    = gpioc.pc10; // SPI3
+            let dw1000_mosi   = gpioc.pc12;
+            let dw1000_miso   = gpioc.pc11;
             //let _dw1000_wakeup = gpioc.pc5;
-            let trace_pin = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
-            let mut dw1000_irq = gpioc.pc9.into_pull_down_input(&mut gpioc.moder, &mut gpioc.pupdr);
-            let mut dw1000_spi = Spi::spi1(
-                device.SPI1,
+            let trace_pin = gpioa.pa10.into_push_pull_output();
+            let mut dw1000_irq = gpioc.pc15.into_pull_down_input();
+            let mut dw1000_spi = hal::spi::Spi::spi3(
+                device.SPI3,
                 (dw1000_clk, dw1000_miso, dw1000_mosi),
-                MODE_0,
+                embedded_hal::spi::MODE_0,
                 dw1000_spi_freq,
-                clocks,
-                &mut rcc.apb2,
+                &mut rcc,
             );
         }
     }
@@ -168,21 +159,45 @@ pub fn init(
         let sys_status = dw1000.ll().sys_status().read().unwrap();
         if sys_status.clkpll_ll() == 0b0 {
             rprint!("SPI speed bump to: {}MHz, ", dw1000_spi_freq_hi.0);
-            dw1000.ll().access_spi(|spi| {
-                let (old_spi, pins) = spi.free();
-                Spi::spi1(
-                    old_spi, pins,
-                    embedded_hal::spi::MODE_0,
-                    dw1000_spi_freq_hi.into(),
-                    clocks
-                )
-            });
-            let br = unsafe {
-                let spi1 = unsafe { &(*hal::stm32::SPI1::ptr()) };
-                spi1.cr1.read().br().bits()
-            };
+            cfg_if! {
+                if #[cfg(feature = "pozyx-board")] {
+                    dw1000.ll().access_spi(|spi| {
+                        let (old_spi, pins) = spi.free();
+                        Spi::spi1(
+                            old_spi, pins,
+                            embedded_hal::spi::MODE_0,
+                            dw1000_spi_freq_hi.into(),
+                            clocks
+                        )
+                    });
+                    let br = unsafe {
+                        let spi1 = unsafe { &(*hal::stm32::SPI1::ptr()) };
+                        spi1.cr1.read().br().bits()
+                    };
+                } else if #[cfg(feature = "gcharger-board")] {
+                    dw1000.ll().access_spi(|spi| {
+                        let (old_spi, pins) = spi.release();
+                        Spi::spi3(
+                            old_spi, pins,
+                            embedded_hal::spi::MODE_0,
+                            dw1000_spi_freq_hi,
+                            &mut rcc
+                        )
+                    });
+                    let br = unsafe {
+                        let spi3 = unsafe { &(*hal::stm32::SPI3::ptr()) };
+                        spi3.cr1.read().br().bits()
+                    };
+                }
+            }
             let ratio = 1 << (br + 1);
-            rprintln!("done, actual ratio:{} baud:{}", ratio, clocks.pclk2().0 / ratio);
+            cfg_if! {
+                if #[cfg(feature = "pozyx-board")] {
+                    rprintln!("done, actual ratio:{} baud:{}", ratio, clocks.pclk2().0 / ratio);
+                } else if #[cfg(feature = "gcharger-board")] {
+                    rprintln!("done, actual ratio:{} baud:{}", ratio, clocks.apb1_clk.0 / ratio);
+                }
+            }
             break;
         } else {
             rprintln!("clkpll_ll = 1, resetting");
@@ -195,240 +210,6 @@ pub fn init(
     //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
     dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
 
-
-    // To VESC
-    use hal::serial::{Serial, Event, config::Config};
-    let usart1_tx = gpiob.pb6.into_alternate_af7();
-    let usart1_rx = gpiob.pb7.into_alternate_af7();
-    let mut usart1 = Serial::usart1(
-        device.USART1,
-        (usart1_tx, usart1_rx),
-        Config::default().baudrate(config::USART1_BAUD.bps()),
-        clocks
-    ).unwrap();
-    let (mut usart1_dma_rx_buffer_p, usart1_c) = usart1_dma_rx_buffer.try_split().unwrap();
-    let (mut usart1_dma_rcx, usart1_dma_mem_addr) =
-        crate::tasks::dma::DmaRxContext::new(
-            usart1_dma_rx_buffer_p,
-            hal::stm32::USART1::ptr(),
-            hal::stm32::DMA2::ptr(),
-            5
-        );
-    let (mut usart1_p, usart1_dma_tx_buffer_c) = usart1_dma_tx_buffer.try_split().unwrap();
-    let usart1_dma_tcx = crate::tasks::dma::DmaTxContext::new(usart1_dma_tx_buffer_c);
-    let usart1_coder = codec::Usart1Coder::new(usart1_p, config::USART1_TX_DMA);
-    let usart1_decoder = codec::Usart1Decoder::new(usart1_c);
-
-
-    cfg_if! {
-        if #[cfg(any(feature = "master", feature = "br"))] {
-            // To Ctrl or lidar
-            let usart2_tx = gpioa.pa2.into_alternate_af7();
-            let usart2_rx = gpioa.pa3.into_alternate_af7();
-            let mut usart2 = Serial::usart2(
-                device.USART2,
-                (usart2_tx, usart2_rx),
-                Config::default().baudrate(config::USART2_BAUD.bps()),
-                clocks
-            ).unwrap();
-
-            let (mut usart2_dma_rx_buffer_p, usart2_c) = usart2_dma_rx_buffer.try_split().unwrap();
-            let (mut usart2_dma_rcx, usart2_dma_mem_addr) =
-                crate::tasks::dma::DmaRxContext::new(
-                    usart2_dma_rx_buffer_p,
-                    hal::stm32::USART2::ptr(),
-                    hal::stm32::DMA1::ptr(),
-                    5
-                );
-
-            unsafe {
-                let rcc = &(*hal::stm32::RCC::ptr());
-                rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit());
-                let usart2 = &(*hal::stm32::USART2::ptr());
-                let dma1 = &(*hal::stm32::DMA1::ptr());
-                let stream5 = &dma1.st[5];
-                // Disable stream & Deinit
-                stream5.cr.modify(|_, w| w.en().disabled());
-                compiler_fence(Ordering::Acquire);
-
-                stream5.cr.write(|w| w.bits(0));
-                stream5.ndtr.write(|w| w.bits(0));
-                stream5.par.write(|w| w.bits(0));
-                stream5.m0ar.write(|w| w.bits(0));
-                stream5.m1ar.write(|w| w.bits(0));
-                // Clear interrupt pending flags
-                dma1.hifcr.write(|w| w
-                    .cfeif5().clear()
-                    .cdmeif5().clear()
-                    .cteif5().clear()
-                    .chtif5().clear()
-                    .ctcif5().clear()
-                );
-                // Clear transfer complete flag & enable DMA receive request
-                usart2.sr.write(|w| w.tc().set_bit());
-                usart2.cr3.modify(|_, w| w.dmar().set_bit());
-                // Configure addresses and transfer size
-                stream5.ndtr.write(|w| w.bits(usart2_dma_rcx.buf_size() as u32)); // number of data items (bytes in this case)
-                let dr_addr: u32 = usart2 as *const _ as u32 + 0x04;
-                stream5.par.write(|w| w.bits(dr_addr));  // peripheral address
-                stream5.m0ar.write(|w| w.bits(usart2_dma_mem_addr)); // memory address
-                stream5.m1ar.write(|w| w.bits(usart2_dma_mem_addr)); //? memory address
-                // Configure DMA stream
-                stream5.cr.modify(|_, w| w
-                    .dmeie().disabled()   // direct mode error irq
-                    .teie().disabled()    // transfer error irq
-                    .htie().enabled()     // half-transfer complete irq
-                    .tcie().enabled()     // transfer complete irq
-                    .pfctrl().dma()       // flow controller dma/peripheral (see ref.manual)
-                    .dir().peripheral_to_memory()
-                    .circ().enabled()     // circular mode
-                    .pinc().fixed()       // peripheral addr increment
-                    .psize().bits8()      // peripheral data size
-                    .pincos().psize()     // peripheral increment offset size as_psize/fixed4
-                    .pburst().single()    // peripheral burst size
-                    .minc().incremented() // memory addr increment
-                    .msize().bits8()      // memory data size
-                    .mburst().single()    // memory burst size
-                    .pl().high()          // priority
-                    .dbm().disabled()     // double buffer switching if en see also .ct()
-                    .chsel().bits(4)      // DMA request channel for USART2 RX
-                );
-                compiler_fence(Ordering::Release);
-                stream5.cr.modify(|_, w| w.en().enabled());
-            }
-        }
-    }
-    cfg_if! {
-        if #[cfg(any(feature = "master", feature = "br"))] {
-            let (mut usart2_p, usart2_dma_tx_buffer_c) = usart2_dma_tx_buffer.try_split().unwrap();
-            let usart2_dma_tcx = crate::tasks::dma::DmaTxContext::new(usart2_dma_tx_buffer_c);
-
-            unsafe {
-                let rcc = &(*hal::stm32::RCC::ptr());
-                rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit());
-                let usart2 = &(*hal::stm32::USART2::ptr());
-
-                let dma1 = &(*hal::stm32::DMA1::ptr());
-                let stream6 = &dma1.st[6];
-                // Disable stream & Deinit
-                stream6.cr.modify(|_, w| w.en().disabled());
-                stream6.cr.write(|w| w.bits(0));
-                stream6.ndtr.write(|w| w.bits(0));
-                stream6.par.write(|w| w.bits(0));
-                stream6.m0ar.write(|w| w.bits(0));
-                stream6.m1ar.write(|w| w.bits(0));
-                // Clear interrupt pending flags
-                dma1.hifcr.write(|w| w
-                    .cfeif6().clear()
-                    .cdmeif6().clear()
-                    .cteif6().clear()
-                    .chtif6().clear()
-                    .ctcif6().clear()
-                );
-                // Clear transfer complete flag & enable DMA for transmission
-                usart2.cr3.modify(|_, w| w.dmat().set_bit());
-                // Configure addresses and transfer size
-                stream6.ndtr.write(|w| w.bits(0)); // number of data items (bytes in this case)
-                let dr_addr: u32 = usart2 as *const _ as u32 + 0x04;
-                stream6.par.write(|w| w.bits(dr_addr));  // peripheral address
-                stream6.m0ar.write(|w| w.bits(0)); // memory address
-                stream6.m1ar.write(|w| w.bits(0)); //? memory address
-                // Configure DMA stream
-                stream6.cr.modify(|_, w| w
-                    .dmeie().disabled()   // direct mode error irq
-                    .teie().disabled()    // transfer error irq
-                    .htie().disabled()    // half-transfer complete irq
-                    .tcie().enabled()     // transfer complete irq
-                    .pfctrl().dma()       // flow controller dma/peripheral (see ref.manual)
-                    .dir().memory_to_peripheral()
-                    .circ().disabled()    // circular mode
-                    .pinc().fixed()       // peripheral addr increment
-                    .psize().bits8()      // peripheral data size
-                    .pincos().psize()     // peripheral increment offset size as_psize/fixed4
-                    .pburst().single()    // peripheral burst size
-                    .minc().incremented() // memory addr increment
-                    .msize().bits8()      // memory data size
-                    .mburst().single()    // memory burst size
-                    .pl().high()          // priority
-                    .dbm().disabled()     // double buffer switching if en see also .ct()
-                    .chsel().bits(4)      // DMA request channel for USART2 TX
-                );
-            }
-            usart2.listen(Event::Idle);
-        }
-    }
-    cfg_if! {
-        if #[cfg(feature = "master")] {
-            let usart2_coder = codec::Usart2Coder::new(usart2_p, config::USART2_TX_DMA);
-            let usart2_decoder = codec::Usart2Decoder::new(usart2_c);
-        } else if  #[cfg(feature = "br")] {
-
-        }
-    }
-
-    let usart6_tx = gpioc.pc6.into_alternate_af8();
-    let lift_serial = Serial::usart6(
-        device.USART6,
-        (usart6_tx, hal::serial::NoRx),
-        Config::default().baudrate(115_200.bps()),
-        clocks
-    ).unwrap();
-
-    cfg_if! {
-        if #[cfg(feature = "master")] {
-            let mecanum_wheels = crate::motion::MecanumWheels::default();
-        } else if  #[cfg(feature = "slave")] {
-            let wheel = crate::motion::MCData::default();
-        }
-    }
-
-    rprintln!("init(): done");
-
-    cx.spawn.blinker().expect("RTIC failure?");
-    cfg_if! {
-        if #[cfg(feature = "master")] {
-            cx.spawn.radio_event(
-                radio::Event::GTSAboutToStart(
-                    Scheduler::gts_phase_duration(), RadioConfig::default()
-                )).ok();
-        } else if #[cfg(feature = "slave")] {
-            cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();
-            cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
-        }
-    }
-
-    let (motion_channel_p, motion_channel_c) = motion_channel.split();
-    let (motion_telemetry_p, motion_telemetry_c) = telemetry_channel.split();
-    let (local_motion_telemetry_p, local_motion_telemetry_c) = local_telemetry_channel.split();
-    //let (lidar_queue_p, lidar_queue_c) = lidar_queue.split();
-    let (lidar_frame_p, lidar_frame_c) = lidar_bbuffer.try_split_framed().unwrap();
-
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "br")] { // lidar ctrl
-            //cx.spawn.ctrl_link_control().unwrap();
-            let channels = crate::channels::Channels {
-                lidar_bbuffer_c: lidar_frame_c,
-                motion_p: motion_channel_p,
-                motion_telemetry_c,
-            };
-        } else if #[cfg(feature = "master")] {
-            //cx.spawn.ctrl_link_control().unwrap();
-            let channels = crate::channels::Channels {
-                lidar_bbuffer_p: lidar_frame_p,
-                motion_c: motion_channel_c,
-                motion_telemetry_p,
-                local_motion_telemetry_c,
-                telemetry_staging_area_tacho: crate::channels::TelemetryStagingAreaTacho::default(),
-                telemetry_staging_area_power: crate::channels::TelemetryStagingAreaPower::default(),
-            };
-        } else { // TR, BL
-            let channels = crate::channels::Channels {
-                //lidar_queue_p,
-                motion_p: motion_channel_p,
-                motion_telemetry_c,
-            };
-        }
-    }
 
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let event_state_data = crate::tasks::radio::EventStateData::default();
@@ -539,23 +320,11 @@ pub fn init(
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
                     radio_commands: radio_commands_p,
                     scheduler: Scheduler::new(),
-                    channels,
                     event_state_data,
+                    channels: crate::channels::Channels{},
 
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
-                    exti,
-
-                    lift_serial,
-                    motion_channel_c,
-                    motion_telemetry_p,
-
-                    usart1_coder,
-                    usart1_dma_tcx,
-                    usart1_dma_rcx,
-                    usart1_decoder,
-
-                    wheel,
 
                     rtt_down_channel: rtt_channels.down.0,
                 }

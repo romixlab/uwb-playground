@@ -8,11 +8,11 @@ mod panic_handler;
 mod radio;
 mod channels;
 mod config;
-mod codec;
+//mod codec;
 mod units;
 mod tasks;
-mod motion;
-mod rplidar;
+//mod motion;
+//mod rplidar;
 mod color;
 
 use board::hal;
@@ -20,31 +20,26 @@ use core::num::Wrapping;
 use rtic::{app};
 use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
-use tasks::usart::{
-    Usart1WorkerEvent,
-    Usart2WorkerEvent
-};
 
-#[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cycnt::CYCCNT)]
+#[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         clocks: Clocks,
         radio: radio::Radio,
         radio_commands: radio::types::CommandQueueP,
-        scheduler: radio::scheduler::Scheduler,
         channels: channels::Channels,
+        scheduler: radio::scheduler::Scheduler,
         event_state_data: tasks::radio::EventStateData,
         led_blinky: config::LedBlinkyPin,
         idle_counter: Wrapping<u32>,
         rtt_down_channel: rtt_target::DownChannel
-}
+    }
 
     #[init(
         schedule = [],
         spawn = [
             radio_event,
             blinker,
-            usart2_worker
         ]
     )]
     fn init(cx: init::Context) -> init::LateResources {
@@ -58,7 +53,6 @@ const APP: () = {
     #[idle(
         resources = [
             idle_counter,
-            mecanum_wheels,
             rtt_down_channel,
             radio_commands
         ]
@@ -87,9 +81,9 @@ const APP: () = {
         resources = [
             &clocks,
             radio,
-            channels,
             scheduler,
             idle_counter,
+            channels,
         ],
         spawn = [radio_event],
         schedule = [radio_event]
@@ -107,12 +101,8 @@ const APP: () = {
             radio,
             radio_commands,
             event_state_data,
-            wheel,
-            mecanum_wheels,
         ],
         spawn = [
-            motor_control,
-            usart2_worker,
         ],
         schedule = [
             radio_event,
@@ -120,22 +110,6 @@ const APP: () = {
     )]
     fn radio_event(cx: radio_event::Context, e: radio::types::Event) {
         tasks::radio::radio_event(cx, e);
-    }
-
-    #[task(
-        binds = EXTI4,
-        priority = 3,
-        resources = [
-            motion_channel_c,
-            channels,
-        ],
-        spawn = [
-            motor_control,
-            usart2_worker,
-        ]
-    )]
-    fn channel_event(cx: channel_event::Context) {
-        tasks::channel_event::channel_event(cx);
     }
 
     extern "C" {

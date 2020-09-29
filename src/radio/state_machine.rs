@@ -141,8 +141,10 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
     cfg_if! {
         if #[cfg(feature = "master")] {
             let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
-        } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
+        } else if #[cfg(feature = "slave")] {
             let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
+        } else if #[cfg(feature = "anchor")] {
+            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
         }
     }
 
@@ -776,6 +778,7 @@ fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
 use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse, RxMessage};
 use crate::radio::serdes_impl;
 use dw1000::mac::Address;
+use no_std_compat::marker::PhantomData;
 
 fn send_message_no_mux<S: crate::radio::serdes::Serialize>(
     mut ready_radio: ReadyRadio,

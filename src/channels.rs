@@ -9,14 +9,17 @@ use crate::radio::serdes::{
     Buf,
 };
 use crate::radio::Error;
+#[cfg(any(feature = "master", feature = "slave"))]
 use crate::motion;
 use rtt_target::{
     rprint,
     rprintln
 };
+#[cfg(any(feature = "master", feature = "slave"))]
 use crate::rplidar;
 use crate::config;
 use cfg_if::cfg_if;
+#[cfg(any(feature = "master", feature = "slave"))]
 use crate::motion::{TelemetryItem, Tachometer};
 use crate::units::Watts;
 use dw1000::mac::Address;
@@ -58,6 +61,7 @@ use crate::color;
 ///
 /// **Channels**
 /// * `@ID` - data is grabbed from specific queue and enqueued to the same id on the other node.
+#[cfg(any(feature = "master", feature = "slave"))]
 pub struct Channels {
     ///// I/0/_/T/G/H/_/10 @66
     //pub stop_command: Option<Stop>,
@@ -94,6 +98,13 @@ pub struct Channels {
     // pub reqrep
 }
 
+#[cfg(feature = "gcharger-board")]
+pub struct Channels {
+
+}
+
+
+#[cfg(any(feature = "master", feature = "slave"))]
 #[derive(Default)]
 pub struct TelemetryStagingAreaTacho {
     top_left: Option<Tachometer>,
@@ -102,6 +113,7 @@ pub struct TelemetryStagingAreaTacho {
     bottom_right: Option<Tachometer>,
 }
 
+#[cfg(any(feature = "master", feature = "slave"))]
 #[derive(Default)]
 pub struct TelemetryStagingAreaPower {
     top_left: Option<Watts>,
@@ -110,6 +122,7 @@ pub struct TelemetryStagingAreaPower {
     bottom_right: Option<Watts>,
 }
 
+#[cfg(any(feature = "master", feature = "slave"))]
 impl TelemetryStagingAreaPower {
     pub fn is_all_ready(&self) -> bool {
         self.top_left.is_some() &&
@@ -123,6 +136,7 @@ impl TelemetryStagingAreaPower {
     }
 }
 
+#[cfg(any(feature = "master", feature = "slave"))]
 impl TelemetryStagingAreaTacho {
     pub fn is_all_ready(&self) -> bool {
         self.top_left.is_some() &&
@@ -136,6 +150,7 @@ impl TelemetryStagingAreaTacho {
     }
 }
 
+#[cfg(any(feature = "master", feature = "slave"))]
 impl Channels {
     #[cfg(feature = "master")]
     pub fn grab_local_telemetry(&mut self) {
@@ -165,6 +180,28 @@ impl Channels {
     }
 }
 
+#[cfg(feature = "gcharger-board")]
+impl Arbiter for Channels {
+    type Error = Error;
+
+    fn source_sync<M: Multiplex<Error=Self::Error>>(&mut self, multiplexer: &mut M) {
+
+    }
+
+    fn source_async<M: Multiplex<Error=Self::Error>>(&mut self, multiplexer: &mut M) {
+
+    }
+
+    fn sink_sync(&mut self, source: Address, channel: ChannelId, chunk: &[u8]) {
+
+    }
+
+    fn sink_async(&mut self, source: Address, channel: ChannelId, chunk: &[u8]) {
+
+    }
+}
+
+#[cfg(any(feature = "master", feature = "slave"))]
 impl Arbiter for Channels {
     type Error = Error;
 

@@ -1,11 +1,11 @@
 use crate::config;
 use crate::radio;
-use crate::motion;
 use crate::board::hal;
 use crate::radio::types::{Command, Event, RadioConfig, SlotType};
 use rtic::Mutex;
 use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
+#[cfg(feature = "pozyx-board")]
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
 use crate::util::{Tracer, TraceEvent};
@@ -186,6 +186,14 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             cx.resources.event_state_data.clear_flags();
             cx.resources.event_state_data.gts_duration = gt_slot_duration;
             cx.resources.event_state_data.gts_started = Some(CycntInstant::now());
+        },
+        #[cfg(feature = "gcharger-board")]
+        GTSAboutToStart(_, _) => {
+
+        },
+        #[cfg(feature = "gcharger-board")]
+        DynUplinkAboutToStart(_, _) => {
+
         },
         GTSProcessingFinished => {
             cx.resources.event_state_data.gts_processing_finished = true;

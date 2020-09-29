@@ -110,6 +110,11 @@ impl Scheduler {
         Scheduler {}
     }
 
+    #[cfg(feature = "anchor")]
+    pub fn new() -> Self {
+        Scheduler {}
+    }
+
     #[cfg(feature = "master")]
     pub fn source_timeslots<M: Multiplex<Error = super::Error>>(&self, mux: &mut M)
     {

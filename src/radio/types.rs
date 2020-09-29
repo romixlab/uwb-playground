@@ -29,7 +29,12 @@ pub enum Error {
     WrongDiscriminant,
 }
 
-pub type Dw1000Spi = hal::spi::Spi<hal::stm32::SPI1,
+#[cfg(feature = "pozyx-board")]
+pub type Dw10000SpiIface = hal::stm32::SPI1;
+#[cfg(feature = "gcharger-board")]
+pub type Dw10000SpiIface = hal::stm32::SPI3;
+
+pub type Dw1000Spi = hal::spi::Spi<Dw10000SpiIface,
     (config::Dw1000Clk, config::Dw1000Miso, config::Dw1000Mosi)>;
 
 pub type ReadyRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Ready>;
