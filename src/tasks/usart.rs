@@ -37,7 +37,7 @@ pub fn usart2_worker(mut cx: crate::usart2_worker::Context, e: Usart2WorkerEvent
     }
 }
 
-#[cfg(feature = "br")]
+#[cfg(any(feature = "br", feature = "bl", feature = "tr", feature = "anchor"))]
 pub fn usart2_worker(mut cx: crate::usart2_worker::Context, e: Usart2WorkerEvent) {
     rprintln!(=>5, "usart2_worker: {:?}\n", e);
 }

@@ -1,81 +1,147 @@
 #![no_main]
 #![no_std]
 
+#[macro_use]
+mod util;
 mod board;
 mod panic_handler;
+mod radio;
+mod channels;
+mod config;
+mod codec;
+mod units;
+mod tasks;
+mod motion;
+mod rplidar;
 mod color;
 
-use cortex_m_rt as rt;
-use board::hal::prelude::*;
-use board::hal::stm32;
-use rt::entry;
-use rtic::app;
-use stm32g4xx_hal::rcc::Config;
-use stm32g4xx_hal::cortex_m;
-use board::hal::timer::Timer;
-use board::hal::gpio::{Output, PushPull};
-use board::hal::gpio::gpiob::PB15;
-use crate::board::hal::interrupt::TIM7;
-use cortex_m::peripheral::DWT;
-use rtt_target::rprintln;
+use board::hal;
+use core::num::Wrapping;
+use rtic::{app};
+use hal::rcc::Clocks;
+use bbqueue::{BBBuffer, ConstBBBuffer};
+use tasks::usart::{
+    Usart1WorkerEvent,
+    Usart2WorkerEvent
+};
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cycnt::CYCCNT)]
 const APP: () = {
     struct Resources {
-        led: PB15<Output<PushPull>>,
-        timer: Timer<stm32::TIM7>
-    }
+        clocks: Clocks,
+        radio: radio::Radio,
+        radio_commands: radio::types::CommandQueueP,
+        scheduler: radio::scheduler::Scheduler,
+        channels: channels::Channels,
+        event_state_data: tasks::radio::EventStateData,
+        led_blinky: config::LedBlinkyPin,
+        idle_counter: Wrapping<u32>,
+        rtt_down_channel: rtt_target::DownChannel
+}
 
-    #[init]
+    #[init(
+        schedule = [],
+        spawn = [
+            radio_event,
+            blinker,
+            usart2_worker
+        ]
+    )]
     fn init(cx: init::Context) -> init::LateResources {
-        let rtt_channels = rtt_target::rtt_init! {
-            up: {
-                0: { // channel number
-                    size: 1024 // buffer size in bytes
-                    mode: NoBlockSkip // mode (optional, default: NoBlockSkip, see enum ChannelMode)
-                    name: "Terminal" // name (optional, default: no name)
-                }
-            }
-            down: {
-                0: {
-                    size: 128
-                    name: "Terminal"
-                }
-            }
-        };
-        rtt_target::set_print_channel(rtt_channels.up.0);
-        rprintln!("Genius Charger v{}", env!("CARGO_PKG_VERSION"));
-
-        let mut cp = cx.core;
-        cp.DCB.enable_trace();
-        DWT::unlock();
-        cp.DWT.enable_cycle_counter();
-
-        let dp: stm32::Peripherals = cx.device;
-
-        let mut rcc = dp.RCC.freeze(Config::pll());
-        let mut delay = cp.SYST.delay(&rcc.clocks);
-        let gpiob = dp.GPIOB.split(&mut rcc);
-        let gpioc = dp.GPIOC.split(&mut rcc);
-        let mut led_green = gpiob.pb15.into_push_pull_output();
-        let mut led_red = gpioc.pc6.into_push_pull_output();
-        led_red.set_high().ok();
-
-        let mut timer = dp.TIM7.timer(&mut rcc);
-        timer.start(5.hz());
-        timer.listen();
-
-        crate::init::LateResources {
-            led: led_green,
-            timer
-        }
+        static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
+        tasks::init::init(
+            cx,
+            RADIO_COMMANDS_QUEUE,
+        )
     }
 
-    #[task(binds = TIM7, resources = [timer, led])]
-    fn on_timer_tick(cx: on_timer_tick::Context) {
-        cx.resources.led.toggle().unwrap();
-        cx.resources.timer.clear_irq();
+    #[idle(
+        resources = [
+            idle_counter,
+            mecanum_wheels,
+            rtt_down_channel,
+            radio_commands
+        ]
+    )]
+    fn idle(cx: idle::Context) -> ! {
+        tasks::idle::idle(cx);
+    }
 
-        rprintln!("toggle");
+    #[task(
+        resources = [
+            &clocks,
+            led_blinky,
+        ],
+        schedule = [
+            blinker,
+        ]
+    )]
+    fn blinker(cx: blinker::Context) {
+        static mut LED_STATE: bool = false;
+        tasks::blinker::blinker(cx, LED_STATE);
+    }
+
+    #[task(
+        binds = EXTI0,
+        priority = 3,
+        resources = [
+            &clocks,
+            radio,
+            channels,
+            scheduler,
+            idle_counter,
+        ],
+        spawn = [radio_event],
+        schedule = [radio_event]
+    )]
+    fn radio_irq(cx: radio_irq::Context) {
+        static mut BUFFER: [u8; 1024] = [0u8; 1024];
+        tasks::radio::radio_irq(cx, BUFFER);
+    }
+
+    #[task(
+        priority = 2,
+        capacity = 24,
+        resources = [
+            &clocks,
+            radio,
+            radio_commands,
+            event_state_data,
+            wheel,
+            mecanum_wheels,
+        ],
+        spawn = [
+            motor_control,
+            usart2_worker,
+        ],
+        schedule = [
+            radio_event,
+        ]
+    )]
+    fn radio_event(cx: radio_event::Context, e: radio::types::Event) {
+        tasks::radio::radio_event(cx, e);
+    }
+
+    #[task(
+        binds = EXTI4,
+        priority = 3,
+        resources = [
+            motion_channel_c,
+            channels,
+        ],
+        spawn = [
+            motor_control,
+            usart2_worker,
+        ]
+    )]
+    fn channel_event(cx: channel_event::Context) {
+        tasks::channel_event::channel_event(cx);
+    }
+
+    extern "C" {
+        fn EXTI1();
+        fn EXTI2();
+        fn EXTI3();
+        fn EXTI9_5();
     }
 };

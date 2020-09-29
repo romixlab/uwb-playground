@@ -304,7 +304,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                     ).ok(); // TODO: count
                     cx.schedule.radio_event(
                         time_mark + shift + duration + quarter_guard,
-                        Event::RangingSlotEnd
+                        Event::RangingSlotEnded
                     ).ok(); // TODO: count
                 },
                 None => {}
@@ -367,11 +367,11 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 "Dyn"
             );
         },
-        RangingSlotAboutToStart(raning_slot_duration, radio_config) => {
-
+        RangingSlotAboutToStart(ranging_slot_duration, radio_config) => {
+            radio_command!(cx, Command::RangingStart(ranging_slot_duration, radio_config));
         },
-        RangingSlotEnd => {
-
+        RangingSlotEnded => {
+            radio_command!(cx, Command::ForceReady);
         }
     }
 }

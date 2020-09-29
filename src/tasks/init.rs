@@ -33,11 +33,28 @@ pub fn init(
     telemetry_channel: &'static mut crate::motion::TelemetryChannel,
     local_telemetry_channel: &'static mut crate::motion::TelemetryLocalChannel, // only for master
 ) -> crate::init::LateResources {
-    rtt_init_print!(NoBlockSkip);
+    // rtt_init_print!(NoBlockSkip);
+    let rtt_channels = rtt_target::rtt_init! {
+        up: {
+            0: { // channel number
+                size: 1024 // buffer size in bytes
+                mode: NoBlockSkip // mode (optional, default: NoBlockSkip, see enum ChannelMode)
+                name: "Terminal" // name (optional, default: no name)
+            }
+        }
+        down: {
+            0: {
+                size: 128
+                name: "Terminal"
+            }
+        }
+    };
+    rtt_target::set_print_channel(rtt_channels.up.0);
     //rprintln!("\x1b[2J\x1b[0m");
     rprint!("\n{}==============\n= UWB\n", color::CYAN);
     rprintln!("= {}", config::DEVICE_NAME);
     rprintln!("= v{}", env!("CARGO_PKG_VERSION"));
+    rprintln!("= {:?}", config::DEFAULT_UWB_CHANNEL);
     rprintln!("=============={}\n", color::DEFAULT);
     rprintln!("init...");
 
@@ -174,6 +191,10 @@ pub fn init(
     }
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
     dw1000.configure_leds(false, false, true, true, 1).unwrap();
+    //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
+    //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
+    dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
+
 
     // To VESC
     use hal::serial::{Serial, Event, config::Config};
@@ -198,17 +219,19 @@ pub fn init(
     let usart1_coder = codec::Usart1Coder::new(usart1_p, config::USART1_TX_DMA);
     let usart1_decoder = codec::Usart1Decoder::new(usart1_c);
 
-    // To Ctrl or lidar
-    let usart2_tx = gpioa.pa2.into_alternate_af7();
-    let usart2_rx = gpioa.pa3.into_alternate_af7();
-    let mut usart2 = Serial::usart2(
-        device.USART2,
-        (usart2_tx, usart2_rx),
-        Config::default().baudrate(config::USART2_BAUD.bps()),
-        clocks
-    ).unwrap();
+
     cfg_if! {
         if #[cfg(any(feature = "master", feature = "br"))] {
+            // To Ctrl or lidar
+            let usart2_tx = gpioa.pa2.into_alternate_af7();
+            let usart2_rx = gpioa.pa3.into_alternate_af7();
+            let mut usart2 = Serial::usart2(
+                device.USART2,
+                (usart2_tx, usart2_rx),
+                Config::default().baudrate(config::USART2_BAUD.bps()),
+                clocks
+            ).unwrap();
+
             let (mut usart2_dma_rx_buffer_p, usart2_c) = usart2_dma_rx_buffer.try_split().unwrap();
             let (mut usart2_dma_rcx, usart2_dma_mem_addr) =
                 crate::tasks::dma::DmaRxContext::new(
@@ -382,13 +405,14 @@ pub fn init(
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "br")] { // lidar ctrl
-            cx.spawn.ctrl_link_control().unwrap();
+            //cx.spawn.ctrl_link_control().unwrap();
             let channels = crate::channels::Channels {
                 lidar_bbuffer_c: lidar_frame_c,
                 motion_p: motion_channel_p,
                 motion_telemetry_c,
             };
         } else if #[cfg(feature = "master")] {
+            //cx.spawn.ctrl_link_control().unwrap();
             let channels = crate::channels::Channels {
                 lidar_bbuffer_p: lidar_frame_p,
                 motion_c: motion_channel_c,
@@ -396,13 +420,13 @@ pub fn init(
                 local_motion_telemetry_c,
                 telemetry_staging_area_tacho: crate::channels::TelemetryStagingAreaTacho::default(),
                 telemetry_staging_area_power: crate::channels::TelemetryStagingAreaPower::default(),
-            }
+            };
         } else { // TR, BL
             let channels = crate::channels::Channels {
                 //lidar_queue_p,
                 motion_p: motion_channel_p,
                 motion_telemetry_c,
-            }
+            };
         }
     }
 
@@ -442,7 +466,9 @@ pub fn init(
                     lidar_frame_c,
                     motion_channel_p,
                     motion_telemetry_c,
-                    local_motion_telemetry_p
+                    local_motion_telemetry_p,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl"))] {
                 crate::init::LateResources {
@@ -454,13 +480,10 @@ pub fn init(
                     channels,
                     event_state_data,
 
-                    vesc_serial,
-                    vesc_framer,
-                    vesc_bbbuffer_p, vesc_bbbuffer_c,
-
-                    ctrl_serial,
-                    ctrl_framer,
-                    ctrl_bbbuffer_p, ctrl_bbbuffer_c,
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
 
                     lift_serial,
 
@@ -472,6 +495,8 @@ pub fn init(
 
                     motion_channel_c,
                     motion_telemetry_p,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             } else if #[cfg(feature = "br")] {
                 crate::init::LateResources {
@@ -483,13 +508,15 @@ pub fn init(
                     channels,
                     event_state_data,
 
-                    vesc_serial,
-                    vesc_framer,
-                    vesc_bbbuffer_p, vesc_bbbuffer_c,
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
 
-                    ctrl_serial,
-                    ctrl_framer,
-                    ctrl_bbbuffer_p, ctrl_bbbuffer_c,
+                    usart2_c,
+                    usart2_p,
+                    usart2_dma_tcx,
+                    usart2_dma_rcx,
 
                     lift_serial,
 
@@ -500,10 +527,37 @@ pub fn init(
                     exti,
 
                     lidar: crate::rplidar::RpLidar::new(lidar_frame_p),
-                    lidar_dma,
-                    lidar_dma_c: lidar_dma_buffer_c,
                     motion_channel_c,
                     motion_telemetry_p,
+
+                    rtt_down_channel: rtt_channels.down.0,
+                }
+            } else if #[cfg(feature = "anchor")] {
+                crate::init::LateResources {
+                    clocks,
+
+                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                    radio_commands: radio_commands_p,
+                    scheduler: Scheduler::new(),
+                    channels,
+                    event_state_data,
+
+                    led_blinky,
+                    idle_counter: core::num::Wrapping(0u32),
+                    exti,
+
+                    lift_serial,
+                    motion_channel_c,
+                    motion_telemetry_p,
+
+                    usart1_coder,
+                    usart1_dma_tcx,
+                    usart1_dma_rcx,
+                    usart1_decoder,
+
+                    wheel,
+
+                    rtt_down_channel: rtt_channels.down.0,
                 }
             }
         }

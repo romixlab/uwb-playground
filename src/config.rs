@@ -50,7 +50,7 @@ pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI0;
 pub const GTS_PERIOD: MilliSeconds = ms(50);
 
 use dw1000::mac::{PanId, ShortAddress};
-pub const PAN_ID: PanId = PanId(0x666);
+pub const PAN_ID: PanId = PanId(0x777);
 
 /// Allocate at least this amount of GTS and signal a failure (to all slaves and to uplink)
 /// if one or more is missing for >= THRESH
@@ -58,6 +58,8 @@ pub const REQUIRED_SLAVE_COUNT: u8 = 3;
 
 /// Maximum number of nodes in a PAN
 pub type TotalNodeCount = consts::U5;
+
+pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel3;
 
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
@@ -93,6 +95,9 @@ pub const UWB_ADDR: ShortAddress = BR_UWB_ADDR;
 pub const SLAVE_ID: usize = REQUIRED_SLAVE_COUNT as usize - 1;
 #[cfg(feature = "devnode")]
 pub const UWB_ADDR: ShortAddress = DEV_UWB_ADDR;
+
+#[cfg(feature = "anchor")]
+pub const UWB_ADDR: ShortAddress = ShortAddress(0x666);
 
 pub mod motor_control {
     /// How often timing checks are performed.
@@ -186,6 +191,7 @@ pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 use hal::gpio::gpioc::{PC6};
 use hal::gpio::AF8;
 use stm32f4xx_hal::serial::NoRx;
+use dw1000::configs::UwbChannel;
 
 pub type LiftTxPin = PC6<Alternate<AF8>>;
 pub type LiftSerial = hal::serial::Serial<hal::stm32::USART6, (LiftTxPin, NoRx)>;
@@ -198,3 +204,5 @@ pub const DEVICE_NAME: &str = "TopRight";
 pub const DEVICE_NAME: &str = "BottomLeft";
 #[cfg(feature = "br")]
 pub const DEVICE_NAME: &str = "BottomRight";
+#[cfg(feature = "anchor")]
+pub const DEVICE_NAME: &str = "Anchor";

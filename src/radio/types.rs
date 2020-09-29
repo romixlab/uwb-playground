@@ -5,12 +5,7 @@ use crate::units::{
 };
 use crate::config;
 use crate::board::hal;
-use dw1000::{
-    DW1000,
-    Ready,
-    Receiving,
-    Sending
-};
+use dw1000::{DW1000, Ready, Receiving, Sending, TxConfig};
 use crate::units;
 use typenum::marker_traits::Unsigned;
 use heapless::spsc::{Queue, Producer, Consumer};
@@ -58,6 +53,13 @@ pub enum RadioState {
     GTSStartWaiting(Option<ReceivingRadio>),
     #[cfg(feature = "slave")]
     GTSAnswerSending(Option<SendingRadio>),
+
+    RangingPingSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingPingWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingRequestSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingRequestWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingResponseSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingResponseWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
 }
 
 impl RadioState {
@@ -75,6 +77,8 @@ impl RadioState {
             GTSAnswerSending(_) => { true },
             DynReceiving(_) => { false },
             DynSending(_) => { true },
+            RangingPingSending(_) | RangingRequestSending(_) | RangingResponseSending(_)  => { true },
+            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false }
         }
     }
 }
@@ -86,10 +90,23 @@ pub struct RadioConfig {
     pub prf: PulseRepetitionFrequency,
 }
 
+impl Into<TxConfig> for RadioConfig {
+    fn into(self) -> TxConfig {
+        TxConfig {
+            bitrate: self.bitrate,
+            ranging_enable: false,
+            pulse_repetition_frequency: self.prf,
+            preamble_length: self.recommended_preamble(),
+            channel: self.channel,
+            sfd_sequence: self.recommended_sfd()
+        }
+    }
+}
+
 impl Default for RadioConfig {
     fn default() -> Self {
         RadioConfig {
-            channel: UwbChannel::Channel5,
+            channel: config::DEFAULT_UWB_CHANNEL,
             bitrate: BitRate::Kbps850,
             prf: PulseRepetitionFrequency::Mhz64
         }
@@ -117,7 +134,7 @@ impl RadioConfig {
 
     pub fn fast() -> Self {
         RadioConfig {
-            channel: UwbChannel::Channel5,
+            channel: RadioConfig::default().channel,
             bitrate: BitRate::Kbps6800,
             prf: PulseRepetitionFrequency::Mhz64
         }
@@ -136,11 +153,13 @@ pub enum SlotType {
     DynUplink = 0b011,
     ///
     Ranging = 0b100,
-    Reserved = 0b111,
+    _Reserved1 = 0b101,
+    _Reserved2 = 0b110,
+    _Reserved3 = 0b111,
 }
 
 impl Default for SlotType {
-    fn default() -> Self { SlotType::Reserved }
+    fn default() -> Self { SlotType::_Reserved1 }
 }
 
 /// One window of message exchanges. Requested by slaves and granted by master.
@@ -173,6 +192,8 @@ pub enum Command {
     RangingStart(MicroSeconds, RadioConfig),
     ForceReady,
     ForceReadyIfSending,
+
+    SetAntennaDelay(u16, u16), // tx, rx
 }
 
 pub enum Event {
@@ -239,7 +260,7 @@ pub enum Event {
     // Ranging slot handling
 
     RangingSlotAboutToStart(MicroSeconds, RadioConfig),
-    RangingSlotEnd,
+    RangingSlotEnded,
 
     // Checking
     /// * Emitted from the SM if radio irq is pended but message was not received yet.
@@ -271,7 +292,7 @@ impl core::fmt::Display for Event {
             #[cfg(feature = "slave")]
             Event::ReceiveCheck => { write!(f, "RC") }
             Event::RangingSlotAboutToStart(_, _) => { write!(f, "R_ATS") }
-            Event::RangingSlotEnd => { write!(f, "R_SX") }
+            Event::RangingSlotEnded => { write!(f, "R_SX") }
         }
     }
 }
