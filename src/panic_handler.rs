@@ -54,9 +54,9 @@ fn panic(info: &PanicInfo) -> ! {
     rprintln!(=>0, "PANIC: {}", info);
     rprintln!(=>0, "!!!!!!!");
     blink_led_angrily();
-    cortex_m::peripheral::SCB::sys_reset(); // -> !
-    // loop {
-    //     use core::sync::atomic::{self, Ordering};
-    //     atomic::compiler_fence(Ordering::SeqCst);
-    // }
+    //cortex_m::peripheral::SCB::sys_reset(); // -> !
+    loop {
+        use core::sync::atomic::{self, Ordering};
+        atomic::compiler_fence(Ordering::SeqCst);
+    }
 }
