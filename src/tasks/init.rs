@@ -20,6 +20,8 @@ use core::sync::atomic::{
     compiler_fence,
     Ordering
 };
+use embedded_hal::blocking::spi::Transfer;
+use embedded_hal::spi::FullDuplex;
 
 pub fn init(
     cx: crate::init::Context,
@@ -69,6 +71,7 @@ pub fn init(
             let clocks = rcc.clocks;
         }
     }
+    rprintln!("Clocks: {:#?}", clocks);
     let mut syscfg = device.SYSCFG;
     let mut exti = device.EXTI;
 
@@ -102,7 +105,7 @@ pub fn init(
     led_blinky.set_low().ok();
 
     // DW1000
-    let dw1000_spi_freq = 2.mhz();
+    let dw1000_spi_freq = 1.mhz();
     let dw1000_spi_freq_hi = 18.mhz();
 
     cfg_if! {
@@ -144,12 +147,27 @@ pub fn init(
             );
         }
     }
+
     dw1000_cs.set_high().ok();
     dw1000_reset.set_low().ok();
     busywait!(ms_alt, clocks, 2);
     dw1000_reset.set_high().ok();
     busywait!(ms_alt, clocks, 5);
-    let dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
+    let mut dw1000 = DW1000::new(dw1000_spi, dw1000_cs);
+    match dw1000.device_info() {
+        Ok(info) => {
+            if info.tag_is_correct {
+                rprintln!("DW1000: ok, model:{} ver:{} rev:{}", info.model, info.version, info.revision);
+            } else {
+                rprintln!("{}DW1000 SPI communication error: IncorrectTag{}", color::RED, color::DEFAULT);
+                panic!("DW1000 SPI broken");
+            }
+        },
+        Err(e) => {
+            rprintln!("{}DW1000 SPI communication error: {:?}{}", color::RED, e, color::DEFAULT);
+            panic!("DW1000 SPI broken");
+        }
+    }
     let dw1000 = dw1000.init(dw1000::configs::MaximumFrameLength::Decawave1023);
     let mut dw1000 = match dw1000 {
         Ok(dw1000) => { dw1000 },
@@ -214,6 +232,7 @@ pub fn init(
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let event_state_data = crate::tasks::radio::EventStateData::default();
 
+    cx.spawn.blinker().expect("RTIC failure?");
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {

@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Flash [STLink]" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="channel" value="DEFAULT" />
-    <option name="command" value="flash --release --features &quot;gcharger-board&quot; --chip stm32g474retx" />
+    <option name="command" value="flash --release --features &quot;gcharger-board anchor&quot; --chip stm32g474retx" />
     <option name="allFeatures" value="false" />
     <option name="emulateTerminal" value="false" />
     <option name="backtrace" value="SHORT" />

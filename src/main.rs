@@ -119,3 +119,10 @@ const APP: () = {
         fn EXTI9_5();
     }
 };
+
+use cortex_m_rt::exception;
+#[exception]
+fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {
+    // prints the exception frame as a panic message
+    panic!("{:#?}", ef);
+}
