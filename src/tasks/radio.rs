@@ -180,20 +180,12 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         TimeMark(instant) => {
             cx.resources.event_state_data.time_mark = Some(instant);
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSAboutToStart(gt_slot_duration, radio_config) => {
             radio_command!(cx, Command::SendGTSAnswer(gt_slot_duration, radio_config));
             cx.resources.event_state_data.clear_flags();
             cx.resources.event_state_data.gts_duration = gt_slot_duration;
             cx.resources.event_state_data.gts_started = Some(CycntInstant::now());
-        },
-        #[cfg(feature = "gcharger-board")]
-        GTSAboutToStart(_, _) => {
-
-        },
-        #[cfg(feature = "gcharger-board")]
-        DynUplinkAboutToStart(_, _) => {
-
         },
         GTSProcessingFinished => {
             cx.resources.event_state_data.gts_processing_finished = true;
@@ -214,7 +206,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 "GTS"
             );
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartReceived(time_mark) => {
             // Save timing marker
             cx.resources.event_state_data.time_mark = Some(time_mark);
@@ -325,11 +317,11 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 Event::GTSStartAboutToBeBroadcasted
             ).ok(); // TODO: count
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartAboutToBeBroadcasted => {
             radio_command!(cx, Command::ListenForGTSStart(RadioConfig::default()));
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         ReceiveCheck => {
             rtic::pend(config::DW1000_IRQ_EXTI);
             let dt: MilliSeconds = config::DW1000_CHECK_PERIOD;
@@ -350,7 +342,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             cx.resources.event_state_data.dyn_started = Some(CycntInstant::now());
             radio_command!(cx, Command::DynListen(dyn_phase_duration, radio_config));
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         DynUplinkAboutToStart(dyn_slot_duration, radio_config) => {
             cx.resources.event_state_data.dyn_duration = dyn_slot_duration;
             cx.resources.event_state_data.dyn_started = Some(CycntInstant::now());

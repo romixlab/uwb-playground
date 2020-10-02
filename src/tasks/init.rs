@@ -22,6 +22,10 @@ use core::sync::atomic::{
 };
 use embedded_hal::blocking::spi::Transfer;
 use embedded_hal::spi::FullDuplex;
+use stm32g4xx_hal::gpio::SignalEdge;
+use crate::radio::types::{ReadyRadio, Pong};
+use dw1000::mac::{Address, PanId, ShortAddress};
+use dw1000::hl::SendTime;
 
 pub fn init(
     cx: crate::init::Context,
@@ -138,6 +142,7 @@ pub fn init(
             //let _dw1000_wakeup = gpioc.pc5;
             let trace_pin = gpioa.pa10.into_push_pull_output();
             let mut dw1000_irq = gpioc.pc15.into_pull_down_input();
+            dw1000_irq = dw1000_irq.listen(SignalEdge::Rising, &mut syscfg, &mut exti);
             let mut dw1000_spi = hal::spi::Spi::spi3(
                 device.SPI3,
                 (dw1000_clk, dw1000_miso, dw1000_mosi),
@@ -228,11 +233,21 @@ pub fn init(
     //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
     dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
 
-
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let event_state_data = crate::tasks::radio::EventStateData::default();
 
     cx.spawn.blinker().expect("RTIC failure?");
+    cfg_if! {
+        if #[cfg(feature = "master")] {
+            cx.spawn.radio_event(
+                radio::Event::GTSAboutToStart(
+                    Scheduler::gts_phase_duration(), RadioConfig::default()
+                )).ok();
+        } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
+            cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();
+            cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
+        }
+    }
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {

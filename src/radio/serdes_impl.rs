@@ -16,7 +16,7 @@ use super::types::{
 };
 use super::Error;
 use crate::units::MicroSeconds;
-use crate::radio::types::Pong;
+use crate::radio::types::{Pong, DummyMessage};
 use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse};
 
 fn channel_from_u8(n: u8) -> Option<UwbChannel> {
@@ -60,6 +60,11 @@ impl MessageSpec for Slot {
 }
 
 // &[u8] ID = 0xfd
+
+impl MessageSpec for DummyMessage {
+    const ID: u8 = 0xfe;
+    const SIZE: usize = 1; // + len
+}
 
 impl MessageSpec for Pong {
     const ID: u8 = 0x30;
@@ -319,5 +324,19 @@ impl Deserialize for RangingResponse {
         let mut request_reply_time = eat_duration!(buf);
 
         Ok(RangingResponse{ ping_reply_time, ping_round_trip_time, request_tx_time, request_reply_time })
+    }
+}
+
+impl Serialize for DummyMessage {
+    type Error = Error;
+
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        put_id!(buf, Self::ID, Self::SIZE + self.length as usize, {});
+        buf.put_nothing(self.length as usize);
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize {
+        self.length as usize + 1
     }
 }

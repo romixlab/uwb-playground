@@ -25,9 +25,10 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
                                 rprintln!(=>0, "Available commands: uwb_adelay");
                             },
                             "uwb_adelay" => {
-                                cx.resources.radio_commands.lock(|radio_commands_p| {
-                                    uwb_antenna_delay_command(&mut args, radio_commands_p);
-                                });
+                                uwb_antenna_delay_command(&mut args, &mut cx.resources.radio_commands);
+                            },
+                            "uwb_send" => {
+                                uwb_send_command(&mut args, &mut cx.resources.radio_commands);
                             },
                             _ => {
                                 rprintln!(=>0, "{}Unknown command, ignoring.{}", color::YELLOW, color::DEFAULT);
@@ -49,7 +50,7 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
     }
 }
 
-fn uwb_antenna_delay_command(args: &mut core::str::SplitAsciiWhitespace, radio_commands_p: &mut crate::radio::types::CommandQueueP) {
+fn uwb_antenna_delay_command(args: &mut core::str::SplitAsciiWhitespace, radio_commands_p: &mut crate::resources::radio_commands) {
     use crate::radio::types::Command;
     let tx_delay = args.next();
     let rx_delay = args.next();
@@ -59,7 +60,9 @@ fn uwb_antenna_delay_command(args: &mut core::str::SplitAsciiWhitespace, radio_c
             let rx_delay: Result<u16, ParseIntegerError> = btoi(rx_delay.as_bytes());
             match (tx_delay, rx_delay) {
                 (Ok(tx_delay), Ok(rx_delay)) => {
-                    let result = radio_commands_p.enqueue(Command::SetAntennaDelay(tx_delay, rx_delay));
+                    let result = radio_commands_p.lock(|radio_commands_p| {
+                        radio_commands_p.enqueue(Command::SetAntennaDelay(tx_delay, rx_delay))
+                    });
                     rprintln!(=>0, "Setting delay to: tx: {} rx: {} ok:{}", tx_delay, rx_delay, result.is_ok());
                 },
                 _ => {
@@ -71,4 +74,8 @@ fn uwb_antenna_delay_command(args: &mut core::str::SplitAsciiWhitespace, radio_c
             rprintln!(=>0, "{}Wrong syntax, provide tx and rx delay{}", color::RED, color::DEFAULT);
         }
     }
+}
+
+fn uwb_send_command(args: &mut core::str::SplitAsciiWhitespace, radio_commands_p: &mut crate::resources::radio_commands) {
+
 }

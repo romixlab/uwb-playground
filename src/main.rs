@@ -76,7 +76,7 @@ const APP: () = {
     }
 
     #[task(
-        binds = EXTI0,
+        binds = EXTI15_10,
         priority = 3,
         resources = [
             &clocks,

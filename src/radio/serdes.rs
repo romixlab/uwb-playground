@@ -170,6 +170,10 @@ impl<'a> BufMut<'a> {
         }
         self.idx += s.len();
     }
+
+    pub fn put_nothing(&mut self, len: usize) {
+        self.idx += len;
+    }
 }
 
 // use serde::{ser::{SerializeStruct, Serializer}};
