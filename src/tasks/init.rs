@@ -108,18 +108,19 @@ pub fn init(
     }
     led_blinky.set_low().ok();
 
-    let fdcan1_tx = gpiob.pb9;
-    let fdcan1_rx = gpiob.pb8;
-    let mut can = hal::can::Can::new_classical(
-        device.FDCAN1,
-        (fdcan1_tx, fdcan1_rx),
-        hal::can::Mode::Normal,
-        hal::can::Retransmission::Enabled,
-        hal::can::TransmitPause::Enabled,
-        &mut rcc,
-        &mut core.DWT
-    );
-    rprintln!("can::new_classical: {}", can.is_ok());
+    // let fdcan1_tx = gpiob.pb9;
+    // let fdcan1_rx = gpiob.pb8;
+    // let mut can = hal::can::Can::new_classical(
+    //     device.FDCAN1,
+    //     (fdcan1_tx, fdcan1_rx),
+    //     hal::can::Mode::Normal,
+    //     hal::can::Retransmission::Enabled,
+    //     hal::can::TransmitPause::Enabled,
+    //     hal::can::Timing::,
+    //     &mut rcc,
+    //     &mut core.DWT
+    // );
+    // rprintln!("can::new_classical: {}", can.is_ok());
 
 
     // DW1000

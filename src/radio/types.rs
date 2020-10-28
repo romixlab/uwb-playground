@@ -68,6 +68,7 @@ pub enum RadioState {
     RangingResponseWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
 
     OneOffSending(Option<SendingRadio>),
+    Listening(Option<ReceivingRadio>)
 }
 
 impl RadioState {
@@ -86,8 +87,9 @@ impl RadioState {
             DynReceiving(_) => { false },
             DynSending(_) => { true },
             RangingPingSending(_) | RangingRequestSending(_) | RangingResponseSending(_)  => { true },
-            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false }
-            OneOffSending(_) => { true }
+            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false },
+            OneOffSending(_) => { true },
+            Listening(_) => { false }
         }
     }
 }
@@ -203,7 +205,8 @@ pub enum Command {
     ForceReadyIfSending,
 
     SetAntennaDelay(u16, u16), // tx, rx
-    SendMessage(RadioConfig, Address, DummyMessage)
+    SendMessage(RadioConfig, Address, DummyMessage),
+    Listen(RadioConfig),
 }
 
 #[derive(Copy, Clone, PartialEq)]

@@ -4,6 +4,9 @@ use rtt_target::{rprint, rprintln};
 use crate::color;
 use no_std_compat::prelude::v1::*;
 use btoi::{btoi, ParseIntegerError};
+use crate::radio::types::{RadioConfig, DummyMessage};
+use dw1000::mac::{Address, AddressMode};
+use dw1000::configs::UwbChannel;
 
 pub fn idle(mut cx: crate::idle::Context) -> ! {
     rprint!(=>0, "{}> {}", color::GREEN, color::DEFAULT);
@@ -29,6 +32,9 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
                             },
                             "uwb_send" => {
                                 uwb_send_command(&mut args, &mut cx.resources.radio_commands);
+                            },
+                            "uwb_listen" => {
+                                uwb_listen(&mut args, &mut cx.resources.radio_commands);
                             },
                             _ => {
                                 rprintln!(=>0, "{}Unknown command, ignoring.{}", color::YELLOW, color::DEFAULT);
@@ -77,5 +83,23 @@ fn uwb_antenna_delay_command(args: &mut core::str::SplitAsciiWhitespace, radio_c
 }
 
 fn uwb_send_command(args: &mut core::str::SplitAsciiWhitespace, radio_commands_p: &mut crate::resources::radio_commands) {
+    use crate::radio::types::Command;
+    let mut radio_config = RadioConfig::default();
+    radio_config.channel = UwbChannel::Channel3;
 
+    let result = radio_commands_p.lock(|radio_commands_p| {
+        radio_commands_p.enqueue(Command::SendMessage(radio_config, Address::broadcast(&AddressMode::Short), DummyMessage{length: 16}))
+    });
+    rprintln!(=>0, "Sending: {}", result.is_ok());
+}
+
+fn uwb_listen(args: &mut core::str::SplitAsciiWhitespace, radio_commands_p: &mut crate::resources::radio_commands) {
+    use crate::radio::types::Command;
+    let  mut radio_config = RadioConfig::default();
+    radio_config.channel = UwbChannel::Channel3;
+
+    let result = radio_commands_p.lock(|radio_commands_p| {
+        radio_commands_p.enqueue(Command::Listen(radio_config))
+    });
+    rprintln!(=>0, "Listen: {}", result.is_ok());
 }

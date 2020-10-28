@@ -125,6 +125,10 @@ fn prepare_radio(state: &mut RadioState) -> ReadyRadio {
         OneOffSending(rs) => {
             let sending_radio = rs.take().expect(SM_FAIL_MESSAGE);
             sending_radio.finish_sending().expect(SM_FAIL_MESSAGE)
+        },
+        Listening(rs) => {
+            let receiving_radio = rs.take().expect(SM_FAIL_MESSAGE);
+            receiving_radio.finish_receiving().expect(SM_FAIL_MESSAGE)
         }
     };
     ready_radio
@@ -219,6 +223,11 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
                             SendTime::Now
                         );
                         radio.state = RadioState::OneOffSending(Some(sending_radio));
+                    },
+                    Listen(radio_config) => {
+                        let mut ready_radio = prepare_radio(&mut radio.state);
+                        let receiving_radio = enable_receiver(ready_radio, radio_config);
+                        radio.state = RadioState::Listening(Some(receiving_radio));
                     }
                 };
             }
@@ -295,6 +304,10 @@ pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
         OneOffSending(sd) => {
             let sending_radio = sd.take().expect(SM_FAIL_MESSAGE);
             advance_sending_to_ready(sending_radio, &mut cx)
+        },
+        Listening(sd) => {
+            let receiving_radio = sd.take().expect(SM_FAIL_MESSAGE);
+            advance_listening_to_listening(receiving_radio, &mut cx, buffer)
         }
     };
 }
@@ -472,6 +485,33 @@ fn advance_sending_to_ready<A: Arbiter, T: Tracer>(
             rprintln!(=>1,"{}One off send error: {:?}{}", color::RED, e, color::DEFAULT);
                 let ready_radio = sending_radio.finish_sending().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
                 RadioState::Ready(Some(ready_radio))
+            }
+        }
+    }
+}
+
+fn advance_listening_to_listening<A: Arbiter<Error = Error>, T: Tracer>(
+    mut receiving_radio: ReceivingRadio,
+    mut cx: &mut SMContext<A, T>,
+    buffer: &mut[u8],
+) -> RadioState
+{
+    match receiving_radio.wait(buffer) {
+        Ok(message) => {
+            cx.tracer.event(TraceEvent::MessageReceived);
+            rprintln!(=>10, "{:?}", message.0);
+            let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+            let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
+            RadioState::Listening(Some(receiving_radio))
+        },
+        Err(e) => {
+            if let nb::Error::WouldBlock = e {
+                RadioState::Listening(Some(receiving_radio))
+            } else { // Actuall error while receiving
+                rprintln!(=>1,"{}L re:{:?}{}", color::RED, e, color::DEFAULT);
+                let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
+                let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
+                RadioState::Listening(Some(receiving_radio))
             }
         }
     }
