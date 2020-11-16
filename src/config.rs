@@ -5,11 +5,22 @@ use crate::units::{
 };
 use typenum::consts;
 use bbqueue::{BBBuffer, Consumer, Producer};
-#[cfg(feature = "pozyx-board")]
-use hal::gpio::{PushPull, Output, Alternate, Input, PullDown};
+use hal::gpio::{PushPull, Output, Input, PullDown, Floating, DefaultMode};
+use heapless::binary_heap::{BinaryHeap, Min};
+use heapless::consts::*;
 
 #[cfg(feature = "pozyx-board")]
 use hal::gpio::{AF5, gpioa::{PA4, PA5, PA6, PA7}};
+
+#[cfg(feature = "gcharger-board")]
+pub type Can0Tx = PB9<Input<Floating>>;
+#[cfg(feature = "gcharger-board")]
+pub type Can0Rx = PB8<Input<Floating>>;
+#[cfg(feature = "gcharger-board")]
+pub type Can0 = hal::can::ClassicalCanInstance;
+pub type CanSendHeap = vhrdcan::FrameHeap<U64>;
+pub type CanReceiveHeap = vhrdcan::FrameHeap<U64>;
+
 
 #[cfg(feature = "pozyx-board")]
 pub type Dw1000Clk = PA5<Alternate<AF5>>;
@@ -22,8 +33,6 @@ pub type Dw1000Cs = PA4<Output<PushPull>>;
 
 #[cfg(feature = "gcharger-board")]
 use hal::gpio::{gpioa::*, gpiob::*, gpioc::*, gpiod::*};
-#[cfg(feature = "gcharger-board")]
-use hal::gpio::{Output, Input, PushPull, PullDown, DefaultMode};
 
 #[cfg(feature = "gcharger-board")]
 pub type Dw1000Clk = PC10<DefaultMode>;
@@ -125,7 +134,7 @@ pub type RadioIrqPin = PC15<Input<PullDown>>;
 #[cfg(feature = "pozyx-board")]
 pub type RadioTracePin = PA1<Output<PushPull>>;
 #[cfg(feature = "gcharger-board")]
-pub type RadioTracePin = PA10<Output<PushPull>>;
+pub type RadioTracePin = PA2<Output<PushPull>>;
 
 pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 

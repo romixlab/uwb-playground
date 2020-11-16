@@ -20,19 +20,23 @@ use core::num::Wrapping;
 use rtic::{app};
 use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
+use rtt_target::rprintln;
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         clocks: Clocks,
         radio: radio::Radio,
+        trace_pin: config::RadioTracePin,
         radio_commands: radio::types::CommandQueueP,
         channels: channels::Channels,
         scheduler: radio::scheduler::Scheduler,
         event_state_data: tasks::radio::EventStateData,
         led_blinky: config::LedBlinkyPin,
         idle_counter: Wrapping<u32>,
-        rtt_down_channel: rtt_target::DownChannel
+        rtt_down_channel: rtt_target::DownChannel,
+        can0: config::Can0,
+        can0_send_heap: config::CanSendHeap,
     }
 
     #[init(
@@ -65,6 +69,7 @@ const APP: () = {
         resources = [
             &clocks,
             led_blinky,
+            can0_send_heap
         ],
         schedule = [
             blinker,
@@ -77,10 +82,11 @@ const APP: () = {
 
     #[task(
         binds = EXTI15_10,
-        priority = 3,
+        priority = 4,
         resources = [
             &clocks,
             radio,
+            trace_pin,
             scheduler,
             idle_counter,
             channels,
@@ -94,7 +100,7 @@ const APP: () = {
     }
 
     #[task(
-        priority = 2,
+        priority = 3,
         capacity = 24,
         resources = [
             &clocks,
@@ -110,6 +116,27 @@ const APP: () = {
     )]
     fn radio_event(cx: radio_event::Context, e: radio::types::Event) {
         tasks::radio::radio_event(cx, e);
+    }
+
+    #[task(
+        binds = FDCAN1_INTR0_IT,
+        priority = 2,
+        resources = [
+            can0,
+            can0_send_heap
+        ]
+    )]
+    fn can_irq0(cx: can_irq0::Context) {
+        let can: &mut config::Can0 = cx.resources.can0;
+        use crate::hal::can::ClassicalCan;
+        rprintln!("can_irq0");
+        rprintln!("reason: {:?}", can.interrupt_reason());
+        rprintln!("{:?}", can.protocol_status());
+        rprintln!("rec:{} tec:{}", can.receive_error_counter(), can.transmit_error_counter());
+        rprintln!("rx_pin: {:?}", can.rx_pin_state());
+        while let Some(frame) = cx.resources.can0_send_heap.heap.pop() {
+            rprintln!("{:?}", frame);
+        }
     }
 
     extern "C" {

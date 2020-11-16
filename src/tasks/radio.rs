@@ -31,15 +31,15 @@ impl Tracer for RttTracer {
 
         let now = DWT::get_cycle_count();
 
-        use crate::board::hal::stm32::Peripherals;
-        let device = unsafe { Peripherals::steal() };
-        let gpioa = device.GPIOA;
+        // use crate::board::hal::stm32::Peripherals;
+        // let device = unsafe { Peripherals::steal() };
+        // let gpioa = device.GPIOA;
         let count = e as u8;
-        for _ in 0..count {
-            gpioa.bsrr.write(|w| w.bs1().set_bit());
-            cortex_m::asm::nop();
-            gpioa.bsrr.write(|w| w.br1().set_bit());
-        }
+        // for _ in 0..count {
+        //     gpioa.bsrr.write(|w| w.bs2().set_bit());
+        //     cortex_m::asm::nop();
+        //     gpioa.bsrr.write(|w| w.br2().set_bit());
+        // }
 
         let dt_gts = now - self.prev_gts;
         let dt_prev = now - self.prev;
@@ -87,6 +87,7 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     //     *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
     // }
     //rprintln!(=>2, "IRQ: {}us", cycles2us!(cx, dt));
+    cx.resources.trace_pin.set_high().ok();
 
     cx.resources.radio.irq.clear_interrupt_pending_bit();
     for _ in 0..42 {
@@ -107,6 +108,7 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     if cx.resources.radio.irq.is_high().unwrap() {
         rprintln!(=>2, "radio_irq: still pending after many tries!");
     }
+    cx.resources.trace_pin.set_low().ok();
 }
 
 #[derive(Default)]

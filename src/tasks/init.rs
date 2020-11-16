@@ -108,20 +108,43 @@ pub fn init(
     }
     led_blinky.set_low().ok();
 
-    // let fdcan1_tx = gpiob.pb9;
-    // let fdcan1_rx = gpiob.pb8;
-    // let mut can = hal::can::Can::new_classical(
-    //     device.FDCAN1,
-    //     (fdcan1_tx, fdcan1_rx),
-    //     hal::can::Mode::Normal,
-    //     hal::can::Retransmission::Enabled,
-    //     hal::can::TransmitPause::Enabled,
-    //     hal::can::Timing::,
-    //     &mut rcc,
-    //     &mut core.DWT
-    // );
-    // rprintln!("can::new_classical: {}", can.is_ok());
+    let fdcan1_tx = gpiob.pb9;
+    let fdcan1_rx = gpiob.pb8;
+    use hal::can;
+    use can::{CanController, CanInstance, ClockSource};
+    let mut can_ctrl = CanController::new(
+        ClockSource::Pllq,
+        &mut rcc,
+        &mut core.DWT
+    ).unwrap();
+    let mut can0 = CanInstance::new_classical(
+        &mut can_ctrl,
+        device.FDCAN1,
+        (fdcan1_tx, fdcan1_rx),
+        can::Mode::Normal,
+        can::Retransmission::Enabled,
+        can::TransmitPause::Enabled,
+        can::ClockDiv::Div1,
+        can::BitTiming::default_1mbps(),
+    );
+    rprintln!("can::new_classical: {}", can0.is_ok());
+    let mut can0 = match can0 {
+        Ok((can0, _)) => can0,
+        Err(e) => {
+            panic!("can::new_classical: err: {:?}", e.0);
+        }
+    };
+    can0.send();
+    use can::ClassicalCan;
+    unsafe {
+        can0.ll(|can_regs| {
+            (*can_regs).ie.write(|w| unsafe { w.bits(0xff_ffff) }); // enable all interrupts
+            (*can_regs).ile.write(|w| w.eint0().set_bit()); // enable irq0 line
+            (*can_regs).txbar.write(|w| unsafe { w.ar().bits(0b111) });
 
+        });
+    }
+    let mut can0_send_heap = vhrdcan::FrameHeap::new();
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -135,9 +158,9 @@ pub fn init(
             let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
             let dw1000_miso   = gpioa.pa6.into_alternate_af5();
             let _dw1000_wakeup = gpioc.pc5;
-            let mut dw1000_irq = gpioa.pa0.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
+            let mut dw1000_irq = gpiob.pb11.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
             //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input(); // IRQ never ends with this
-            let trace_pin = gpioa.pa1.into_push_pull_output(); // Header pin 1
+            let trace_pin = gpioa.pa2.into_push_pull_output(); // unsafe bit banged in radio.rs
             dw1000_irq.make_interrupt_source(&mut syscfg);
             dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
             dw1000_irq.enable_interrupt(&mut exti);
@@ -155,9 +178,9 @@ pub fn init(
             let dw1000_mosi   = gpioc.pc12;
             let dw1000_miso   = gpioc.pc11;
             //let _dw1000_wakeup = gpioc.pc5;
-            let trace_pin = gpioa.pa10.into_push_pull_output();
+            let trace_pin = gpioa.pa2.into_push_pull_output();
             let mut dw1000_irq = gpioc.pc15.into_pull_down_input();
-            dw1000_irq = dw1000_irq.listen(SignalEdge::Rising, &mut syscfg, &mut exti);
+            dw1000_irq = dw1000_irq.listen(SignalEdge::Rising, &mut syscfg, &mut exti, &mut rcc);
             let mut dw1000_spi = hal::spi::Spi::spi3(
                 device.SPI3,
                 (dw1000_clk, dw1000_miso, dw1000_mosi),
@@ -260,7 +283,7 @@ pub fn init(
                 )).ok();
         } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
             cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();
-            cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
+            //cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
         }
     }
 
@@ -367,6 +390,7 @@ pub fn init(
                     clocks,
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                    trace_pin,
                     radio_commands: radio_commands_p,
                     scheduler: Scheduler::new(),
                     event_state_data,
@@ -376,6 +400,9 @@ pub fn init(
                     idle_counter: core::num::Wrapping(0u32),
 
                     rtt_down_channel: rtt_channels.down.0,
+
+                    can0,
+                    can0_send_heap
                 }
             }
         }

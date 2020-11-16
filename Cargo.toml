@@ -25,6 +25,7 @@ typenum = "1.12.0"
 bincrc_codec = { git = "https://github.com/romixlab/bincrc_codec", default-features = false }
 no-std-compat = "0.4.1"
 btoi = { version = "0.4.2", default-features = false }
+vhrdcan = { path = "../vhrdcan" }
 
 [dependencies.stm32f4xx-hal]
 version = "0.8"
