@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Check" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="Check [anchor]" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="channel" value="DEFAULT" />
     <option name="command" value="check --release --features &quot;gcharger-board anchor&quot;" />
     <option name="allFeatures" value="false" />
