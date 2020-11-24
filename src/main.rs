@@ -20,7 +20,7 @@ use core::num::Wrapping;
 use rtic::{app};
 use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
-use rtt_target::rprintln;
+use rtt_target::{rprint, rprintln};
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -37,6 +37,7 @@ const APP: () = {
         rtt_down_channel: rtt_target::DownChannel,
         can0: config::Can0,
         can0_send_heap: config::CanSendHeap,
+        imx_serial: config::ImxSerial,
     }
 
     #[init(
@@ -58,7 +59,8 @@ const APP: () = {
         resources = [
             idle_counter,
             rtt_down_channel,
-            radio_commands
+            radio_commands,
+            imx_serial
         ]
     )]
     fn idle(cx: idle::Context) -> ! {
@@ -76,12 +78,12 @@ const APP: () = {
         ]
     )]
     fn blinker(cx: blinker::Context) {
-        static mut LED_STATE: bool = false;
-        tasks::blinker::blinker(cx, LED_STATE);
+        tasks::blinker::blinker(cx);
     }
 
     #[task(
-        binds = EXTI15_10,
+        // binds = EXTI15_10,
+        binds = EXTI9_5,
         priority = 4,
         resources = [
             &clocks,
@@ -118,32 +120,32 @@ const APP: () = {
         tasks::radio::radio_event(cx, e);
     }
 
+    // Not an error!, vectors are swapped
     #[task(
-        binds = FDCAN1_INTR0_IT,
+        binds = FDCAN1_INTR1_IT,
         priority = 2,
         resources = [
             can0,
             can0_send_heap
         ]
     )]
-    fn can_irq0(cx: can_irq0::Context) {
-        let can: &mut config::Can0 = cx.resources.can0;
-        use crate::hal::can::ClassicalCan;
-        rprintln!("can_irq0");
-        rprintln!("reason: {:?}", can.interrupt_reason());
-        rprintln!("{:?}", can.protocol_status());
-        rprintln!("rec:{} tec:{}", can.receive_error_counter(), can.transmit_error_counter());
-        rprintln!("rx_pin: {:?}", can.rx_pin_state());
-        while let Some(frame) = cx.resources.can0_send_heap.heap.pop() {
-            rprintln!("{:?}", frame);
-        }
+    fn can0_irq0(cx: can0_irq0::Context) {
+        tasks::canbus::can0_irq0(cx);
+    }
+
+    #[task(
+        binds = FDCAN1_INTR0_IT,
+        priority = 2,
+    )]
+    fn can_irq1(cx: can_irq1::Context) {
+        rprintln!("can_irq1");
     }
 
     extern "C" {
         fn EXTI1();
         fn EXTI2();
         fn EXTI3();
-        fn EXTI9_5();
+        // fn EXTI9_5();
     }
 };
 

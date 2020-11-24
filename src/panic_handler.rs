@@ -36,6 +36,17 @@ fn blink_led_angrily() {
     blink_code_impl(led_red, 160_000_000 / 1_000 * 50);
 }
 
+#[cfg(feature = "gcarrier-board")]
+fn blink_led_angrily() {
+    use crate::board::hal::rcc::RccExt;
+
+    let device = unsafe { Peripherals::steal() };
+    let mut rcc = device.RCC.constrain();
+    let gpiob = device.GPIOB.split(&mut rcc);
+    let led_red = gpiob.pb0.into_push_pull_output();
+    blink_code_impl(led_red, 160_000_000 / 1_000 * 50);
+}
+
 #[inline(never)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

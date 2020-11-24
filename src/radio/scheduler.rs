@@ -18,6 +18,7 @@ use dw1000::{
 use crate::units::MicroSeconds;
 use crate::config;
 use core::iter::Filter;
+use crate::radio::types::ReadyRadio;
 
 pub struct Scheduler {
     #[cfg(feature = "master")]
@@ -211,3 +212,11 @@ impl Scheduler {
     pub fn half_guard() -> MicroSeconds { Self::guard() / 2 }
     pub fn quarter_guard() -> MicroSeconds { Self::guard() / 4 }
 }
+
+// pub struct Trainer {
+//
+// }
+//
+// impl Trainer {
+//     pub fn train(ready_radio: ReadyRadio) ->
+// }

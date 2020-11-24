@@ -2,6 +2,7 @@ pub mod init;
 pub mod idle;
 pub mod blinker;
 pub mod radio;
+pub mod canbus;
 //pub mod usart;
 //pub mod motion;
 //pub mod channel_event;

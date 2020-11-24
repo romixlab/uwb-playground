@@ -7,6 +7,7 @@ use btoi::{btoi, ParseIntegerError};
 use crate::radio::types::{RadioConfig, DummyMessage};
 use dw1000::mac::{Address, AddressMode};
 use dw1000::configs::UwbChannel;
+use embedded_hal::serial::Read;
 
 pub fn idle(mut cx: crate::idle::Context) -> ! {
     rprint!(=>0, "{}> {}", color::GREEN, color::DEFAULT);
@@ -50,8 +51,15 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
             rprint!(=>0, "{}> {}", color::GREEN, color::DEFAULT);
         }
 
+        match cx.resources.imx_serial.read() {
+            Ok(c) => {
+                rprint!(=>3, "imx: {}", c as char);
+            },
+            _ => {}
+        }
+
         cx.resources.idle_counter.lock(|counter| *counter += Wrapping(1u32));
-        cortex_m::asm::delay(20_000_000);
+        cortex_m::asm::delay(1_000_000);
         //atomic::compiler_fence(Ordering::SeqCst);
     }
 }

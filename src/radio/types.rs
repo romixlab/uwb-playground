@@ -34,6 +34,8 @@ pub enum Error {
 pub type Dw10000SpiIface = hal::stm32::SPI1;
 #[cfg(feature = "gcharger-board")]
 pub type Dw10000SpiIface = hal::stm32::SPI3;
+#[cfg(feature = "gcarrier-board")]
+pub type Dw10000SpiIface = hal::stm32::SPI1;
 
 pub type Dw1000Spi = hal::spi::Spi<Dw10000SpiIface,
     (config::Dw1000Clk, config::Dw1000Miso, config::Dw1000Mosi)>;
