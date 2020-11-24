@@ -1,8 +1,5 @@
 use crate::board::hal;
-use crate::units::{
-    MilliSeconds,
-    ms
-};
+use crate::units::{MilliSeconds, ms, U32UnitsExt};
 use typenum::consts;
 use bbqueue::{BBBuffer, Consumer, Producer};
 use hal::gpio::{PushPull, Output, Input, PullDown, Floating, DefaultMode};
@@ -21,7 +18,10 @@ pub type Can0 = hal::can::ClassicalCanInstance;
 
 pub type CanSendHeap = vhrdcan::FrameHeap<U128>;
 pub type CanReceiveHeap = vhrdcan::FrameHeap<U128>;
+pub type CanLocalProcessingHeap = vhrdcan::FrameHeap<U32>;
+pub type ForwardHeapSize = consts::U128;
 pub const Can0SendIrq: Interrupt = Interrupt::FDCAN1_INTR1_IT;
+pub type RxRoutingTableSize = consts::U32;
 
 pub type ImxSerialTx = PC4<Input<Floating>>;
 pub type ImxSerialRx = PC5<Input<Floating>>;

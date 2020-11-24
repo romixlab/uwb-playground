@@ -147,7 +147,12 @@ pub fn init(
     }
     let mut can0_send_heap = vhrdcan::FrameHeap::new();
     let mut can0_receive_heap = vhrdcan::FrameHeap::new();
-    let can0_ll_statistics = crate::tasks::canbus::Statistics::default();
+    let can0_ll_statistics = crate::tasks::canbus::LLStatistics::default();
+    let mut can0_rx_routing_table = heapless::Vec::new();
+    crate::tasks::canbus::load_rx_routing_table(&mut can0_rx_routing_table);
+    let can0_rx_routing_statistics = crate::tasks::canbus::RxRoutingStatistics::default();
+    let can0_local_processing_heap = vhrdcan::FrameHeap::new();
+    let forward_heap = heapless::BinaryHeap::new();
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -355,6 +360,10 @@ pub fn init(
                     can0_send_heap,
                     can0_receive_heap,
                     can0_ll_statistics,
+                    can0_rx_routing_table,
+                    can0_rx_routing_statistics,
+                    can0_local_processing_heap,
+                    forward_heap,
 
                     imx_serial,
                 }
@@ -378,6 +387,11 @@ pub fn init(
                     can0_send_heap,
                     can0_receive_heap,
                     can0_ll_statistics,
+                    can0_rx_routing_table,
+                    can0_rx_routing_table,
+                    can0_rx_routing_statistics,
+                    can0_local_processing_heap,
+                    forward_heap,
                 }
             } else if #[cfg(feature = "anchor")] {
                 crate::init::LateResources {
@@ -399,6 +413,10 @@ pub fn init(
                     can0_send_heap,
                     can0_receive_heap,
                     can0_ll_statistics,
+                    can0_rx_routing_table,
+                    can0_rx_routing_statistics,
+                    can0_local_processing_heap,
+                    forward_heap,
                 }
             }
         }

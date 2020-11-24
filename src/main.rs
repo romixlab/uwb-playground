@@ -39,7 +39,11 @@ const APP: () = {
         can0: config::Can0,
         can0_send_heap: config::CanSendHeap,
         can0_receive_heap: config::CanReceiveHeap,
-        can0_ll_statistics: tasks::canbus::Statistics,
+        can0_ll_statistics: tasks::canbus::LLStatistics,
+        can0_rx_routing_table: tasks::canbus::RxRoutingTable,
+        can0_rx_routing_statistics: tasks::canbus::RxRoutingStatistics,
+        can0_local_processing_heap: config::CanLocalProcessingHeap,
+        forward_heap: tasks::canbus::ForwardHeap,
 
         imx_serial: config::ImxSerial,
     }
@@ -139,12 +143,26 @@ const APP: () = {
         tasks::canbus::can0_irq0(cx);
     }
 
+    // #[task(
+    //     binds = FDCAN1_INTR0_IT,
+    //     priority = 2,
+    // )]
+    // fn can_irq1(cx: can_irq1::Context) {
+    //     rprintln!("can_irq1");
+    // }
+
     #[task(
-        binds = FDCAN1_INTR0_IT,
         priority = 2,
+        resources = [
+            can0_receive_heap,
+            can0_rx_routing_table,
+            can0_rx_routing_statistics,
+            can0_local_processing_heap,
+            forward_heap,
+        ]
     )]
-    fn can_irq1(cx: can_irq1::Context) {
-        rprintln!("can_irq1");
+    fn can0_rx_router(cx: can0_rx_router::Context) {
+        tasks::canbus::can0_rx_router(cx);
     }
 
     extern "C" {
