@@ -16,11 +16,16 @@ use hal::gpio::{AF5, gpioa::{PA4, PA5, PA6, PA7}};
 pub type Can0Tx = PB9<Input<Floating>>;
 #[cfg(feature = "gcharger-board")]
 pub type Can0Rx = PB8<Input<Floating>>;
-#[cfg(feature = "gcharger-board")]
+#[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
 pub type Can0 = hal::can::ClassicalCanInstance;
-pub type CanSendHeap = vhrdcan::FrameHeap<U64>;
-pub type CanReceiveHeap = vhrdcan::FrameHeap<U64>;
 
+pub type CanSendHeap = vhrdcan::FrameHeap<U128>;
+pub type CanReceiveHeap = vhrdcan::FrameHeap<U128>;
+pub const Can0SendIrq: Interrupt = Interrupt::FDCAN1_INTR1_IT;
+
+pub type ImxSerialTx = PC4<Input<Floating>>;
+pub type ImxSerialRx = PC5<Input<Floating>>;
+pub type ImxSerial = hal::serial::Serial<hal::stm32::USART1, ImxSerialTx, ImxSerialRx>;
 
 #[cfg(feature = "pozyx-board")]
 pub type Dw1000Clk = PA5<Alternate<AF5>>;
@@ -31,7 +36,7 @@ pub type Dw1000Mosi = PA7<Alternate<AF5>>;
 #[cfg(feature = "pozyx-board")]
 pub type Dw1000Cs = PA4<Output<PushPull>>;
 
-#[cfg(feature = "gcharger-board")]
+#[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
 use hal::gpio::{gpioa::*, gpiob::*, gpioc::*, gpiod::*};
 
 #[cfg(feature = "gcharger-board")]
@@ -42,6 +47,15 @@ pub type Dw1000Miso = PC11<DefaultMode>;
 pub type Dw1000Mosi = PC12<DefaultMode>;
 #[cfg(feature = "gcharger-board")]
 pub type Dw1000Cs = PD2<Output<PushPull>>;
+
+#[cfg(feature = "gcarrier-board")]
+pub type Dw1000Clk = PA5<DefaultMode>;
+#[cfg(feature = "gcarrier-board")]
+pub type Dw1000Miso = PA6<DefaultMode>;
+#[cfg(feature = "gcarrier-board")]
+pub type Dw1000Mosi = PA7<DefaultMode>;
+#[cfg(feature = "gcarrier-board")]
+pub type Dw1000Cs = PA1<Output<PushPull>>;
 
 /// Blink LED with specified period (alive indicator).
 pub const BLINK_PERIOD_MS: u32 = 500;
@@ -54,7 +68,10 @@ pub const DW1000_CHECK_PERIOD: MilliSeconds = ms(1000);
 use hal::stm32::Interrupt;
 /// Which EXTI line is used for DW1000 interrupt.
 /// Ensure that radio_irq task is coherent with this!
+#[cfg(feature = "gcharger-board")]
 pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI15_10;
+#[cfg(feature = "gcarrier-board")]
+pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI9_5;
 
 /// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
 pub const GTS_PERIOD: MilliSeconds = ms(50);
@@ -124,17 +141,23 @@ use dw1000::configs::UwbChannel;
 pub type LedBlinkyPin = PB5<Output<PushPull>>;
 #[cfg(feature = "gcharger-board")]
 pub type LedBlinkyPin = PB15<Output<PushPull>>;
+#[cfg(feature = "gcarrier-board")]
+pub type LedBlinkyPin = PB1<Output<PushPull>>;
 
 #[cfg(feature = "pozyx-board")]
 pub type RadioIrqPin = PA0<Input<PullDown>>;
 //type RadioIrqPin = PC4<Input<PullDown>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioIrqPin = PC15<Input<PullDown>>;
+#[cfg(feature = "gcarrier-board")]
+pub type RadioIrqPin = PA8<Input<PullDown>>;
 
 #[cfg(feature = "pozyx-board")]
 pub type RadioTracePin = PA1<Output<PushPull>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioTracePin = PA2<Output<PushPull>>;
+#[cfg(feature = "gcarrier-board")]
+pub type RadioTracePin = PA0<Output<PushPull>>;
 
 pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 
