@@ -35,8 +35,12 @@ const APP: () = {
         led_blinky: config::LedBlinkyPin,
         idle_counter: Wrapping<u32>,
         rtt_down_channel: rtt_target::DownChannel,
+
         can0: config::Can0,
         can0_send_heap: config::CanSendHeap,
+        can0_receive_heap: config::CanReceiveHeap,
+        can0_ll_statistics: tasks::canbus::Statistics,
+
         imx_serial: config::ImxSerial,
     }
 
@@ -126,7 +130,9 @@ const APP: () = {
         priority = 2,
         resources = [
             can0,
-            can0_send_heap
+            can0_send_heap,
+            can0_receive_heap,
+            can0_ll_statistics,
         ]
     )]
     fn can0_irq0(cx: can0_irq0::Context) {
