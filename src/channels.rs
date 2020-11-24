@@ -58,22 +58,41 @@ use crate::color;
 /// **Channels**
 /// * `@ID` - data is grabbed from specific queue and enqueued to the same id on the other node.
 pub struct Channels {
-
+    pub can0_forward_heap: crate::tasks::canbus::ForwardHeap,
 }
-
-
 
 impl Channels {
-
-
+    pub fn new() -> Self {
+        Channels {
+            can0_forward_heap: heapless::BinaryHeap::new()
+        }
+    }
 }
+
+use crate::tasks::canbus;
 
 impl Arbiter for Channels {
     type Error = crate::radio::Error;
 
-    fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M)
-    {
-
+    fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
+        cfg_if! {
+            if #[cfg(feature = "master")] {
+                let mut frames_muxed = 0;
+                const MAX_FRAMES_PER_GTS: u32 = 10;
+                while let Some(forward_entry) = self.can0_forward_heap.pop() {
+                    let destination = match forward_entry.to {
+                        canbus::Destination::Unicast(address) => LogicalDestination::Unicast(address),
+                        canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
+                        _ => { continue; }
+                    };
+                    mux.mux(&forward_entry, destination, ChannelId::new(7));
+                    frames_muxed += 1;
+                    if frames_muxed >= MAX_FRAMES_PER_GTS {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {

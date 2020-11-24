@@ -152,7 +152,6 @@ pub fn init(
     crate::tasks::canbus::load_rx_routing_table(&mut can0_rx_routing_table);
     let can0_rx_routing_statistics = crate::tasks::canbus::RxRoutingStatistics::default();
     let can0_local_processing_heap = vhrdcan::FrameHeap::new();
-    let forward_heap = heapless::BinaryHeap::new();
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -349,7 +348,7 @@ pub fn init(
                     radio_commands: radio_commands_p,
                     scheduler: Scheduler::new(),
                     event_state_data,
-                    channels: crate::channels::Channels{},
+                    channels: crate::channels::Channels::new(),
 
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
@@ -363,7 +362,6 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
-                    forward_heap,
 
                     imx_serial,
                 }
@@ -376,7 +374,7 @@ pub fn init(
                     radio_commands: radio_commands_p,
                     scheduler: Scheduler::new(),
                     event_state_data,
-                    channels: crate::channels::Channels{},
+                    channels: crate::channels::Channels::new(),
 
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
@@ -391,7 +389,6 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
-                    forward_heap,
                 }
             } else if #[cfg(feature = "anchor")] {
                 crate::init::LateResources {
@@ -402,7 +399,7 @@ pub fn init(
                     radio_commands: radio_commands_p,
                     scheduler: Scheduler::new(),
                     event_state_data,
-                    channels: crate::channels::Channels{},
+                    channels: crate::channels::Channels::new(),
 
                     led_blinky,
                     idle_counter: core::num::Wrapping(0u32),
@@ -416,7 +413,6 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
-                    forward_heap,
                 }
             }
         }

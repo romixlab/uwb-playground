@@ -340,3 +340,70 @@ impl Serialize for DummyMessage {
         self.length as usize + 1
     }
 }
+
+use crate::tasks::canbus::ForwardEntry;
+use vhrdcan::{FrameId, Frame, RawFrame};
+use vhrdcan::id::{StandardId, ExtendedId};
+
+impl Serialize for ForwardEntry {
+    type Error = Error;
+
+    // StandardId => |0000_0sss|s7:0|len|[data]
+    // ExtendedId => |100e_eeee|e|e|e|len|[data]
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        put_id!(buf, 0xcb, self.size_hint(), {});
+        match self.frame.id() {
+            FrameId::Standard(sid) => {
+                buf.put_u16(sid.id());
+            }
+            FrameId::Extended(eid) => {
+                buf.put_u32(eid.id() | (1 << 31));
+            }
+        }
+        buf.put_u8(self.frame.len() as u8);
+        buf.put_slice(self.frame.data());
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize {
+        let mut len = self.frame.len() + 1;
+        match self.frame.id() {
+            FrameId::Standard(_) => { len += 2; }
+            FrameId::Extended(_) => { len += 4; }
+        }
+        len
+    }
+}
+impl Deserialize for ForwardEntry {
+    type Output = RawFrame;
+    type Error = Error;
+
+    fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
+        eat_id!(buf, 0xcb, {
+            if buf.remaining() < 3 {
+                return Err(Error::Eof);
+            }
+        });
+        let maybe_sid = buf.get_u16();
+        let id = if maybe_sid & (1 << 15) == 0 { // sid
+            FrameId::Standard(unsafe { StandardId::new_unchecked(maybe_sid & 0x7_ff) })
+        } else { // eid
+            if buf.remaining() < 3 {
+                return Err(Error::Eof);
+            }
+            let eid15_0 = buf.get_u16() as u32;
+            FrameId::Extended(unsafe { ExtendedId::new_unchecked(((maybe_sid as u32 & 0x1F_FF) << 16) | eid15_0) })
+        };
+        let len = buf.get_u8();
+        if buf.remaining() < len as usize {
+            return Err(Error::Eof);
+        }
+        let mut data = [0u8; 8];
+        data[0..len as usize].copy_from_slice(buf.slice_to(len as usize));
+        Ok(RawFrame {
+            id,
+            data,
+            len
+        })
+    }
+}

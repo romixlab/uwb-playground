@@ -43,7 +43,6 @@ const APP: () = {
         can0_rx_routing_table: tasks::canbus::RxRoutingTable,
         can0_rx_routing_statistics: tasks::canbus::RxRoutingStatistics,
         can0_local_processing_heap: config::CanLocalProcessingHeap,
-        forward_heap: tasks::canbus::ForwardHeap,
 
         imx_serial: config::ImxSerial,
     }
@@ -158,7 +157,7 @@ const APP: () = {
             can0_rx_routing_table,
             can0_rx_routing_statistics,
             can0_local_processing_heap,
-            forward_heap,
+            channels, // can0_forward_heap
         ]
     )]
     fn can0_rx_router(cx: can0_rx_router::Context) {

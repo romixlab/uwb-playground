@@ -7,6 +7,7 @@ use dw1000::mac;
 use cfg_if::cfg_if;
 use vhrdcan::id::{StandardId, ExtendedId};
 use core::cmp::Ordering;
+use rtic::Mutex;
 
 #[derive(Default)]
 pub struct DirectionStatistics {
@@ -139,7 +140,6 @@ pub struct ForwardEntry {
     pub to: Destination,
     pub frame: Frame
 }
-
 impl PartialOrd for ForwardEntry {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -158,7 +158,7 @@ pub fn can0_rx_router(cx: crate::can0_rx_router::Context) {
     let routing_table: &RxRoutingTable = cx.resources.can0_rx_routing_table;
     let statistics: &mut RxRoutingStatistics = cx.resources.can0_rx_routing_statistics;
     let local_processing_heap: &mut config::CanLocalProcessingHeap = cx.resources.can0_local_processing_heap;
-    let forward_heap: &mut ForwardHeap = cx.resources.forward_heap;
+    let mut channels = cx.resources.channels;
 
     while let Some(frame) = receive_heap.heap.pop() {
         for entry in routing_table {
@@ -188,19 +188,22 @@ pub fn can0_rx_router(cx: crate::can0_rx_router::Context) {
                         }
                     },
                     RoutingAction::Forward(destionation) => {
-                        let forward_entry = ForwardEntry {
-                            to: destionation,
-                            frame
-                        };
-                        match forward_heap.push(forward_entry) {
-                            Ok(_) => {
-                                statistics.forwarded.frames_processed += 1;
-                                statistics.forwarded.bytes_processed += frame.len() as u32;
-                            },
-                            Err(_) => {
-                                statistics.forwarded.frames_dropped += 1;
+                        channels.lock(|channels| {
+                            let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
+                            let forward_entry = ForwardEntry {
+                                to: destionation,
+                                frame
+                            };
+                            match forward_heap.push(forward_entry) {
+                                Ok(_) => {
+                                    statistics.forwarded.frames_processed += 1;
+                                    statistics.forwarded.bytes_processed += frame.len() as u32;
+                                },
+                                Err(_) => {
+                                    statistics.forwarded.frames_dropped += 1;
+                                }
                             }
-                        }
+                        });
                     }
                 }
             } else {
