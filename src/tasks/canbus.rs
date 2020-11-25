@@ -268,7 +268,10 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
         } else if #[cfg(feature = "bl")] {
 
         } else if #[cfg(feature = "br")] {
-
+            table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(0x1004D72A).unwrap()),
+                action: RoutingAction::Forward(Destination::Broadcast)
+            });
         }
     }
 }

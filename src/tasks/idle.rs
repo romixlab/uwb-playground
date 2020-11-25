@@ -26,7 +26,10 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
                         match cmd {
                             "help" => {
                                 rprintln!(=>0, "cmd [arg] [arg]...");
-                                rprintln!(=>0, "Available commands: uwb_adelay");
+                                rprintln!(=>0, "Available commands: reset, uwb_adelay");
+                            },
+                            "reset" => {
+                                panic!("Reset requested");
                             },
                             "uwb_adelay" => {
                                 uwb_antenna_delay_command(&mut args, &mut cx.resources.radio_commands);

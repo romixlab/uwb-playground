@@ -142,8 +142,8 @@ fn overlap_check(
 {
     if !done {
         // Message may still be sending, stop it not to overlap with anyone. This should not normally happen.
-        radio_commands.enqueue(Command::ForceReadyIfSending).ok();
-        rtic::pend(config::DW1000_IRQ_EXTI);
+        // radio_commands.enqueue(Command::ForceReadyIfSending).ok();
+        // rtic::pend(config::DW1000_IRQ_EXTI);
         rprintln!(=>2, "{}{} slot overlap detected{}", color::YELLOW, name, color::DEFAULT);
     }
     let time_exceeded = actually_took > should_have_taken;
