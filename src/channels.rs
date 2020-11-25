@@ -59,12 +59,22 @@ use crate::color;
 /// * `@ID` - data is grabbed from specific queue and enqueued to the same id on the other node.
 pub struct Channels {
     pub can0_forward_heap: crate::tasks::canbus::ForwardHeap,
+    pub can0_send_heap: config::CanSendHeap,
+
+    pub can2uwb: u32,
+    pub uwb2can_ok: u32,
+    pub uwb2can_drop: u32,
 }
 
 impl Channels {
     pub fn new() -> Self {
         Channels {
-            can0_forward_heap: heapless::BinaryHeap::new()
+            can0_forward_heap: heapless::BinaryHeap::new(),
+            can0_send_heap: vhrdcan::FrameHeap::new(),
+
+            can2uwb: 0,
+            uwb2can_ok: 0,
+            uwb2can_drop: 0
         }
     }
 }
@@ -86,6 +96,7 @@ impl Arbiter for Channels {
                         _ => { continue; }
                     };
                     mux.mux(&forward_entry, destination, ChannelId::new(7));
+                    self.can2uwb += 1;
                     frames_muxed += 1;
                     if frames_muxed >= MAX_FRAMES_PER_GTS {
                         break;
@@ -96,14 +107,54 @@ impl Arbiter for Channels {
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
-
+        cfg_if! {
+            if #[cfg(any(feature = "tr", feature = "bl"))] {
+                const MAX_FRAMES_PER_GTS: u32 = 10;
+            } else if #[cfg(feature = "br")] {
+                const MAX_FRAMES_PER_GTS: u32 = 30;
+            }
+        }
+        cfg_if! {
+            if #[cfg(feature = "slave")] {
+                let mut frames_muxed = 0;
+                while let Some(forward_entry) = self.can0_forward_heap.pop() {
+                    let destination = match forward_entry.to {
+                        canbus::Destination::Unicast(address) => LogicalDestination::Unicast(address),
+                        canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
+                        _ => { continue; }
+                    };
+                    mux.mux(&forward_entry, destination, ChannelId::new(7));
+                    frames_muxed += 1;
+                    self.can2uwb += 1;
+                    if frames_muxed >= MAX_FRAMES_PER_GTS {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     fn sink_sync(&mut self, source: Address,  channel: ChannelId, chunk: &[u8]) {
+        let mut buf = Buf::new(chunk);
+        match crate::tasks::canbus::ForwardEntry::des(&mut buf) {
+            Ok(raw_frame) => {
+                let frame = self.can0_send_heap.pool.new_frame(raw_frame.id, raw_frame.data()).unwrap();
+                match self.can0_send_heap.heap.push(frame) {
+                    Ok(_) => {
+                        self.uwb2can_ok += 1;
+                    },
+                    Err(_) => {
+                        self.uwb2can_drop += 1;
+                    }
+                }
+            },
+            Err(_) => {
 
+            }
+        }
     }
 
     fn sink_async(&mut self, source: Address, channel: ChannelId, chunk: &[u8]) {
-
+        self.sink_sync(source, channel, chunk);
     }
 }

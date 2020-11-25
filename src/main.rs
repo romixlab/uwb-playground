@@ -37,7 +37,6 @@ const APP: () = {
         rtt_down_channel: rtt_target::DownChannel,
 
         can0: config::Can0,
-        can0_send_heap: config::CanSendHeap,
         can0_receive_heap: config::CanReceiveHeap,
         can0_ll_statistics: tasks::canbus::LLStatistics,
         can0_rx_routing_table: tasks::canbus::RxRoutingTable,
@@ -78,7 +77,6 @@ const APP: () = {
         resources = [
             &clocks,
             led_blinky,
-            can0_send_heap
         ],
         schedule = [
             blinker,
@@ -133,7 +131,7 @@ const APP: () = {
         priority = 2,
         resources = [
             can0,
-            can0_send_heap,
+            channels, //can0_send_heap,
             can0_receive_heap,
             can0_ll_statistics,
         ]

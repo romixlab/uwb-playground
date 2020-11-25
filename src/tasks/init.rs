@@ -145,7 +145,6 @@ pub fn init(
             can_regs.txbtie.write(|w| w.bits(0b001)); // enable tx buffer interrupt
         });
     }
-    let mut can0_send_heap = vhrdcan::FrameHeap::new();
     let mut can0_receive_heap = vhrdcan::FrameHeap::new();
     let can0_ll_statistics = crate::tasks::canbus::LLStatistics::default();
     let mut can0_rx_routing_table = heapless::Vec::new();
@@ -356,7 +355,6 @@ pub fn init(
                     rtt_down_channel: rtt_channels.down.0,
 
                     can0,
-                    can0_send_heap,
                     can0_receive_heap,
                     can0_ll_statistics,
                     can0_rx_routing_table,
@@ -382,7 +380,6 @@ pub fn init(
                     rtt_down_channel: rtt_channels.down.0,
 
                     can0,
-                    can0_send_heap,
                     can0_receive_heap,
                     can0_ll_statistics,
                     can0_rx_routing_table,
@@ -407,7 +404,6 @@ pub fn init(
                     rtt_down_channel: rtt_channels.down.0,
 
                     can0,
-                    can0_send_heap,
                     can0_receive_heap,
                     can0_ll_statistics,
                     can0_rx_routing_table,
