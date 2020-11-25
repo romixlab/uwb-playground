@@ -31,35 +31,56 @@ pub struct LLStatistics {
     pub tx: DirectionStatistics
 }
 
+#[derive(Default)]
+pub struct IrqStatistics {
+    pub irqs: u32,
+    pub bus_off: u32,
+}
+
 pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
     let can: &mut config::Can0 = cx.resources.can0;
     use crate::hal::can::ClassicalCan;
     let ll_statistics: &mut LLStatistics = cx.resources.can0_ll_statistics;
+    let irq_statistics: &mut IrqStatistics = cx.resources.can0_irq_statistics;
+    irq_statistics.irqs += 1;
 
-    rprintln!("can_irq0");
-    rprintln!("reason: {:?}", can.interrupt_reason());
+    // rprintln!("can_irq0");
+    // rprintln!("reason: {:?}", can.interrupt_reason());
     // rprintln!("{:?}", can.protocol_status());
     // rprintln!("rec:{} tec:{}", can.receive_error_counter(), can.transmit_error_counter());
     // rprintln!("rx_pin: {:?}", can.rx_pin_state());
     // rprintln!("queue: {}", cx.resources.can0_send_heap.heap.len());
-    if can.free_slots() != 0 {
-        cx.resources.channels.lock(|channels| {
-            let send_heap: &mut config::CanSendHeap = &mut channels.can0_send_heap;
-            if let Some(frame) = send_heap.heap.pop() {
-                match can.send(&frame) {
-                    Ok(_) => {
-                        ll_statistics.tx.frames_processed += 1;
-                        ll_statistics.tx.bytes_processed += frame.len() as u32;
-                    },
-                    Err(_) => {
-                        ll_statistics.tx.frames_dropped += 1;
+
+    if can.protocol_status().is_bus_off() {
+        // rprintln!("going out of bus off");
+        irq_statistics.bus_off += 1;
+        unsafe {
+            can.ll(|can_regs| {
+                can_regs.cccr.modify(|_, w| w.init().clear_bit()); // request normal mode
+                can_regs.txbcr.write(|w| w.bits(0b111)); // cancel all outgoing frames
+            });
+        }
+    } else {
+        if can.free_slots() != 0 {
+            cx.resources.channels.lock(|channels| {
+                let send_heap: &mut config::CanSendHeap = &mut channels.can0_send_heap;
+                if let Some(frame) = send_heap.heap.pop() {
+                    match can.send(&frame) {
+                        Ok(_) => {
+                            ll_statistics.tx.frames_processed += 1;
+                            ll_statistics.tx.bytes_processed += frame.len() as u32;
+                        },
+                        Err(_) => {
+                            ll_statistics.tx.frames_dropped += 1;
+                        }
                     }
+                    //rprintln!("send: {:?}{:?}{}", frame.id(), r, cx.resources.can0_send_heap.heap.len());
                 }
-                //rprintln!("send: {:?}{:?}{}", frame.id(), r, cx.resources.can0_send_heap.heap.len());
-            }
-        });
+            });
+        }
     }
 
+    let mut spawn_rx_router = false;
     let receive_heap: &mut config::CanReceiveHeap = cx.resources.can0_receive_heap;
     can.get_all(|id, data| {
         // rprintln!("rx: {:?}, {}", id, data.len());
@@ -69,6 +90,7 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
         // rprintln!("");
         match receive_heap.pool.new_frame(id, data) {
             Ok(frame) => {
+                spawn_rx_router = true;
                 let len = frame.len() as u32;
                 match receive_heap.heap.push(frame) {
                     Ok(_) => {
@@ -85,6 +107,9 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
             }
         }
     });
+    if spawn_rx_router {
+        let _ = cx.spawn.can0_rx_router();
+    }
 
     unsafe { can.regs_mut().ir.write(|w| w.bits(0x00ff_ffff)) };
 }
@@ -221,6 +246,9 @@ pub fn can0_rx_router(cx: crate::can0_rx_router::Context) {
                 statistics.dropped.frames_dropped += 1; // frames without action
             }
         }
+        if routing_table.is_empty() {
+            statistics.dropped.frames_dropped += 1;
+        }
     }
 }
 
@@ -231,7 +259,10 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
     // });
     cfg_if! {
         if #[cfg(feature = "master")] {
-
+            table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(0x123).unwrap()),
+                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR))
+            });
         } else if #[cfg(feauture = "tr")] {
 
         } else if #[cfg(feature = "bl")] {
