@@ -44,6 +44,8 @@ const APP: () = {
         can0_local_processing_heap: config::CanLocalProcessingHeap,
 
         imx_serial: config::ImxSerial,
+
+        counter_deltas: tasks::blinker::CounterDeltas
     }
 
     #[init(
@@ -77,6 +79,10 @@ const APP: () = {
         resources = [
             &clocks,
             led_blinky,
+            can0_ll_statistics,
+            can0_rx_routing_statistics,
+            channels, // for statistics
+            counter_deltas,
         ],
         schedule = [
             blinker,

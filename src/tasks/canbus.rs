@@ -8,12 +8,21 @@ use cfg_if::cfg_if;
 use vhrdcan::id::{StandardId, ExtendedId};
 use core::cmp::Ordering;
 use rtic::Mutex;
+use core::fmt;
+use no_std_compat::fmt::Formatter;
 
 #[derive(Default)]
 pub struct DirectionStatistics {
     pub frames_processed: u32,
     pub frames_dropped: u32,
     pub bytes_processed: u32
+}
+impl fmt::Debug for DirectionStatistics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kib = self.bytes_processed / 1024;
+        let b = self.bytes_processed % 1024;
+        write!(f, "{} frames ({}KiB + {}) processed, {} dropped", self.frames_processed, kib, b, self.frames_dropped)
+    }
 }
 
 #[derive(Default)]
@@ -34,19 +43,21 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
     // rprintln!("rx_pin: {:?}", can.rx_pin_state());
     // rprintln!("queue: {}", cx.resources.can0_send_heap.heap.len());
     if can.free_slots() != 0 {
-        if let Some(frame) = cx.resources.can0_send_heap.heap.pop() {
-            match can.send(&frame) {
-                Ok(_) => {
-                    ll_statistics.tx.frames_processed += 1;
-                    ll_statistics.tx.bytes_processed += frame.len() as u32;
-                },
-                Err(_) => {
-                    ll_statistics.tx.frames_dropped += 1;
+        cx.resources.channels.lock(|channels| {
+            let send_heap: &mut config::CanSendHeap = &mut channels.can0_send_heap;
+            if let Some(frame) = send_heap.heap.pop() {
+                match can.send(&frame) {
+                    Ok(_) => {
+                        ll_statistics.tx.frames_processed += 1;
+                        ll_statistics.tx.bytes_processed += frame.len() as u32;
+                    },
+                    Err(_) => {
+                        ll_statistics.tx.frames_dropped += 1;
+                    }
                 }
+                //rprintln!("send: {:?}{:?}{}", frame.id(), r, cx.resources.can0_send_heap.heap.len());
             }
-
-            //rprintln!("send: {:?}{:?}{}", frame.id(), r, cx.resources.can0_send_heap.heap.len());
-        }
+        });
     }
 
     let receive_heap: &mut config::CanReceiveHeap = cx.resources.can0_receive_heap;

@@ -362,6 +362,8 @@ pub fn init(
                     can0_local_processing_heap,
 
                     imx_serial,
+
+                    counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl", feature = "br"))] {
                 crate::init::LateResources {
@@ -386,6 +388,8 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+
+                    counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
                 }
             } else if #[cfg(feature = "anchor")] {
                 crate::init::LateResources {
@@ -409,6 +413,8 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+
+                    counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
                 }
             }
         }
