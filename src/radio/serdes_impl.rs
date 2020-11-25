@@ -354,10 +354,10 @@ impl Serialize for ForwardEntry {
         put_id!(buf, 0xcb, self.size_hint(), {});
         match self.frame.id() {
             FrameId::Standard(sid) => {
-                buf.put_u16(sid.id());
+                buf.put_u16_be(sid.id());
             }
             FrameId::Extended(eid) => {
-                buf.put_u32(eid.id() | (1 << 31));
+                buf.put_u32_be(eid.id() | (1 << 31));
             }
         }
         buf.put_u8(self.frame.len() as u8);
@@ -366,7 +366,7 @@ impl Serialize for ForwardEntry {
     }
 
     fn size_hint(&self) -> usize {
-        let mut len = self.frame.len() + 1;
+        let mut len = self.frame.len() + 2;
         match self.frame.id() {
             FrameId::Standard(_) => { len += 2; }
             FrameId::Extended(_) => { len += 4; }
@@ -384,14 +384,14 @@ impl Deserialize for ForwardEntry {
                 return Err(Error::Eof);
             }
         });
-        let maybe_sid = buf.get_u16();
+        let maybe_sid = buf.get_u16_be();
         let id = if maybe_sid & (1 << 15) == 0 { // sid
             FrameId::Standard(unsafe { StandardId::new_unchecked(maybe_sid & 0x7_ff) })
         } else { // eid
             if buf.remaining() < 3 {
                 return Err(Error::Eof);
             }
-            let eid15_0 = buf.get_u16() as u32;
+            let eid15_0 = buf.get_u16_be() as u32;
             FrameId::Extended(unsafe { ExtendedId::new_unchecked(((maybe_sid as u32 & 0x1F_FF) << 16) | eid15_0) })
         };
         let len = buf.get_u8();

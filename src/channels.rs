@@ -136,6 +136,11 @@ impl Arbiter for Channels {
 
     fn sink_sync(&mut self, source: Address,  channel: ChannelId, chunk: &[u8]) {
         let mut buf = Buf::new(chunk);
+        // rprintln!(=>3, "chunk:{}", chunk.len());
+        // for b in chunk {
+        //     rprint!(=>3, "{:02x} ", *b);
+        // }
+        // rprintln!(=>3, "");
         match crate::tasks::canbus::ForwardEntry::des(&mut buf) {
             Ok(raw_frame) => {
                 let frame = self.can0_send_heap.pool.new_frame(raw_frame.id, raw_frame.data()).unwrap();
@@ -148,8 +153,8 @@ impl Arbiter for Channels {
                     }
                 }
             },
-            Err(_) => {
-
+            Err(e) => {
+                rprintln!(=>3, "demux err:{:?}", e);
             }
         }
     }
