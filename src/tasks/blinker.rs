@@ -20,22 +20,22 @@ pub struct CounterDeltas {
 pub fn blinker(mut cx: crate::blinker::Context) {
     cx.resources.led_blinky.toggle().ok();
 
-    rprintln!(=>1, "");
-    rprintln!(=>1, "\n\x1b[2J\x1b[0m---\n");
+    rprintln!(=>6, "");
+    rprintln!(=>6, "\n\x1b[2J\x1b[0m---\n");
     cx.resources.can0_irq_statistics.lock(|irq_statistics: &mut crate::tasks::canbus::IrqStatistics| {
-        rprintln!(=>1, "IRQs: {}, BusOffs: {}", irq_statistics.irqs, irq_statistics.bus_off);
+        rprintln!(=>6, "IRQs: {}, BusOffs: {}", irq_statistics.irqs, irq_statistics.bus_off);
     });
     cx.resources.can0_ll_statistics.lock(|can0_ll_statistics: &mut crate::tasks::canbus::LLStatistics| {
-        rprintln!(=>1, "LL_RX: {:?}", can0_ll_statistics.rx);
-        rprintln!(=>1, "LL_TX: {:?}", can0_ll_statistics.tx);
+        rprintln!(=>6, "LL_RX: {:?}", can0_ll_statistics.rx);
+        rprintln!(=>6, "LL_TX: {:?}", can0_ll_statistics.tx);
     });
     cx.resources.can0_rx_routing_statistics.lock(|can0_rx_routing_statistics: &mut crate::tasks::canbus::RxRoutingStatistics| {
-        rprintln!(=>1, "Route_DROP: {:?}", can0_rx_routing_statistics.dropped);
-        rprintln!(=>1, "Route_PROCESS: {:?}", can0_rx_routing_statistics.processed_locally);
-        rprintln!(=>1, "Route_FORWARD: {:?}", can0_rx_routing_statistics.forwarded);
+        rprintln!(=>6, "Route_DROP: {:?}", can0_rx_routing_statistics.dropped);
+        rprintln!(=>6, "Route_PROCESS: {:?}", can0_rx_routing_statistics.processed_locally);
+        rprintln!(=>6, "Route_FORWARD: {:?}", can0_rx_routing_statistics.forwarded);
     });
     let uwb_forwarding_counters = cx.resources.channels.lock(|channels| (channels.can2uwb, channels.uwb2can_ok, channels.uwb2can_drop));
-    rprintln!(=>1, "Can2Uwb: {}\tUwb2Can_OK: {}\tUwb2Can_DROP: {}", uwb_forwarding_counters.0, uwb_forwarding_counters.1, uwb_forwarding_counters.2);
+    rprintln!(=>6, "Can2Uwb: {}\tUwb2Can_OK: {}\tUwb2Can_DROP: {}", uwb_forwarding_counters.0, uwb_forwarding_counters.1, uwb_forwarding_counters.2);
 
     cx.resources.channels.lock(|channels| {
         let h = &mut channels.can0_send_heap;
