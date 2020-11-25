@@ -49,23 +49,23 @@ pub type Dw1000Mosi = PC12<DefaultMode>;
 pub type Dw1000Cs = PD2<Output<PushPull>>;
 
 // UWB-A
-// #[cfg(feature = "gcarrier-board")]
-// pub type Dw1000Clk = PA5<DefaultMode>;
-// #[cfg(feature = "gcarrier-board")]
-// pub type Dw1000Miso = PA6<DefaultMode>;
-// #[cfg(feature = "gcarrier-board")]
-// pub type Dw1000Mosi = PA7<DefaultMode>;
-// #[cfg(feature = "gcarrier-board")]
-// pub type Dw1000Cs = PA1<Output<PushPull>>;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type Dw1000Clk = PA5<DefaultMode>;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type Dw1000Miso = PA6<DefaultMode>;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type Dw1000Mosi = PA7<DefaultMode>;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type Dw1000Cs = PA1<Output<PushPull>>;
 
 // UWB-B
-#[cfg(feature = "gcarrier-board")]
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type Dw1000Clk = PF1<DefaultMode>;
-#[cfg(feature = "gcarrier-board")]
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type Dw1000Miso = PB14<DefaultMode>;
-#[cfg(feature = "gcarrier-board")]
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type Dw1000Mosi = PB15<DefaultMode>;
-#[cfg(feature = "gcarrier-board")]
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type Dw1000Cs = PC7<Output<PushPull>>;
 
 /// Blink LED with specified period (alive indicator).
@@ -85,7 +85,7 @@ pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI15_10;
 pub const DW1000_IRQ_EXTI: Interrupt = Interrupt::EXTI9_5;
 
 /// Period for synchronous data exchange (guaranteed time slots (GTS) with slaves).
-pub const GTS_PERIOD: MilliSeconds = ms(50);
+pub const GTS_PERIOD: MilliSeconds = ms(20);
 
 use dw1000::mac::{PanId, ShortAddress};
 pub const PAN_ID: PanId = PanId(0x777);
@@ -160,9 +160,9 @@ pub type RadioIrqPin = PA0<Input<PullDown>>;
 //type RadioIrqPin = PC4<Input<PullDown>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioIrqPin = PC15<Input<PullDown>>;
-// #[cfg(feature = "gcarrier-board")]
-// pub type RadioIrqPin = PA8<Input<PullDown>>;
-#[cfg(feature = "gcarrier-board")]
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type RadioIrqPin = PA8<Input<PullDown>>;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type RadioIrqPin = PC8<Input<PullDown>>;
 
 #[cfg(feature = "pozyx-board")]
@@ -170,9 +170,9 @@ pub type RadioTracePin = PA1<Output<PushPull>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioTracePin = PA2<Output<PushPull>>;
 #[cfg(feature = "gcarrier-board")]
-pub type RadioTracePin = PA0<Output<PushPull>>;
+pub type RadioTracePin = PC3<Output<PushPull>>;
 
-pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
+// pub const CHANNEL_EVENT_IRQ: Interrupt = Interrupt::EXTI4;
 
 #[cfg(feature = "master")]
 pub const DEVICE_NAME: &str = "Master";

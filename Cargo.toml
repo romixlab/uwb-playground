@@ -63,6 +63,8 @@ gcharger-board = ["stm32g4xx-hal"]
 gcarrier-board = ["stm32g4xx-hal"]
 pozyx-board = ["stm32f4xx-hal"]
 dragonfly-board = ["stm32l4xx-hal"]
+uwb-a = []
+uwb-b = []
 
 [[bin]]
 name = "uwb"

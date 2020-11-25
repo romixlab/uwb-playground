@@ -203,24 +203,33 @@ pub fn init(
                 dw1000_spi_freq,
                 &mut rcc,
             );
-        } else if #[cfg(feature = "gcarrier-board")] {
-            // UWB-A
+        } else if #[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))] {
             let mut dw1000_reset  = gpioa.pa4.into_open_drain_output(); // open drain, do not pull high
             let mut dw1000_cs = gpioa.pa1.into_push_pull_output();
             let dw1000_clk    = gpioa.pa5; // SPI1
             let dw1000_mosi   = gpioa.pa7;
             let dw1000_miso   = gpioa.pa6;
             let mut dw1000_irq = gpioa.pa8.into_pull_down_input();
-            // UWB-B
+
+            //let _dw1000_wakeup = gpioa.pa9;
+            let trace_pin = gpioc.pc3.into_push_pull_output();
+
+            dw1000_irq = dw1000_irq.listen(SignalEdge::Rising, &mut syscfg, &mut exti, &mut rcc);
+            let mut dw1000_spi = hal::spi::Spi::spi1(
+                device.SPI1,
+                (dw1000_clk, dw1000_miso, dw1000_mosi),
+                embedded_hal::spi::MODE_0,
+                dw1000_spi_freq,
+                &mut rcc,
+            );
+        } else if #[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))] {
             let mut dw1000_reset  = gpioc.pc6.into_open_drain_output(); // open drain, do not pull high
             let mut dw1000_cs = gpioc.pc7.into_push_pull_output();
             let dw1000_clk    = gpiof.pf1; // SPI2
             let dw1000_mosi   = gpiob.pb15;
             let dw1000_miso   = gpiob.pb14;
             let mut dw1000_irq = gpioc.pc8.into_pull_down_input();
-
-            //let _dw1000_wakeup = gpioa.pa9;
-            let trace_pin = gpioa.pa0.into_push_pull_output();
+            let trace_pin = gpioc.pc3.into_push_pull_output();
 
             dw1000_irq = dw1000_irq.listen(SignalEdge::Rising, &mut syscfg, &mut exti, &mut rcc);
             let mut dw1000_spi = hal::spi::Spi::spi2(
@@ -291,7 +300,21 @@ pub fn init(
                         let spi3 = unsafe { &(*hal::stm32::SPI3::ptr()) };
                         spi3.cr1.read().br().bits()
                     };
-                } else if #[cfg(feature = "gcarrier-board")] {
+                } else if #[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))] {
+                    dw1000.ll().access_spi(|spi| {
+                        let (old_spi, pins) = spi.release();
+                        Spi::spi1(
+                            old_spi, pins,
+                            embedded_hal::spi::MODE_0,
+                            dw1000_spi_freq_hi,
+                            &mut rcc
+                        )
+                    });
+                    let br = unsafe {
+                        let spi1 = unsafe { &(*hal::stm32::SPI1::ptr()) };
+                        spi1.cr1.read().br().bits()
+                    };
+                } else if #[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))] {
                     dw1000.ll().access_spi(|spi| {
                         let (old_spi, pins) = spi.release();
                         Spi::spi2(
@@ -302,8 +325,8 @@ pub fn init(
                         )
                     });
                     let br = unsafe {
-                        let spi1 = unsafe { &(*hal::stm32::SPI1::ptr()) };
-                        spi1.cr1.read().br().bits()
+                        let spi2 = unsafe { &(*hal::stm32::SPI2::ptr()) };
+                        spi2.cr1.read().br().bits()
                     };
                 }
             }
@@ -332,7 +355,13 @@ pub fn init(
             let mut ant_a_or_bc_select = gpioc.pc0.into_push_pull_output();
             let mut ant_b_or_c_select = gpioc.pc1.into_push_pull_output();
 
-            dw_b_select.set_high().ok(); // UWB-B
+            cfg_if! {
+                if #[cfg(feature = "uwb-a")] {
+                    dw_b_select.set_low().ok(); // UWB-A
+                } else if #[cfg(feature = "uwb-b")] {
+                    dw_b_select.set_high().ok(); // UWB-B
+                }
+            }
             ant_a_or_bc_select.set_high().ok(); // Ant A
         }
     }
@@ -349,7 +378,7 @@ pub fn init(
                 )).ok();
         } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
             cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();
-            //cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
+            cx.spawn.radio_event(radio::Event::ReceiveCheck).ok();
         }
     }
 
