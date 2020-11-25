@@ -409,35 +409,35 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
             ).ok(); // TODO: count
 
             // Schedule Aloha slot start and end.
-            let dt: MicroSeconds = Scheduler::aloha_period_start();
-            cx.schedule.radio_event(
-                instant + us2cycles!(cx.clocks, dt.0),
-                Event::AlohaSlotAboutToStart(Scheduler::aloha_phase_duration(), RadioConfig::default())
-            ).ok(); // TODO: count
-            let dt: MicroSeconds = Scheduler::aloha_period_end();
-            cx.schedule.radio_event(
-                instant + us2cycles!(cx.clocks, dt.0),
-                Event::AlohaSlotEnded
-            ).ok(); // TODO: count
+            // let dt: MicroSeconds = Scheduler::aloha_period_start();
+            // cx.schedule.radio_event(
+            //     instant + us2cycles!(cx.clocks, dt.0),
+            //     Event::AlohaSlotAboutToStart(Scheduler::aloha_phase_duration(), RadioConfig::default())
+            // ).ok(); // TODO: count
+            // let dt: MicroSeconds = Scheduler::aloha_period_end();
+            // cx.schedule.radio_event(
+            //     instant + us2cycles!(cx.clocks, dt.0),
+            //     Event::AlohaSlotEnded
+            // ).ok(); // TODO: count
 
             // Schedule dyn slots start and end.
-            let quarter_guard: MicroSeconds = Scheduler::quarter_guard();
-            let quarter_guard = us2cycles!(cx.clocks, quarter_guard.0);
-            //let mut dyn_uplink_slots = cx.scheduler.into_iter().filter(|s| s.slot_type == SlotType::DynUplink);
-            for s in cx.scheduler.into_iter().filter(|s| s.slot_type == SlotType::DynUplink) {
-                let shift: MicroSeconds = s.shift;
-                let shift = us2cycles!(cx.clocks, shift.0);
-                cx.schedule.radio_event(
-                    instant + shift,
-                    Event::DynUplinkAboutToStart(s.duration, s.radio_config)
-                ).ok();
-                let duration: MicroSeconds = s.duration;
-                let duration = us2cycles!(cx.clocks, duration.0);
-                cx.schedule.radio_event(
-                    instant + shift + duration + quarter_guard,
-                    Event::DynShouldHaveEnded
-                ).ok();
-            }
+            // let quarter_guard: MicroSeconds = Scheduler::quarter_guard();
+            // let quarter_guard = us2cycles!(cx.clocks, quarter_guard.0);
+            // //let mut dyn_uplink_slots = cx.scheduler.into_iter().filter(|s| s.slot_type == SlotType::DynUplink);
+            // for s in cx.scheduler.into_iter().filter(|s| s.slot_type == SlotType::DynUplink) {
+            //     let shift: MicroSeconds = s.shift;
+            //     let shift = us2cycles!(cx.clocks, shift.0);
+            //     cx.schedule.radio_event(
+            //         instant + shift,
+            //         Event::DynUplinkAboutToStart(s.duration, s.radio_config)
+            //     ).ok();
+            //     let duration: MicroSeconds = s.duration;
+            //     let duration = us2cycles!(cx.clocks, duration.0);
+            //     cx.schedule.radio_event(
+            //         instant + shift + duration + quarter_guard,
+            //         Event::DynShouldHaveEnded
+            //     ).ok();
+            // }
 
             // Schedule ranging slot start and end.
             let dt: MicroSeconds = Scheduler::ranging_period_start();
@@ -530,13 +530,16 @@ fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
     let payload = message.frame.payload;
     let mut buf = Buf::new(payload);
     let mut demux = MiniDemultiplexer::new(&mut buf);
+    let mut demuxed = 0;
     demux.demux(config::UWB_ADDR, |channel, chunk| {
         if channel.is_ctrl() {
 
         } else {
             cx.arbiter.sink_sync(message.frame.header.source, channel, chunk);
+            demuxed += 1;
         }
     });
+    rprintln!(=>2, "DEMUXED: {}", demuxed);
 
     let answers_received = answers_received + 1;
     if answers_received == config::REQUIRED_SLAVE_COUNT { // TODO: replace with the actual number of gt slots given out
