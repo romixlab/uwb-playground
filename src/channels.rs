@@ -87,51 +87,32 @@ impl Arbiter for Channels {
     fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
         cfg_if! {
             if #[cfg(feature = "master")] {
-                let mut frames_muxed = 0;
-                const MAX_FRAMES_PER_GTS: u32 = 10;
-                while let Some(forward_entry) = self.can0_forward_heap.pop() {
-                    let destination = match forward_entry.to {
-                        canbus::Destination::Unicast(address) => LogicalDestination::Unicast(address),
-                        canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
-                        _ => { continue; }
-                    };
-                    mux.mux(&forward_entry, destination, ChannelId::new(7));
-                    self.can2uwb += 1;
-                    frames_muxed += 1;
-                    if frames_muxed >= MAX_FRAMES_PER_GTS {
-                        break;
-                    }
-                }
+                const MAX_FRAMES_PER_GTS: u32 = 30;
+            } else if #[cfg(any(feature = "tr", feature = "bl"))] {
+                const MAX_FRAMES_PER_GTS: u32 = 30;
+            } else if #[cfg(feature = "br")] {
+                const MAX_FRAMES_PER_GTS: u32 = 60;
+            }
+        }
+
+        let mut frames_muxed = 0;
+        while let Some(forward_entry) = self.can0_forward_heap.pop() {
+            let destination = match forward_entry.to {
+                canbus::Destination::Unicast(address) => LogicalDestination::Unicast(address),
+                canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
+                canbus::Destination::Broadcast => LogicalDestination::Implicit,
+            };
+            mux.mux(&forward_entry, destination, ChannelId::new(7));
+            frames_muxed += 1;
+            self.can2uwb += 1;
+            if frames_muxed >= MAX_FRAMES_PER_GTS {
+                break;
             }
         }
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
-        cfg_if! {
-            if #[cfg(any(feature = "tr", feature = "bl"))] {
-                const MAX_FRAMES_PER_GTS: u32 = 10;
-            } else if #[cfg(feature = "br")] {
-                const MAX_FRAMES_PER_GTS: u32 = 30;
-            }
-        }
-        cfg_if! {
-            if #[cfg(feature = "slave")] {
-                let mut frames_muxed = 0;
-                while let Some(forward_entry) = self.can0_forward_heap.pop() {
-                    let destination = match forward_entry.to {
-                        canbus::Destination::Unicast(address) => LogicalDestination::Unicast(address),
-                        canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
-                        _ => { continue; }
-                    };
-                    mux.mux(&forward_entry, destination, ChannelId::new(7));
-                    frames_muxed += 1;
-                    self.can2uwb += 1;
-                    if frames_muxed >= MAX_FRAMES_PER_GTS {
-                        break;
-                    }
-                }
-            }
-        }
+
     }
 
     fn sink_sync(&mut self, source: Address,  channel: ChannelId, chunk: &[u8]) {
