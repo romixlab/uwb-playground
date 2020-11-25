@@ -90,6 +90,7 @@ pub fn init(
             let mut gpiob = device.GPIOB.split(&mut rcc);
             let mut gpioc = device.GPIOC.split(&mut rcc);
             let mut gpiod = device.GPIOD.split(&mut rcc);
+            let mut gpiof = device.GPIOF.split(&mut rcc);
         }
     }
 
@@ -110,8 +111,15 @@ pub fn init(
     }
     led_blinky.set_low().ok();
 
-    let fdcan1_tx = gpiob.pb9;
-    let fdcan1_rx = gpiob.pb8;
+    cfg_if! {
+        if #[cfg(feature = "gcharger-board")] {
+            let fdcan1_tx = gpiob.pb9;
+            let fdcan1_rx = gpiob.pb8;
+        } else if #[cfg(feature = "gcarrier-board")] {
+            let fdcan1_tx = gpioa.pa12;
+            let fdcan1_rx = gpioa.pa11;
+        }
+    }
     use hal::can;
     use can::{CanController, CanInstance, ClockSource};
     let mut can_ctrl = CanController::new(
@@ -151,6 +159,7 @@ pub fn init(
     crate::tasks::canbus::load_rx_routing_table(&mut can0_rx_routing_table);
     let can0_rx_routing_statistics = crate::tasks::canbus::RxRoutingStatistics::default();
     let can0_local_processing_heap = vhrdcan::FrameHeap::new();
+    let can0_irq_statistics = crate::tasks::canbus::IrqStatistics::default();
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -195,17 +204,27 @@ pub fn init(
                 &mut rcc,
             );
         } else if #[cfg(feature = "gcarrier-board")] {
+            // UWB-A
             let mut dw1000_reset  = gpioa.pa4.into_open_drain_output(); // open drain, do not pull high
             let mut dw1000_cs = gpioa.pa1.into_push_pull_output();
             let dw1000_clk    = gpioa.pa5; // SPI1
             let dw1000_mosi   = gpioa.pa7;
             let dw1000_miso   = gpioa.pa6;
+            let mut dw1000_irq = gpioa.pa8.into_pull_down_input();
+            // UWB-B
+            let mut dw1000_reset  = gpioc.pc6.into_open_drain_output(); // open drain, do not pull high
+            let mut dw1000_cs = gpioc.pc7.into_push_pull_output();
+            let dw1000_clk    = gpiof.pf1; // SPI2
+            let dw1000_mosi   = gpiob.pb15;
+            let dw1000_miso   = gpiob.pb14;
+            let mut dw1000_irq = gpioc.pc8.into_pull_down_input();
+
             //let _dw1000_wakeup = gpioa.pa9;
             let trace_pin = gpioa.pa0.into_push_pull_output();
-            let mut dw1000_irq = gpioa.pa8.into_pull_down_input();
+
             dw1000_irq = dw1000_irq.listen(SignalEdge::Rising, &mut syscfg, &mut exti, &mut rcc);
-            let mut dw1000_spi = hal::spi::Spi::spi1(
-                device.SPI1,
+            let mut dw1000_spi = hal::spi::Spi::spi2(
+                device.SPI2,
                 (dw1000_clk, dw1000_miso, dw1000_mosi),
                 embedded_hal::spi::MODE_0,
                 dw1000_spi_freq,
@@ -275,7 +294,7 @@ pub fn init(
                 } else if #[cfg(feature = "gcarrier-board")] {
                     dw1000.ll().access_spi(|spi| {
                         let (old_spi, pins) = spi.release();
-                        Spi::spi1(
+                        Spi::spi2(
                             old_spi, pins,
                             embedded_hal::spi::MODE_0,
                             dw1000_spi_freq_hi,
@@ -307,6 +326,16 @@ pub fn init(
     //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
     //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
     dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
+    cfg_if! {
+        if #[cfg(feature = "gcarrier-board")] {
+            let mut dw_b_select = gpioa.pa10.into_push_pull_output(); // DW_A_SELECT in sch, RF paths are swapped, ok
+            let mut ant_a_or_bc_select = gpioc.pc0.into_push_pull_output();
+            let mut ant_b_or_c_select = gpioc.pc1.into_push_pull_output();
+
+            dw_b_select.set_high().ok(); // UWB-B
+            ant_a_or_bc_select.set_high().ok(); // Ant A
+        }
+    }
 
     let (radio_commands_p, radio_commands_c) = radio_commands_queue.split();
     let event_state_data = crate::tasks::radio::EventStateData::default();
@@ -355,6 +384,7 @@ pub fn init(
                     rtt_down_channel: rtt_channels.down.0,
 
                     can0,
+                    can0_irq_statistics,
                     can0_receive_heap,
                     can0_ll_statistics,
                     can0_rx_routing_table,
@@ -382,12 +412,14 @@ pub fn init(
                     rtt_down_channel: rtt_channels.down.0,
 
                     can0,
+                    can0_irq_statistics,
                     can0_receive_heap,
                     can0_ll_statistics,
                     can0_rx_routing_table,
-                    can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+
+                    imx_serial,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
                 }
@@ -408,11 +440,14 @@ pub fn init(
                     rtt_down_channel: rtt_channels.down.0,
 
                     can0,
+                    can0_irq_statistics,
                     can0_receive_heap,
                     can0_ll_statistics,
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+
+                    imx_serial,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
                 }

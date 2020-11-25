@@ -37,7 +37,7 @@ pub type Dw1000Mosi = PA7<Alternate<AF5>>;
 pub type Dw1000Cs = PA4<Output<PushPull>>;
 
 #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
-use hal::gpio::{gpioa::*, gpiob::*, gpioc::*, gpiod::*};
+use hal::gpio::{gpioa::*, gpiob::*, gpioc::*, gpiod::*, gpiof::*};
 
 #[cfg(feature = "gcharger-board")]
 pub type Dw1000Clk = PC10<DefaultMode>;
@@ -48,14 +48,25 @@ pub type Dw1000Mosi = PC12<DefaultMode>;
 #[cfg(feature = "gcharger-board")]
 pub type Dw1000Cs = PD2<Output<PushPull>>;
 
+// UWB-A
+// #[cfg(feature = "gcarrier-board")]
+// pub type Dw1000Clk = PA5<DefaultMode>;
+// #[cfg(feature = "gcarrier-board")]
+// pub type Dw1000Miso = PA6<DefaultMode>;
+// #[cfg(feature = "gcarrier-board")]
+// pub type Dw1000Mosi = PA7<DefaultMode>;
+// #[cfg(feature = "gcarrier-board")]
+// pub type Dw1000Cs = PA1<Output<PushPull>>;
+
+// UWB-B
 #[cfg(feature = "gcarrier-board")]
-pub type Dw1000Clk = PA5<DefaultMode>;
+pub type Dw1000Clk = PF1<DefaultMode>;
 #[cfg(feature = "gcarrier-board")]
-pub type Dw1000Miso = PA6<DefaultMode>;
+pub type Dw1000Miso = PB14<DefaultMode>;
 #[cfg(feature = "gcarrier-board")]
-pub type Dw1000Mosi = PA7<DefaultMode>;
+pub type Dw1000Mosi = PB15<DefaultMode>;
 #[cfg(feature = "gcarrier-board")]
-pub type Dw1000Cs = PA1<Output<PushPull>>;
+pub type Dw1000Cs = PC7<Output<PushPull>>;
 
 /// Blink LED with specified period (alive indicator).
 pub const BLINK_PERIOD_MS: u32 = 500;
@@ -149,8 +160,10 @@ pub type RadioIrqPin = PA0<Input<PullDown>>;
 //type RadioIrqPin = PC4<Input<PullDown>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioIrqPin = PC15<Input<PullDown>>;
+// #[cfg(feature = "gcarrier-board")]
+// pub type RadioIrqPin = PA8<Input<PullDown>>;
 #[cfg(feature = "gcarrier-board")]
-pub type RadioIrqPin = PA8<Input<PullDown>>;
+pub type RadioIrqPin = PC8<Input<PullDown>>;
 
 #[cfg(feature = "pozyx-board")]
 pub type RadioTracePin = PA1<Output<PushPull>>;

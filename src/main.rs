@@ -37,6 +37,7 @@ const APP: () = {
         rtt_down_channel: rtt_target::DownChannel,
 
         can0: config::Can0,
+        can0_irq_statistics: tasks::canbus::IrqStatistics,
         can0_receive_heap: config::CanReceiveHeap,
         can0_ll_statistics: tasks::canbus::LLStatistics,
         can0_rx_routing_table: tasks::canbus::RxRoutingTable,
@@ -83,6 +84,7 @@ const APP: () = {
             can0_rx_routing_statistics,
             channels, // for statistics
             counter_deltas,
+            can0_irq_statistics
         ],
         schedule = [
             blinker,
@@ -135,11 +137,13 @@ const APP: () = {
     #[task(
         binds = FDCAN1_INTR1_IT,
         priority = 2,
+        spawn = [can0_rx_router],
         resources = [
             can0,
             channels, //can0_send_heap,
             can0_receive_heap,
             can0_ll_statistics,
+            can0_irq_statistics
         ]
     )]
     fn can0_irq0(cx: can0_irq0::Context) {

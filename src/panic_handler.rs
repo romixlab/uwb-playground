@@ -53,8 +53,8 @@ fn panic(info: &PanicInfo) -> ! {
     rprintln!(=>0, "{}!!!!!!!", color::RED);
     rprintln!(=>0, "PANIC: {}", info);
     rprintln!(=>0, "!!!!!!!");
-    //blink_led_angrily();
-    //cortex_m::peripheral::SCB::sys_reset(); // -> !
+    blink_led_angrily();
+    cortex_m::peripheral::SCB::sys_reset(); // -> !
     loop {
         blink_led_angrily();
         use core::sync::atomic::{self, Ordering};

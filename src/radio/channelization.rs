@@ -198,7 +198,7 @@ impl<'a> Demultiplex for MiniDemultiplexer<'a> {
             self.buf.advance(len as usize);
         }
         if self.buf.remaining() != 0 {
-            rprintln!(=>1, "{}demux: {}{}\n", color::YELLOW, self.buf.remaining(), color::DEFAULT);
+            rprintln!(=>3, "{}demux leftover: {}{}\n", color::YELLOW, self.buf.remaining(), color::DEFAULT);
         }
     }
 }
