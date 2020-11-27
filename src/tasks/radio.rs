@@ -31,15 +31,20 @@ impl Tracer for RttTracer {
 
         let now = DWT::get_cycle_count();
 
-        // use crate::board::hal::stm32::Peripherals;
-        // let device = unsafe { Peripherals::steal() };
-        // let gpioa = device.GPIOA;
+        use crate::board::hal::stm32::Peripherals;
+        let device = unsafe { Peripherals::steal() };
         let count = e as u8;
-        // for _ in 0..count {
-        //     gpioa.bsrr.write(|w| w.bs2().set_bit());
-        //     cortex_m::asm::nop();
-        //     gpioa.bsrr.write(|w| w.br2().set_bit());
-        // }
+
+        cfg_if!{
+            if #[cfg(feature = "gcarrier-board")] {
+                let gpioc = device.GPIOC;
+                for _ in 0..count {
+                    gpioc.bsrr.write(|w| w.bs3().set_bit()); // PC3
+                    cortex_m::asm::nop();
+                    gpioc.bsrr.write(|w| w.br3().set_bit());
+                }
+            }
+        }
 
         let dt_gts = now - self.prev_gts;
         let dt_prev = now - self.prev;
@@ -73,7 +78,8 @@ impl Tracer for NoOpTracer {
     fn event(&mut self, _e: TraceEvent) { }
 }
 
-static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 72_000_000 };
+#[cfg(feature = "gcarrier-board")]
+static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 160_000_000 };
 
 pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // let now = DWT::get_cycle_count() as i32;
@@ -87,7 +93,7 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     //     *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
     // }
     //rprintln!(=>2, "IRQ: {}us", cycles2us!(cx, dt));
-    cx.resources.trace_pin.set_high().ok();
+    // cx.resources.trace_pin.set_high().ok();
 
     cx.resources.radio.irq.clear_interrupt_pending_bit();
     for _ in 0..42 {
@@ -108,7 +114,7 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     if cx.resources.radio.irq.is_high().unwrap() {
         rprintln!(=>2, "radio_irq: still pending after many tries!");
     }
-    cx.resources.trace_pin.set_low().ok();
+    // cx.resources.trace_pin.set_low().ok();
 }
 
 #[derive(Default)]
@@ -169,7 +175,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
     match e {
         #[cfg(feature = "master")]
         GTSAboutToStart(gt_phase_duration, radio_config) => {
-            radio_command!(cx, Command::GTSStart);
+            radio_command!(cx, Command::GTSStart(radio_config));
             let dt: MicroSeconds = config::GTS_PERIOD.into();
             cx.schedule.radio_event(
                 cx.scheduled + us2cycles!(cx.resources.clocks, dt.0),
@@ -321,7 +327,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         },
         #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartAboutToBeBroadcasted => {
-            radio_command!(cx, Command::ListenForGTSStart(RadioConfig::default()));
+            radio_command!(cx, Command::ListenForGTSStart(RadioConfig::fast()));
         },
         #[cfg(any(feature = "slave", feature = "anchor"))]
         ReceiveCheck => {

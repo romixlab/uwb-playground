@@ -87,14 +87,16 @@ impl Arbiter for Channels {
     fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
         cfg_if! {
             if #[cfg(feature = "master")] {
-                const MAX_FRAMES_PER_GTS: u32 = 30;
+                const MAX_FRAMES_PER_GTS: u32 = 10;
             } else if #[cfg(any(feature = "tr", feature = "bl"))] {
-                const MAX_FRAMES_PER_GTS: u32 = 30;
+                const MAX_FRAMES_PER_GTS: u32 = 10;
             } else if #[cfg(feature = "br")] {
                 const MAX_FRAMES_PER_GTS: u32 = 60;
             }
         }
 
+        rprintln!(=>3, "");
+        rprintln!(=>3, "was: {}", self.can0_forward_heap.len());
         let mut frames_muxed = 0;
         while let Some(forward_entry) = self.can0_forward_heap.pop() {
             let destination = match forward_entry.to {
@@ -102,13 +104,15 @@ impl Arbiter for Channels {
                 canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
                 canbus::Destination::Broadcast => LogicalDestination::Implicit,
             };
-            mux.mux(&forward_entry, destination, ChannelId::new(7));
+            let _ = mux.mux(&forward_entry, destination, ChannelId::new(7));
             frames_muxed += 1;
             self.can2uwb += 1;
             if frames_muxed >= MAX_FRAMES_PER_GTS {
                 break;
             }
         }
+        rprintln!(=>3, "muxed: {} left: {}", frames_muxed, self.can0_forward_heap.len());
+        rprintln!(=>3, "");
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
@@ -122,12 +126,14 @@ impl Arbiter for Channels {
         //     rprint!(=>3, "{:02x} ", *b);
         // }
         // rprintln!(=>3, "");
+        let mut sinked = 0;
         match crate::tasks::canbus::ForwardEntry::des(&mut buf) {
             Ok(raw_frame) => {
                 let frame = self.can0_send_heap.pool.new_frame(raw_frame.id, raw_frame.data()).unwrap();
                 match self.can0_send_heap.heap.push(frame) {
                     Ok(_) => {
                         self.uwb2can_ok += 1;
+                        sinked += 1;
                     },
                     Err(_) => {
                         self.uwb2can_drop += 1;
@@ -137,6 +143,9 @@ impl Arbiter for Channels {
             Err(e) => {
                 rprintln!(=>3, "demux err:{:?}", e);
             }
+        }
+        if sinked > 0 {
+            rtic::pend(config::CAN0_SEND_IRQ);
         }
     }
 

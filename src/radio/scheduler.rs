@@ -172,7 +172,7 @@ impl Scheduler {
 
     /// Guaranteed time slot phase duration.
     /// (not implemented) May be 0 if no slots had been given to anyone.
-    pub fn gts_phase_duration() -> MicroSeconds { MicroSeconds(5257) }
+    pub fn gts_phase_duration() -> MicroSeconds { MicroSeconds(7000) }
 
     /// Aloha slot duration. Anyone except master can send in this period.
     /// Randomize send time in this slot.

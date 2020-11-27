@@ -345,7 +345,7 @@ pub fn init(
         }
     }
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
-    dw1000.configure_leds(false, false, true, true, 1).unwrap();
+    dw1000.configure_leds(false, false, true, true, 1, true, false, true).unwrap();
     //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
     //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
     dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
@@ -374,7 +374,7 @@ pub fn init(
         if #[cfg(feature = "master")] {
             cx.spawn.radio_event(
                 radio::Event::GTSAboutToStart(
-                    Scheduler::gts_phase_duration(), RadioConfig::default()
+                    Scheduler::gts_phase_duration(), RadioConfig::fast()
                 )).ok();
         } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
             cx.spawn.radio_event(radio::Event::GTSStartAboutToBeBroadcasted).ok();

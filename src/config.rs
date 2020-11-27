@@ -16,11 +16,11 @@ pub type Can0Rx = PB8<Input<Floating>>;
 #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
 pub type Can0 = hal::can::ClassicalCanInstance;
 
-pub type CanSendHeap = vhrdcan::FrameHeap<U128>;
+pub type CanSendHeap = vhrdcan::FrameHeap<U256>;
 pub type CanReceiveHeap = vhrdcan::FrameHeap<U128>;
 pub type CanLocalProcessingHeap = vhrdcan::FrameHeap<U32>;
 pub type ForwardHeapSize = consts::U128;
-pub const Can0SendIrq: Interrupt = Interrupt::FDCAN1_INTR1_IT;
+pub const CAN0_SEND_IRQ: Interrupt = Interrupt::FDCAN1_INTR1_IT;
 pub type RxRoutingTableSize = consts::U32;
 
 pub type ImxSerialTx = PC4<Input<Floating>>;
@@ -95,7 +95,7 @@ pub const PAN_ID: PanId = PanId(0x777);
 pub const REQUIRED_SLAVE_COUNT: u8 = 3;
 
 /// Maximum number of nodes in a PAN
-pub type TotalNodeCount = consts::U5;
+// pub type TotalNodeCount = consts::U5;
 
 pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel3;
 
@@ -114,18 +114,18 @@ pub const BR_UWB_ADDR: ShortAddress = ShortAddress(0xaa_02); // 43522
 #[cfg(feature = "devnode")]
 pub const DEV_UWB_ADDR: ShortAddress = ShortAddress(0x777);
 
-#[cfg(feature = "tr")]
-pub const SLAVE_ID: usize = 0;
+// #[cfg(feature = "tr")]
+// pub const SLAVE_ID: usize = 0;
 #[cfg(feature = "tr")]
 pub const UWB_ADDR: ShortAddress = TR_UWB_ADDR;
 
-#[cfg(feature = "bl")]
-pub const SLAVE_ID: usize = 1;
+// #[cfg(feature = "bl")]
+// pub const SLAVE_ID: usize = 1;
 #[cfg(feature = "bl")]
 pub const UWB_ADDR: ShortAddress = BL_UWB_ADDR;
 
-#[cfg(feature = "br")]
-pub const SLAVE_ID: usize = 2;
+// #[cfg(feature = "br")]
+// pub const SLAVE_ID: usize = 2;
 #[cfg(feature = "br")]
 pub const UWB_ADDR: ShortAddress = BR_UWB_ADDR;
 
@@ -136,13 +136,6 @@ pub const UWB_ADDR: ShortAddress = DEV_UWB_ADDR;
 
 #[cfg(feature = "anchor")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x666);
-
-pub mod motor_control {
-    /// How often timing checks are performed.
-    pub const TIMING_CHECK_INTERVAL_MS: u32 = 100;
-    /// Turn off all motors if no move commands received for this amount of time.
-    pub const STOP_TIMEOUT_MS: u32 = 500;
-}
 
 #[cfg(feature = "pozyx-board")]
 use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB5}};

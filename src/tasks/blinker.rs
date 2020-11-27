@@ -8,6 +8,7 @@ use rtic::Mutex;
 use rtt_target::rprintln;
 use crate::tasks::canbus::{LLStatistics, RxRoutingStatistics};
 
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct CounterDeltas {
     can0_ll_statistics: LLStatistics,
@@ -23,7 +24,7 @@ pub fn blinker(mut cx: crate::blinker::Context) {
     rprintln!(=>6, "");
     rprintln!(=>6, "\n\x1b[2J\x1b[0m---\n");
     cx.resources.can0_irq_statistics.lock(|irq_statistics: &mut crate::tasks::canbus::IrqStatistics| {
-        rprintln!(=>6, "IRQs: {}, BusOffs: {}", irq_statistics.irqs, irq_statistics.bus_off);
+        rprintln!(=>6, "IRQs: {}, BusOffs: {}, FramesLost: {}", irq_statistics.irqs, irq_statistics.bus_off, irq_statistics.lost);
     });
     cx.resources.can0_ll_statistics.lock(|can0_ll_statistics: &mut crate::tasks::canbus::LLStatistics| {
         rprintln!(=>6, "LL_RX: {:?}", can0_ll_statistics.rx);
@@ -39,9 +40,9 @@ pub fn blinker(mut cx: crate::blinker::Context) {
 
     cx.resources.channels.lock(|channels| {
         let h = &mut channels.can0_send_heap;
-        h.heap.push(h.pool.new_frame(vhrdcan::FrameId::new_standard(0xac).unwrap(), &[0xaa, 0xbb, 0xcc]).unwrap());
+        let _ = h.heap.push(h.pool.new_frame(vhrdcan::FrameId::new_standard(0xac).unwrap(), &[0xaa, 0xbb, 0xcc]).unwrap());
     });
-    rtic::pend(Interrupt::FDCAN1_INTR1_IT);
+    rtic::pend(config::CAN0_SEND_IRQ);
 
     cx.schedule.blinker(cx.scheduled + ms2cycles!(cx.resources.clocks, config::BLINK_PERIOD_MS)).ok(); // TODO: count errors
     // cx.schedule.blinker(cx.scheduled + us2cycles!(cx.resources.clocks, 300)).ok(); // TODO: count errors

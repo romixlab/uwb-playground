@@ -34,7 +34,9 @@ pub enum Error {
 pub type Dw10000SpiIface = hal::stm32::SPI1;
 #[cfg(feature = "gcharger-board")]
 pub type Dw10000SpiIface = hal::stm32::SPI3;
-#[cfg(feature = "gcarrier-board")]
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type Dw10000SpiIface = hal::stm32::SPI1;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type Dw10000SpiIface = hal::stm32::SPI2;
 
 pub type Dw1000Spi = hal::spi::Spi<Dw10000SpiIface,
@@ -48,9 +50,9 @@ pub enum RadioState {
     Ready(Option<ReadyRadio>),
 
     #[cfg(feature = "master")]
-    GTSStartSending(Option<SendingRadio>),
+    GTSStartSending((Option<SendingRadio>, RadioConfig)),
     #[cfg(feature = "master")]
-    GTSAnswersReceiving((Option<ReceivingRadio>, u8)),
+    GTSAnswersReceiving((Option<ReceivingRadio>, u8, RadioConfig)),
 
     DynReceiving((Option<ReceivingRadio>, RadioConfig)),
     DynSending(Option<SendingRadio>),
@@ -191,7 +193,7 @@ pub struct Slot {
 #[derive(PartialEq)]
 pub enum Command {
     #[cfg(feature = "master")]
-    GTSStart,
+    GTSStart(RadioConfig),
     GTSEnd,
     #[cfg(any(feature = "slave", feature = "anchor"))]
     ListenForGTSStart(RadioConfig),
@@ -216,6 +218,7 @@ pub struct DummyMessage {
     pub length: u16,
 }
 
+#[allow(dead_code)]
 pub enum Event {
     // Guaranteed slot handling
     /// scheduled: when GTSStart has been received and after power on.
@@ -330,6 +333,7 @@ pub struct Node {
     // stats: NodeStatistics
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum NodeState {
     Disconnected,
@@ -337,6 +341,7 @@ pub enum NodeState {
 }
 
 impl NodeState {
+    #[allow(dead_code)]
     pub fn find_slot(&self, t: SlotType) -> Option<Slot> {
         match self {
             NodeState::Disconnected => { None },
@@ -359,8 +364,8 @@ pub struct Radio {
     pub(crate) state_instant: Option<CycntInstant>,
     pub irq: config::RadioIrqPin,
     pub(crate) commands: CommandQueueC,
-    #[cfg(any(feature = "master", feature = "devnode"))]
-    pub(crate) nodes: [NodeState; config::TotalNodeCount::USIZE],
+    // #[cfg(any(feature = "master", feature = "devnode"))]
+    // pub(crate) nodes: [NodeState; config::TotalNodeCount::USIZE],
     #[cfg(any(feature = "slave", feature = "anchor"))]
     pub(crate) master: NodeState,
     //address_map: heapless::FnvIndexMap<dw1000::mac::ShortAddress, usize, config::TOTAL_NODE_COUNT>,
@@ -373,8 +378,8 @@ impl Radio {
             state_instant: None,
             irq,
             commands,
-            #[cfg(any(feature = "master", feature = "devnode"))]
-            nodes: [NodeState::Disconnected; config::TotalNodeCount::USIZE],
+            // #[cfg(any(feature = "master", feature = "devnode"))]
+            // nodes: [NodeState::Disconnected; config::TotalNodeCount::USIZE],
             #[cfg(any(feature = "slave", feature = "anchor"))]
             master: NodeState::Disconnected
         }
