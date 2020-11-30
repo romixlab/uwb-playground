@@ -154,7 +154,7 @@ const APP: () = {
     // Not an error!, vectors are swapped
     #[task(
         binds = FDCAN1_INTR1_IT,
-        priority = 2,
+        priority = 5,
         spawn = [can0_rx_router],
         resources = [
             can0,

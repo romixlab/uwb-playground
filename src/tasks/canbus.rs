@@ -74,7 +74,8 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
         }
     } else {
         if can.free_slots() != 0 {
-            cx.resources.channels.lock(|channels| {
+            // cx.resources.channels.lock(|channels| {
+            let channels = cx.resources.channels;
                 let send_heap: &mut config::CanSendHeap = &mut channels.can0_send_heap;
                 if let Some(frame) = send_heap.heap.pop() {
                     match can.send(&frame) {
@@ -88,7 +89,7 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
                     }
                     //rprintln!("send: {:?}{:?}{}", frame.id(), r, cx.resources.can0_send_heap.heap.len());
                 }
-            });
+            // });
         }
     }
 
@@ -298,68 +299,75 @@ impl CanAnalyzer {
 }
 
 pub fn can0_rx_router(cx: crate::can0_rx_router::Context) {
-    let receive_heap: &mut config::CanReceiveHeap = cx.resources.can0_receive_heap;
+    let mut receive_heap = cx.resources.can0_receive_heap;
     let routing_table: &RxRoutingTable = cx.resources.can0_rx_routing_table;
     let statistics: &mut RxRoutingStatistics = cx.resources.can0_rx_routing_statistics;
     let local_processing_heap: &mut config::CanLocalProcessingHeap = cx.resources.can0_local_processing_heap;
     let mut channels = cx.resources.channels;
     let analyzer = cx.resources.can0_analyzer;
 
-    while let Some(frame) = receive_heap.heap.pop() {
-        analyzer.analyze(&frame);
-        //rprintln!(=>8, "pop:{:02x}", frame.data()[0]);
-        let mut matches = false;
-        for entry in routing_table {
-            if entry.scope.contains(frame.id()) {
-                matches = true;
-                match entry.action {
-                    RoutingAction::Drop => {
-                        statistics.dropped.frames_processed += 1;
-                        statistics.dropped.bytes_processed += frame.len() as u32;
-                    },
-                    RoutingAction::ProcessLocally => {
-                        match local_processing_heap.pool.new_frame(frame.id(), frame.data()) {
-                            Ok(frame) => {
-                                let len = frame.len() as u32;
-                                match local_processing_heap.heap.push(frame) {
-                                    Ok(_) => {
-                                        statistics.processed_locally.frames_processed += 1;
-                                        statistics.processed_locally.bytes_processed += len;
+    loop {
+        match receive_heap.lock(|rh: &mut config::CanReceiveHeap| rh.heap.pop()) {
+            Some(frame) => {
+                analyzer.analyze(&frame);
+                //rprintln!(=>8, "pop:{:02x}", frame.data()[0]);
+                let mut matches = false;
+                for entry in routing_table {
+                    if entry.scope.contains(frame.id()) {
+                        matches = true;
+                        match entry.action {
+                            RoutingAction::Drop => {
+                                statistics.dropped.frames_processed += 1;
+                                statistics.dropped.bytes_processed += frame.len() as u32;
+                            },
+                            RoutingAction::ProcessLocally => {
+                                match local_processing_heap.pool.new_frame(frame.id(), frame.data()) {
+                                    Ok(frame) => {
+                                        let len = frame.len() as u32;
+                                        match local_processing_heap.heap.push(frame) {
+                                            Ok(_) => {
+                                                statistics.processed_locally.frames_processed += 1;
+                                                statistics.processed_locally.bytes_processed += len;
+                                            },
+                                            Err(_) => {
+                                                statistics.processed_locally.frames_dropped += 1;
+                                            }
+                                        }
                                     },
                                     Err(_) => {
                                         statistics.processed_locally.frames_dropped += 1;
                                     }
                                 }
                             },
-                            Err(_) => {
-                                statistics.processed_locally.frames_dropped += 1;
+                            RoutingAction::Forward(destionation) => {
+                                channels.lock(|channels| {
+                                    let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
+                                    let forward_entry = ForwardEntry {
+                                        to: destionation,
+                                        frame
+                                    };
+                                    match forward_heap.push(forward_entry) {
+                                        Ok(_) => {
+                                            statistics.forwarded.frames_processed += 1;
+                                            statistics.forwarded.bytes_processed += frame.len() as u32;
+                                        },
+                                        Err(_) => {
+                                            statistics.forwarded.frames_dropped += 1;
+                                        }
+                                    }
+                                });
                             }
                         }
-                    },
-                    RoutingAction::Forward(destionation) => {
-                        channels.lock(|channels| {
-                            let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
-                            let forward_entry = ForwardEntry {
-                                to: destionation,
-                                frame
-                            };
-                            match forward_heap.push(forward_entry) {
-                                Ok(_) => {
-                                    statistics.forwarded.frames_processed += 1;
-                                    statistics.forwarded.bytes_processed += frame.len() as u32;
-                                },
-                                Err(_) => {
-                                    statistics.forwarded.frames_dropped += 1;
-                                }
-                            }
-                        });
+                        break;
                     }
                 }
-                break;
+                if !matches {
+                    statistics.dropped.frames_dropped += 1;
+                }
+            },
+            None => {
+                return;
             }
-        }
-        if !matches {
-            statistics.dropped.frames_dropped += 1;
         }
     }
 }
@@ -375,63 +383,63 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D22A).unwrap()), // Radar 1
                 action: RoutingAction::Drop
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D32A).unwrap()), // Radar 2
                 action: RoutingAction::Drop
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D42A).unwrap()), // Radar 3
                 action: RoutingAction::Drop
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003840A).unwrap()), // Motor TL
                 action: RoutingAction::Drop
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D80A).unwrap()), // Tacho TL
                 action: RoutingAction::Drop
-            }).is_ok() as u32;
+            }).is_err() as u32;
 
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003850A).unwrap()), // Motor TR
                 action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR))
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003860A).unwrap()), // Motor BL
                 action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR))
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003870A).unwrap()), // Motor BR
                 action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR))
-            }).is_ok() as u32;
+            }).is_err() as u32;
         } else if #[cfg(feauture = "tr")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D90A).unwrap()), // Tacho TR
                 action: RoutingAction::Forward(Destination::Broadcast)
-            }).is_ok() as u32;
+            }).is_err() as u32;
         } else if #[cfg(feature = "bl")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004DA0A).unwrap()), // Tacho BL
                 action: RoutingAction::Forward(Destination::Broadcast)
-            }).is_ok() as u32;
+            }).is_err() as u32;
         } else if #[cfg(feature = "br")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D52A).unwrap()), // Radar 4
                 action: RoutingAction::Forward(Destination::Broadcast)
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D62A).unwrap()), // Radar 5
                 action: RoutingAction::Forward(Destination::Broadcast)
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D72A).unwrap()), // Radar 6
                 action: RoutingAction::Forward(Destination::Broadcast)
-            }).is_ok() as u32;
+            }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004DB0A).unwrap()), // Tacho BR
                 action: RoutingAction::Forward(Destination::Broadcast)
-            }).is_ok() as u32;
+            }).is_err() as u32;
         }
     }
     if failed > 0 {

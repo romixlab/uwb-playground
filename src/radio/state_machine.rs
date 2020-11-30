@@ -58,12 +58,13 @@ use crate::color;
 use crate::config::Dw1000Cs;
 use crate::util::{Tracer, TraceEvent};
 use dw1000::hl::SendTime;
+use rtic::Mutex;
 
 const SM_FAIL_MESSAGE: &'static str = "Radio state machine fail";
 
 /// Convenient way to pass around all the fields below.
-struct SMContext<'a, A, T> {
-    arbiter: &'a mut A,
+struct SMContext<'a, 'c, T> {
+    channels: &'a mut crate::resources::channels<'c>,
     tracer: &'a mut T,
     spawn: &'a crate::radio_irq::Spawn<'a>,
     schedule: &'a crate::radio_irq::Schedule<'a>,
@@ -134,23 +135,24 @@ fn prepare_radio(state: &mut RadioState) -> ReadyRadio {
     ready_radio
 }
 
-pub fn advance<A: Arbiter<Error = Error>, T: Tracer>(
-    radio: &mut Radio,
-    arbiter: &mut A,
-    buffer: &mut[u8],
-    spawn: &crate::radio_irq::Spawn,
-    schedule: &crate::radio_irq::Schedule,
-    clocks: &crate::board::hal::rcc::Clocks,
-    scheduler: &mut Scheduler,
-    tracer: &mut T
+
+pub fn advance<'a, 'b, 'c, T: Tracer>(
+    radio: &'a mut Radio,
+    channels: &'a mut crate::resources::channels<'c>,
+    buffer: &'b mut[u8],
+    spawn: &'a crate::radio_irq::Spawn,
+    schedule: &'a crate::radio_irq::Schedule,
+    clocks: &'a crate::board::hal::rcc::Clocks,
+    scheduler: &'a mut Scheduler,
+    tracer: &'a mut T
 ) {
     use RadioState::*;
     // Hint: do not try to put buffer into the SMContext struct, borrow checker would not be happy
     cfg_if! {
         if #[cfg(feature = "master")] {
-            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
+            let mut cx = SMContext { channels, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
         } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
-            let mut cx = SMContext { arbiter, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
+            let mut cx = SMContext { channels, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
         }
     }
 
@@ -356,9 +358,9 @@ pub fn default_mac_frame(payload: &[u8]) -> mac::Frame {
 }
 
 #[cfg(feature = "master")]
-fn send_gts_start<A: Arbiter<Error = Error>, T: Tracer>(
+fn send_gts_start<T: Tracer>(
     mut ready_radio: ReadyRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     radio_config: RadioConfig
 ) -> RadioState
@@ -372,7 +374,7 @@ fn send_gts_start<A: Arbiter<Error = Error>, T: Tracer>(
     let mut mux = MiniMultiplexer::new(bufmut);
 
     Scheduler::source_timeslots(cx.scheduler, &mut mux);
-    cx.arbiter.source_sync(&mut mux);
+    cx.channels.lock(|channels: &mut crate::channels::Channels| channels.source_sync(&mut mux) );
 
     let bufmut_taken = mux.take();
     len += bufmut_taken.written();
@@ -385,9 +387,9 @@ fn send_gts_start<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(feature = "master")]
-fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
+fn advance_gts_start_sending<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     radio_config: RadioConfig
 ) -> RadioState
 {
@@ -468,9 +470,9 @@ fn advance_gts_start_sending<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_sending_to_ready<A: Arbiter, T: Tracer>(
+fn advance_sending_to_ready<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>
+    mut cx: &mut SMContext<T>
 ) -> RadioState
 {
     match sending_radio.wait() {
@@ -491,9 +493,9 @@ fn advance_sending_to_ready<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_listening_to_listening<A: Arbiter<Error = Error>, T: Tracer>(
+fn advance_listening_to_listening<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
 ) -> RadioState
 {
@@ -519,9 +521,9 @@ fn advance_listening_to_listening<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(feature = "master")]
-fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
+fn process_messages_gts_answers_receiving<T: Tracer>(
     receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     message: dw1000::hl::Message,
     answers_received: u8,
     radio_config: RadioConfig
@@ -546,7 +548,7 @@ fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
         if channel.is_ctrl() {
 
         } else {
-            cx.arbiter.sink_sync(message.frame.header.source, channel, chunk);
+            cx.channels.lock(|channels: &mut crate::channels::Channels| channels.sink_sync(message.frame.header.source, channel, chunk) );
             demuxed += 1;
         }
     });
@@ -557,9 +559,9 @@ fn process_messages_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(feature = "master")]
-fn advance_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
+fn advance_gts_answers_receiving<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     answers_received: u8,
     radio_config: RadioConfig
@@ -587,9 +589,9 @@ fn advance_gts_answers_receiving<A: Arbiter<Error = Error>, T: Tracer>(
     }
 }
 
-fn send_dyn_data<A: Arbiter<Error = Error>, T: Tracer>(
+fn send_dyn_data<T: Tracer>(
     mut ready_radio: ReadyRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     radio_config: RadioConfig
 ) -> RadioState
@@ -600,7 +602,7 @@ fn send_dyn_data<A: Arbiter<Error = Error>, T: Tracer>(
     let mut bufmut = BufMut::new(&mut buffer[len..]);
     let mut mux = MiniMultiplexer::new(bufmut);
 
-    cx.arbiter.source_async(&mut mux);
+    cx.channels.lock(|channels: &mut crate::channels::Channels| channels.source_async(&mut mux));
 
     let pong = Pong{};
     let _ = mux.mux(&pong, LogicalDestination::Implicit, ChannelId::ctrl());
@@ -614,9 +616,9 @@ fn send_dyn_data<A: Arbiter<Error = Error>, T: Tracer>(
     RadioState::DynSending(Some(sending_radio))
 }
 
-fn advance_dyn_sending<A: Arbiter<Error = Error>, T: Tracer>(
+fn advance_dyn_sending<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
 ) -> RadioState
 {
@@ -640,9 +642,9 @@ fn advance_dyn_sending<A: Arbiter<Error = Error>, T: Tracer>(
     }
 }
 
-fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
+fn process_messages_dyn_waiting<T: Tracer>(
     receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     message: dw1000::hl::Message,
 ) -> RadioState
 {
@@ -659,16 +661,16 @@ fn process_messages_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
                 Err(_) => {}
             };
         } else {
-            cx.arbiter.sink_async(message.frame.header.source, channel, chunk);
+            cx.channels.lock(|channels: &mut crate::channels::Channels| channels.sink_async(message.frame.header.source, channel, chunk));
         }
     });
     cx.spawn.radio_event(Event::DynProcessingFinished).ok(); // TODO: only after Pong is received!
     RadioState::Ready(Some(ready_radio))
 }
 
-fn advance_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
+fn advance_dyn_waiting<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     radio_config: RadioConfig
 ) -> RadioState
@@ -701,9 +703,9 @@ fn advance_dyn_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(any(feature = "slave", feature = "anchor"))]
-fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
+fn send_gts_answer<T: Tracer>(
     mut ready_radio: ReadyRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     radio_config: RadioConfig
 ) -> RadioState
@@ -714,7 +716,7 @@ fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
     let mut bufmut = BufMut::new(&mut buffer[len .. len + 1000]);
     let mut mux = MiniMultiplexer::new(bufmut);
 
-    cx.arbiter.source_sync(&mut mux);
+    cx.channels.lock(|channels: &mut crate::channels::Channels| channels.source_sync(&mut mux));
 
     let bufmut_taken = mux.take();
     len += bufmut_taken.written();
@@ -729,9 +731,9 @@ fn send_gts_answer<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(any(feature = "slave", feature = "anchor"))]
-fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
+fn process_messages_gts_start_waiting<T: Tracer>(
     receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     message: dw1000::hl::Message,
 ) -> RadioState
 {
@@ -776,7 +778,7 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
                 }
             }
         } else {
-            cx.arbiter.sink_sync(message.frame.header.source, channel, chunk);
+            cx.channels.lock(|channels: &mut crate::channels::Channels| channels.sink_sync(message.frame.header.source, channel, chunk));
         }
     });
 
@@ -797,9 +799,9 @@ fn process_messages_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(any(feature = "slave", feature = "anchor"))]
-fn advance_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
+fn advance_gts_start_waiting<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     radio_config: RadioConfig
 ) -> RadioState
@@ -841,9 +843,9 @@ fn advance_gts_start_waiting<A: Arbiter<Error = Error>, T: Tracer>(
 }
 
 #[cfg(any(feature = "slave", feature = "anchor"))]
-fn advance_gts_answer_sending<A: Arbiter<Error = Error>, T: Tracer>(
+fn advance_gts_answer_sending<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
 ) -> RadioState
 {
@@ -892,9 +894,9 @@ pub fn send_message_no_mux<S: crate::radio::serdes::Serialize>(
 }
 
 const RANGING_PROCESSING_DURATION_NS: u32 = 700_000_u32; // TODO: timing trainer!
-fn advance_ranging_ready<A: Arbiter, T: Tracer>(
+fn advance_ranging_ready<T: Tracer>(
     mut ready_radio: ReadyRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,
@@ -915,9 +917,9 @@ fn advance_ranging_ready<A: Arbiter, T: Tracer>(
 
 }
 
-fn advance_ranging_ping_sending<A: Arbiter, T: Tracer>(
+fn advance_ranging_ping_sending<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,
@@ -944,9 +946,9 @@ fn advance_ranging_ping_sending<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_ranging_ping_receiving<A: Arbiter, T: Tracer>(
+fn advance_ranging_ping_receiving<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,
@@ -1008,9 +1010,9 @@ fn advance_ranging_ping_receiving<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_ranging_request_sending<A: Arbiter, T: Tracer>(
+fn advance_ranging_request_sending<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,
@@ -1037,9 +1039,9 @@ fn advance_ranging_request_sending<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_ranging_request_receiving<A: Arbiter, T: Tracer>(
+fn advance_ranging_request_receiving<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,
@@ -1104,9 +1106,9 @@ fn advance_ranging_request_receiving<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_ranging_response_sending<A: Arbiter, T: Tracer>(
+fn advance_ranging_response_sending<T: Tracer>(
     mut sending_radio: SendingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,
@@ -1133,9 +1135,9 @@ fn advance_ranging_response_sending<A: Arbiter, T: Tracer>(
     }
 }
 
-fn advance_ranging_response_receiving<A: Arbiter, T: Tracer>(
+fn advance_ranging_response_receiving<T: Tracer>(
     mut receiving_radio: ReceivingRadio,
-    mut cx: &mut SMContext<A, T>,
+    mut cx: &mut SMContext<T>,
     buffer: &mut[u8],
     slot_started: CycntInstant,
     slot_duration: MicroSeconds,

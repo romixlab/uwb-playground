@@ -85,7 +85,7 @@ impl Tracer for NoOpTracer {
 #[cfg(feature = "gcarrier-board")]
 static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 160_000_000 };
 
-pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
+pub fn radio_irq(mut cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // let now = DWT::get_cycle_count() as i32;
     // let dt = now.wrapping_sub(*LAST_IDLE_INSTANT);
     // *LAST_IDLE_INSTANT = now;
@@ -98,12 +98,12 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // }
     //rprintln!(=>2, "IRQ: {}us", cycles2us!(cx, dt));
     // cx.resources.trace_pin.set_high().ok();
-//let _: crate::resources::channels = cx.resources.channels;
     cx.resources.radio.irq.clear_interrupt_pending_bit();
+
     for _ in 0..42 {
         radio::state_machine::advance(
             cx.resources.radio,
-            cx.resources.channels,
+            &mut cx.resources.channels,
             buffer,
             &cx.spawn,
             &cx.schedule,
@@ -116,7 +116,7 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
         }
     }
     if cx.resources.radio.irq.is_high().unwrap() {
-        rprintln!(=>2, "radio_irq: still pending after many tries!");
+        rprintln!(=>0, "radio_irq: still pending after many tries!");
     }
     // cx.resources.trace_pin.set_low().ok();
 }
