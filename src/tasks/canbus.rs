@@ -31,12 +31,22 @@ pub struct LLStatistics {
     pub rx: DirectionStatistics,
     pub tx: DirectionStatistics
 }
+impl LLStatistics {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
 
 #[derive(Default)]
 pub struct IrqStatistics {
     pub irqs: u32,
     pub bus_off: u32,
     pub lost: u32,
+}
+impl IrqStatistics {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
 }
 
 pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
@@ -145,6 +155,11 @@ pub struct RxRoutingStatistics {
     pub processed_locally: DirectionStatistics,
     pub forwarded: DirectionStatistics
 }
+impl RxRoutingStatistics {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
 
 #[allow(dead_code)]
 pub enum Scope {
@@ -201,14 +216,97 @@ impl Ord for ForwardEntry {
 
 pub type ForwardHeap = heapless::BinaryHeap<ForwardEntry, config::ForwardHeapSize, heapless::binary_heap::Min>;
 
+#[derive(PartialEq, Eq)]
+pub struct CanIdCounter {
+    pub count: u32,
+    pub last_seen: rtic::cyccnt::Instant,
+    pub cycle_time: rtic::cyccnt::Duration,
+}
+impl CanIdCounter {
+    fn new() -> Self {
+        CanIdCounter {
+            count: 0,
+            last_seen: rtic::cyccnt::Instant::now(),
+            cycle_time: Default::default(),
+        }
+    }
+}
+pub type CanIdCounters = heapless::FnvIndexMap<vhrdcan::FrameId, CanIdCounter, heapless::consts::U32>;
+pub struct CanAnalyzer {
+    counters: CanIdCounters,
+    overflow: bool
+}
+impl CanAnalyzer {
+    pub fn new() -> Self {
+        CanAnalyzer {
+            counters: CanIdCounters::new(),
+            overflow: false
+        }
+    }
+
+    pub fn analyze(&mut self, frame: &vhrdcan::Frame) {
+        let id = frame.id();
+        if !self.counters.contains_key(&id) {
+            match self.counters.insert(id, CanIdCounter::new()) {
+                Ok(_) => {},
+                Err(_) => {
+                    self.overflow = true;
+                    return;
+                }
+            }
+        }
+        match self.counters.get_mut(&frame.id()) {
+            Some(counter) => {
+                let now = rtic::cyccnt::Instant::now();
+                counter.count += 1;
+                counter.cycle_time = now.duration_since(counter.last_seen);
+                counter.last_seen = now;
+            },
+            None => {}
+        }
+    }
+
+    pub fn print_statistics(&self, clocks: &crate::hal::rcc::Clocks) {
+        let mut i = 1;
+        for (id, counter) in &self.counters {
+            let cycle_time = cycles2us_alt!(clocks.sys_clk.0, counter.cycle_time.as_cycles());
+            rprintln!(
+                =>6,
+                "{}.\t{:?}\t\t{}\t\t\tcycle: {}.{:03}ms",
+                i, id, counter.count,
+                cycle_time / 1000, cycle_time % 1000,
+            );
+            i += 1;
+        }
+        if self.overflow {
+            rprintln!(=>6, "{}Analyzer overflow{}", color::YELLOW, color::DEFAULT);
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.counters.len()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.counters.capacity()
+    }
+
+    pub fn reset(&mut self) {
+        self.counters.clear();
+        self.overflow = false;
+    }
+}
+
 pub fn can0_rx_router(cx: crate::can0_rx_router::Context) {
     let receive_heap: &mut config::CanReceiveHeap = cx.resources.can0_receive_heap;
     let routing_table: &RxRoutingTable = cx.resources.can0_rx_routing_table;
     let statistics: &mut RxRoutingStatistics = cx.resources.can0_rx_routing_statistics;
     let local_processing_heap: &mut config::CanLocalProcessingHeap = cx.resources.can0_local_processing_heap;
     let mut channels = cx.resources.channels;
+    let analyzer = cx.resources.can0_analyzer;
 
     while let Some(frame) = receive_heap.heap.pop() {
+        analyzer.analyze(&frame);
         //rprintln!(=>8, "pop:{:02x}", frame.data()[0]);
         let mut matches = false;
         for entry in routing_table {
@@ -339,4 +437,65 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
     if failed > 0 {
         rprintln!(=>0, "\n\n{}load_rx_routing_table: table is not big enough{}", color::RED, color::DEFAULT);
     }
+}
+
+#[derive(Eq, PartialEq)]
+pub enum CanAnalyzerEvent {
+    Print,
+    Reset,
+}
+pub fn can_analyzer(mut cx: crate::can_analyzer::Context, e: CanAnalyzerEvent) {
+    let reset = e == CanAnalyzerEvent::Reset;
+    rprintln!(=>6, "");
+    rprintln!(=>6, "\n\x1b[2J\x1b[0m---\n");
+    cx.resources.can0_irq_statistics.lock(|irq_statistics: &mut crate::tasks::canbus::IrqStatistics| {
+        if reset {
+            irq_statistics.reset();
+        }
+        rprintln!(=>6, "IRQs: {}, BusOffs: {}, FramesLost: {}", irq_statistics.irqs, irq_statistics.bus_off, irq_statistics.lost);
+    });
+    cx.resources.can0_ll_statistics.lock(|can0_ll_statistics: &mut crate::tasks::canbus::LLStatistics| {
+        if reset {
+            can0_ll_statistics.reset();
+        }
+        rprintln!(=>6, "LL_RX: {:?}", can0_ll_statistics.rx);
+        rprintln!(=>6, "LL_TX: {:?}", can0_ll_statistics.tx);
+    });
+    rprintln!(=>6, "");
+    cx.resources.can0_rx_routing_statistics.lock(|can0_rx_routing_statistics: &mut crate::tasks::canbus::RxRoutingStatistics| {
+        if reset {
+            can0_rx_routing_statistics.reset();
+        }
+        rprintln!(=>6, "Route_DROP: {:?}", can0_rx_routing_statistics.dropped);
+        rprintln!(=>6, "Route_PROCESS: {:?}", can0_rx_routing_statistics.processed_locally);
+        rprintln!(=>6, "Route_FORWARD: {:?}", can0_rx_routing_statistics.forwarded);
+    });
+    let uwb_forwarding_counters = cx.resources.channels.lock(|channels| {
+        if reset {
+            channels.can2uwb = 0;
+            channels.uwb2can_ok = 0;
+            channels.uwb2can_drop = 0;
+        }
+        (channels.can2uwb, channels.uwb2can_ok, channels.uwb2can_drop)
+    });
+    rprintln!(=>6, "Can2Uwb: {}\tUwb2Can_OK: {}\tUwb2Can_DROP: {}", uwb_forwarding_counters.0, uwb_forwarding_counters.1, uwb_forwarding_counters.2);
+    rprintln!(=>6, "");
+    let clocks = cx.resources.clocks;
+
+    cx.resources.can0_analyzer.lock(|can0_analyzer: &mut crate::tasks::canbus::CanAnalyzer| {
+        rprintln!(=>6, "CAN RX Frames [{}]:", can0_analyzer.len());
+        if reset {
+            can0_analyzer.reset();
+        }
+        can0_analyzer.print_statistics(&clocks);
+    });
+
+    cx.resources.channels.lock(|channels: &mut crate::channels::Channels| {
+        rprintln!(=>6, "\nCAN TX Frames [{}]:", channels.can0_forward_analyzer.len());
+        if reset {
+            channels.can0_forward_analyzer.reset();
+        }
+        channels.can0_forward_analyzer.print_statistics(clocks);
+    });
+    rprintln!(=>6, "\n=====\n");
 }

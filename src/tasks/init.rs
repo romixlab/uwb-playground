@@ -160,6 +160,7 @@ pub fn init(
     let can0_rx_routing_statistics = crate::tasks::canbus::RxRoutingStatistics::default();
     let can0_local_processing_heap = vhrdcan::FrameHeap::new();
     let can0_irq_statistics = crate::tasks::canbus::IrqStatistics::default();
+    let can0_analyzer = crate::tasks::canbus::CanAnalyzer::new();
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -419,6 +420,7 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+                    can0_analyzer,
 
                     imx_serial,
 
@@ -447,6 +449,7 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+                    can0_analyzer,
 
                     imx_serial,
 
@@ -475,6 +478,7 @@ pub fn init(
                     can0_rx_routing_table,
                     can0_rx_routing_statistics,
                     can0_local_processing_heap,
+                    can0_analyzer,
 
                     imx_serial,
 

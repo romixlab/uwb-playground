@@ -60,6 +60,7 @@ use crate::color;
 pub struct Channels {
     pub can0_forward_heap: crate::tasks::canbus::ForwardHeap,
     pub can0_send_heap: config::CanSendHeap,
+    pub can0_forward_analyzer: crate::tasks::canbus::CanAnalyzer,
 
     pub can2uwb: u32,
     pub uwb2can_ok: u32,
@@ -71,6 +72,7 @@ impl Channels {
         Channels {
             can0_forward_heap: heapless::BinaryHeap::new(),
             can0_send_heap: vhrdcan::FrameHeap::new(),
+            can0_forward_analyzer: crate::tasks::canbus::CanAnalyzer::new(),
 
             can2uwb: 0,
             uwb2can_ok: 0,
@@ -95,8 +97,8 @@ impl Arbiter for Channels {
             }
         }
 
-        rprintln!(=>3, "");
-        rprintln!(=>3, "was: {}", self.can0_forward_heap.len());
+        //rprintln!(=>3, "");
+        //rprintln!(=>3, "was: {}", self.can0_forward_heap.len());
         let mut frames_muxed = 0;
         while let Some(forward_entry) = self.can0_forward_heap.pop() {
             let destination = match forward_entry.to {
@@ -111,8 +113,8 @@ impl Arbiter for Channels {
                 break;
             }
         }
-        rprintln!(=>3, "muxed: {} left: {}", frames_muxed, self.can0_forward_heap.len());
-        rprintln!(=>3, "");
+        //rprintln!(=>3, "muxed: {} left: {}", frames_muxed, self.can0_forward_heap.len());
+        //rprintln!(=>3, "");
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
@@ -134,6 +136,7 @@ impl Arbiter for Channels {
                     Ok(_) => {
                         self.uwb2can_ok += 1;
                         sinked += 1;
+                        self.can0_forward_analyzer.analyze(&frame);
                     },
                     Err(_) => {
                         self.uwb2can_drop += 1;

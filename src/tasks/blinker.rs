@@ -21,23 +21,6 @@ pub struct CounterDeltas {
 pub fn blinker(mut cx: crate::blinker::Context) {
     cx.resources.led_blinky.toggle().ok();
 
-    rprintln!(=>6, "");
-    rprintln!(=>6, "\n\x1b[2J\x1b[0m---\n");
-    cx.resources.can0_irq_statistics.lock(|irq_statistics: &mut crate::tasks::canbus::IrqStatistics| {
-        rprintln!(=>6, "IRQs: {}, BusOffs: {}, FramesLost: {}", irq_statistics.irqs, irq_statistics.bus_off, irq_statistics.lost);
-    });
-    cx.resources.can0_ll_statistics.lock(|can0_ll_statistics: &mut crate::tasks::canbus::LLStatistics| {
-        rprintln!(=>6, "LL_RX: {:?}", can0_ll_statistics.rx);
-        rprintln!(=>6, "LL_TX: {:?}", can0_ll_statistics.tx);
-    });
-    cx.resources.can0_rx_routing_statistics.lock(|can0_rx_routing_statistics: &mut crate::tasks::canbus::RxRoutingStatistics| {
-        rprintln!(=>6, "Route_DROP: {:?}", can0_rx_routing_statistics.dropped);
-        rprintln!(=>6, "Route_PROCESS: {:?}", can0_rx_routing_statistics.processed_locally);
-        rprintln!(=>6, "Route_FORWARD: {:?}", can0_rx_routing_statistics.forwarded);
-    });
-    let uwb_forwarding_counters = cx.resources.channels.lock(|channels| (channels.can2uwb, channels.uwb2can_ok, channels.uwb2can_drop));
-    rprintln!(=>6, "Can2Uwb: {}\tUwb2Can_OK: {}\tUwb2Can_DROP: {}", uwb_forwarding_counters.0, uwb_forwarding_counters.1, uwb_forwarding_counters.2);
-
     cx.resources.channels.lock(|channels| {
         let h = &mut channels.can0_send_heap;
         let _ = h.heap.push(h.pool.new_frame(vhrdcan::FrameId::new_standard(0xac).unwrap(), &[0xaa, 0xbb, 0xcc]).unwrap());
@@ -45,5 +28,6 @@ pub fn blinker(mut cx: crate::blinker::Context) {
     rtic::pend(config::CAN0_SEND_IRQ);
 
     cx.schedule.blinker(cx.scheduled + ms2cycles!(cx.resources.clocks, config::BLINK_PERIOD_MS)).ok(); // TODO: count errors
+    let _ = cx.spawn.can_analyzer(crate::tasks::canbus::CanAnalyzerEvent::Print);
     // cx.schedule.blinker(cx.scheduled + us2cycles!(cx.resources.clocks, 300)).ok(); // TODO: count errors
 }

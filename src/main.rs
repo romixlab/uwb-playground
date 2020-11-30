@@ -43,6 +43,7 @@ const APP: () = {
         can0_rx_routing_table: tasks::canbus::RxRoutingTable,
         can0_rx_routing_statistics: tasks::canbus::RxRoutingStatistics,
         can0_local_processing_heap: config::CanLocalProcessingHeap,
+        can0_analyzer: tasks::canbus::CanAnalyzer,
 
         imx_serial: config::ImxSerial,
 
@@ -70,6 +71,9 @@ const APP: () = {
             rtt_down_channel,
             radio_commands,
             imx_serial
+        ],
+        spawn = [
+            can_analyzer
         ]
     )]
     fn idle(cx: idle::Context) -> ! {
@@ -80,18 +84,32 @@ const APP: () = {
         resources = [
             &clocks,
             led_blinky,
-            can0_ll_statistics,
-            can0_rx_routing_statistics,
-            channels, // for statistics
-            counter_deltas,
-            can0_irq_statistics
+            channels,
         ],
         schedule = [
             blinker,
+        ],
+        spawn = [
+            can_analyzer
         ]
     )]
     fn blinker(cx: blinker::Context) {
         tasks::blinker::blinker(cx);
+    }
+
+    #[task(
+        resources = [
+            &clocks,
+            can0_ll_statistics,
+            can0_rx_routing_statistics,
+            channels, // for statistics
+            counter_deltas,
+            can0_irq_statistics,
+            can0_analyzer,
+        ]
+    )]
+    fn can_analyzer(cx: can_analyzer::Context, e: tasks::canbus::CanAnalyzerEvent) {
+        tasks::canbus::can_analyzer(cx, e);
     }
 
     #[task(
@@ -165,7 +183,8 @@ const APP: () = {
             can0_rx_routing_table,
             can0_rx_routing_statistics,
             can0_local_processing_heap,
-            channels, // can0_forward_heap
+            channels, // can0_forward_heap,
+            can0_analyzer
         ]
     )]
     fn can0_rx_router(cx: can0_rx_router::Context) {
