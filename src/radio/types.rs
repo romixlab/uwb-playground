@@ -60,7 +60,7 @@ pub enum RadioState {
     //DynamicWindowDataSending(Option<SendingRadio>),
 
     #[cfg(any(feature = "slave", feature = "anchor"))]
-    GTSStartWaiting(Option<ReceivingRadio>),
+    GTSStartWaiting((Option<ReceivingRadio>, RadioConfig)),
     #[cfg(any(feature = "slave", feature = "anchor"))]
     GTSAnswerSending(Option<SendingRadio>),
 
