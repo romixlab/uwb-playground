@@ -200,7 +200,8 @@ impl Scope {
 
 pub struct RoutingEntry {
     scope: Scope,
-    action: RoutingAction
+    action: RoutingAction,
+    comment: &'static str,
 }
 
 pub type RxRoutingTable = heapless::Vec<RoutingEntry, config::RxRoutingTableSize>;
@@ -228,6 +229,7 @@ pub struct CanIdCounter {
     pub count: u32,
     pub last_seen: rtic::cyccnt::Instant,
     pub cycle_time: rtic::cyccnt::Duration,
+    pub comment: &'static str,
 }
 impl CanIdCounter {
     fn new() -> Self {
@@ -235,6 +237,7 @@ impl CanIdCounter {
             count: 0,
             last_seen: rtic::cyccnt::Instant::now(),
             cycle_time: Default::default(),
+            comment: "?"
         }
     }
 }
@@ -242,6 +245,12 @@ pub type CanIdCounters = heapless::FnvIndexMap<vhrdcan::FrameId, CanIdCounter, h
 pub struct CanAnalyzer {
     counters: CanIdCounters,
     overflow: bool
+}
+#[derive(PartialEq, Eq)]
+pub enum CanAnalyzeStatus {
+    Overflow,
+    NewEntryCreated,
+    Updated
 }
 impl CanAnalyzer {
     pub fn new() -> Self {
@@ -251,14 +260,17 @@ impl CanAnalyzer {
         }
     }
 
-    pub fn analyze(&mut self, frame: &vhrdcan::Frame) {
+    pub fn analyze(&mut self, frame: &vhrdcan::Frame) -> CanAnalyzeStatus {
         let id = frame.id();
+        let mut created_entry = false;
         if !self.counters.contains_key(&id) {
             match self.counters.insert(id, CanIdCounter::new()) {
-                Ok(_) => {},
+                Ok(_) => {
+                    created_entry = true;
+                },
                 Err(_) => {
                     self.overflow = true;
-                    return;
+                    return CanAnalyzeStatus::Overflow;
                 }
             }
         }
@@ -268,6 +280,22 @@ impl CanAnalyzer {
                 counter.count += 1;
                 counter.cycle_time = now.duration_since(counter.last_seen);
                 counter.last_seen = now;
+                if created_entry {
+                    CanAnalyzeStatus::NewEntryCreated
+                } else {
+                    CanAnalyzeStatus::Updated
+                }
+            },
+            None => {
+                unreachable!();
+            }
+        }
+    }
+
+    pub fn add_comment(&mut self, id: &FrameId, comment: &'static str) {
+        match self.counters.get_mut(id) {
+            Some(counter) => {
+                counter.comment = comment;
             },
             None => {}
         }
@@ -279,8 +307,8 @@ impl CanAnalyzer {
             let cycle_time = cycles2us_alt!(clocks.sys_clk.0, counter.cycle_time.as_cycles());
             rprintln!(
                 =>6,
-                "{}.\t{:?}\t\t{}\t\t\tcycle: {}.{:03}ms",
-                i, id, counter.count,
+                "{}.\t{:?}\t{}\t\t{}\t\t\tcycle: {}.{:03}ms",
+                i, id, counter.comment, counter.count,
                 cycle_time / 1000, cycle_time % 1000,
             );
             i += 1;
@@ -315,12 +343,15 @@ pub fn can0_rx_router(cx: crate::can0_rx_router::Context) {
     loop {
         match receive_heap.lock(|rh: &mut config::CanReceiveHeap| rh.heap.pop()) {
             Some(frame) => {
-                analyzer.analyze(&frame);
+                let analyze_status = analyzer.analyze(&frame);
                 //rprintln!(=>8, "pop:{:02x}", frame.data()[0]);
                 let mut matches = false;
                 for entry in routing_table {
                     if entry.scope.contains(frame.id()) {
                         matches = true;
+                        if analyze_status == CanAnalyzeStatus::NewEntryCreated {
+                            analyzer.add_comment(&frame.id(), entry.comment);
+                        }
                         match entry.action {
                             RoutingAction::Drop => {
                                 statistics.dropped.frames_processed += 1;
@@ -388,63 +419,77 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
         if #[cfg(feature = "master")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D22A).unwrap()), // Radar 1
-                action: RoutingAction::Drop
+                action: RoutingAction::Drop,
+                comment: "Radar1"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D32A).unwrap()), // Radar 2
-                action: RoutingAction::Drop
+                action: RoutingAction::Drop,
+                comment: "Radar2"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D42A).unwrap()), // Radar 3
-                action: RoutingAction::Drop
+                action: RoutingAction::Drop,
+                comment: "Radar3"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003840A).unwrap()), // Motor TL
-                action: RoutingAction::Drop
+                action: RoutingAction::Drop,
+                comment: "Rpm_TL"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D80A).unwrap()), // Tacho TL
-                action: RoutingAction::Drop
+                action: RoutingAction::Drop,
+                comment: "Tacho_TL"
             }).is_err() as u32;
 
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003850A).unwrap()), // Motor TR
-                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR))
+                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
+                comment: "Rpm_TR"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003860A).unwrap()), // Motor BL
-                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR))
+                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
+                comment: "Rpm_BL"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003870A).unwrap()), // Motor BR
-                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR))
+                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
+                comment: "Rpm_BR"
             }).is_err() as u32;
         } else if #[cfg(feauture = "tr")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D90A).unwrap()), // Tacho TR
-                action: RoutingAction::Forward(Destination::Broadcast)
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Tacho_TR"
             }).is_err() as u32;
         } else if #[cfg(feature = "bl")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004DA0A).unwrap()), // Tacho BL
-                action: RoutingAction::Forward(Destination::Broadcast)
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Tacho_BL"
             }).is_err() as u32;
         } else if #[cfg(feature = "br")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D52A).unwrap()), // Radar 4
-                action: RoutingAction::Forward(Destination::Broadcast)
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Radar4"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D62A).unwrap()), // Radar 5
-                action: RoutingAction::Forward(Destination::Broadcast)
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Radar5"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D72A).unwrap()), // Radar 6
-                action: RoutingAction::Forward(Destination::Broadcast)
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Radar6"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004DB0A).unwrap()), // Tacho BR
-                action: RoutingAction::Forward(Destination::Broadcast)
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Tacho_BR"
             }).is_err() as u32;
         }
     }
