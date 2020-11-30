@@ -134,6 +134,7 @@ pub fn init(
         can::Mode::Normal,
         can::Retransmission::Enabled,
         can::TransmitPause::Disabled,
+        can::TxBufferMode::Fifo,
         can::ClockDiv::Div1,
         can::BitTiming::default_1mbps(),
     );

@@ -57,7 +57,8 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
     irq_statistics.irqs += 1;
 
     // rprintln!("can_irq0");
-    // rprintln!("reason: {:?}", can.interrupt_reason());
+    let interrupt_reason = can.interrupt_reason();
+    //rprintln!("reason: {:?}", can.interrupt_reason());
     // rprintln!("{:?}", can.protocol_status());
     // rprintln!("rec:{} tec:{}", can.receive_error_counter(), can.transmit_error_counter());
     // rprintln!("rx_pin: {:?}", can.rx_pin_state());
@@ -73,9 +74,10 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
             });
         }
     } else {
-        if can.free_slots() != 0 {
+        let channels = cx.resources.channels;
+        let mut max_slots = 3;
+        while can.free_slots() != 0 {
             // cx.resources.channels.lock(|channels| {
-            let channels = cx.resources.channels;
                 let send_heap: &mut config::CanSendHeap = &mut channels.can0_send_heap;
                 if let Some(frame) = send_heap.heap.pop() {
                     match can.send(&frame) {
@@ -89,6 +91,10 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
                     }
                     //rprintln!("send: {:?}{:?}{}", frame.id(), r, cx.resources.can0_send_heap.heap.len());
                 }
+            max_slots -= 1;
+            if max_slots == 0 {
+                break;
+            }
             // });
         }
     }
@@ -132,7 +138,7 @@ pub fn can0_irq0(mut cx: crate::can0_irq0::Context) {
         let _ = cx.spawn.can0_rx_router();
     }
 
-    unsafe { can.regs_mut().ir.write(|w| w.bits(0x00ff_ffff)) };
+    unsafe { can.regs_mut().ir.write(|w| w.bits(interrupt_reason.0.bits())) };
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
