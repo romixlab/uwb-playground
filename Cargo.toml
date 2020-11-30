@@ -65,6 +65,7 @@ pozyx-board = ["stm32f4xx-hal"]
 dragonfly-board = ["stm32l4xx-hal"]
 uwb-a = []
 uwb-b = []
+event-rtt-trace = []
 
 [[bin]]
 name = "uwb"

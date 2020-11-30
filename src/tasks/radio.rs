@@ -46,29 +46,33 @@ impl Tracer for RttTracer {
             }
         }
 
-        let dt_gts = now - self.prev_gts;
-        let dt_prev = now - self.prev;
-        if e == TraceEvent::GTSStart {
-            rprintln!(=> 13, "\n\x1b[2J\x1b[0m---\n");
-        } else if e == TraceEvent::TimingMarker {
-            self.prev_gts = now;
-        } else if e == TraceEvent::GTSStartReceived {
-            // Cannot easily forward this number for now, see https://github.com/rust-lang/rust/issues/60553
-            let rx_to_process_delay = 155u32; // [us] from rx timestamp till this moment
-            self.prev_gts = now - self.sysclk / 1_000_000 * rx_to_process_delay;
-            rprintln!(=> 13, "\n\n\n---\n");
-        }
-        self.prev = now;
+        cfg_if! {
+            if #[cfg(feature = "event-rtt-trace")] {
+                let dt_gts = now - self.prev_gts;
+                let dt_prev = now - self.prev;
+                if e == TraceEvent::GTSStart {
+                    rprintln!(=> 13, "\n\x1b[2J\x1b[0m---\n");
+                } else if e == TraceEvent::TimingMarker {
+                    self.prev_gts = now;
+                } else if e == TraceEvent::GTSStartReceived {
+                    // Cannot easily forward this number for now, see https://github.com/rust-lang/rust/issues/60553
+                    let rx_to_process_delay = 155u32; // [us] from rx timestamp till this moment
+                    self.prev_gts = now - self.sysclk / 1_000_000 * rx_to_process_delay;
+                    rprintln!(=> 13, "\n\n\n---\n");
+                }
+                self.prev = now;
 
-        let dt_gts = cycles2us_alt!(self.sysclk, dt_gts);
-        let dt_prev = cycles2us_alt!(self.sysclk, dt_prev);
-        rprintln!(=> 13,
-            "{}({}) +{}.{:03} d{}.{:03}\n",
-            e,
-            count,
-            dt_gts / 1000, dt_gts % 1000,
-            dt_prev / 1000, dt_prev % 1000
-        );
+                let dt_gts = cycles2us_alt!(self.sysclk, dt_gts);
+                let dt_prev = cycles2us_alt!(self.sysclk, dt_prev);
+                rprintln!(=> 13,
+                    "{}({}) +{}.{:03} d{}.{:03}\n",
+                    e,
+                    count,
+                    dt_gts / 1000, dt_gts % 1000,
+                    dt_prev / 1000, dt_prev % 1000
+                );
+            }
+        }
     }
 }
 
@@ -94,7 +98,7 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // }
     //rprintln!(=>2, "IRQ: {}us", cycles2us!(cx, dt));
     // cx.resources.trace_pin.set_high().ok();
-
+//let _: crate::resources::channels = cx.resources.channels;
     cx.resources.radio.irq.clear_interrupt_pending_bit();
     for _ in 0..42 {
         radio::state_machine::advance(
@@ -150,27 +154,27 @@ fn overlap_check(
         // Message may still be sending, stop it not to overlap with anyone. This should not normally happen.
         // radio_commands.enqueue(Command::ForceReadyIfSending).ok();
         // rtic::pend(config::DW1000_IRQ_EXTI);
-        rprintln!(=>2, "{}{} slot overlap detected{}", color::YELLOW, name, color::DEFAULT);
+        //rprintln!(=>2, "{}{} slot overlap detected{}", color::YELLOW, name, color::DEFAULT);
     }
     let time_exceeded = actually_took > should_have_taken;
     if time_exceeded && done {
         // irq processing probably took too long, message could have overlapped with other slot.
-        rprintln!(=>2,
-            "{}{} slot hard overlap detected by={} already_sent={}{}",
-            color::RED,
-            name,
-            actually_took - should_have_taken,
-            done,
-            color::DEFAULT
-        );
+        // rprintln!(=>2,
+        //     "{}{} slot hard overlap detected by={} already_sent={}{}",
+        //     color::RED,
+        //     name,
+        //     actually_took - should_have_taken,
+        //     done,
+        //     color::DEFAULT
+        // );
     }
 }
 
 pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
-    if let Event::GTSAboutToStart(_, _) = e {
-        rprintln!(=>2, "\n\n\n---\n");
-    }
-    rprintln!(=>2, "e: {}\n", e);
+    // if let Event::GTSAboutToStart(_, _) = e {
+    //     rprintln!(=>2, "\n\n\n---\n");
+    // }
+    // rprintln!(=>2, "e: {}\n", e);
     use Event::*;
     match e {
         #[cfg(feature = "master")]
@@ -205,7 +209,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         },
         GTSShouldHaveEnded => {
             let elapsed = cx.resources.event_state_data.gts_elapsed;
-            rprintln!(=>2, "G_SX: {}\n", elapsed);
+            // rprintln!(=>2, "G_SX: {}\n", elapsed);
             overlap_check(
                 &mut cx.resources.radio_commands,
                 cx.resources.event_state_data.gts_processing_finished,
@@ -366,7 +370,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         },
         DynShouldHaveEnded => {
             let elapsed = cx.resources.event_state_data.dyn_elapsed;
-            rprintln!(=>2, "D_SX: {}\n", elapsed);
+            // rprintln!(=>2, "D_SX: {}\n", elapsed);
             overlap_check(
                 &mut cx.resources.radio_commands,
                 cx.resources.event_state_data.dyn_processing_finished,
