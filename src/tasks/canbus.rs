@@ -433,9 +433,14 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 comment: "Radar3"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003840A).unwrap()), // Motor TL
+                scope: Scope::Single(FrameId::new_extended(0x1003840A).unwrap()), // Motor TL Rpm
                 action: RoutingAction::Drop,
                 comment: "Rpm_TL"
+            }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(0x1023290A).unwrap()), // Motor TL EN
+                action: RoutingAction::Drop,
+                comment: "EN_TL"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D80A).unwrap()), // Tacho TL
@@ -444,21 +449,38 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
             }).is_err() as u32;
 
             failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003850A).unwrap()), // Motor TR
+                scope: Scope::Single(FrameId::new_extended(0x1003850A).unwrap()), // Motor TR Rpm
                 action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
                 comment: "Rpm_TR"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003860A).unwrap()), // Motor BL
+                scope: Scope::Single(FrameId::new_extended(0x10238D0A).unwrap()), // Motor TR EN
+                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
+                comment: "EN_TR"
+            }).is_err() as u32;
+
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(0x1003860A).unwrap()), // Motor BL Rpm
                 action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
                 comment: "Rpm_BL"
             }).is_err() as u32;
             failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003870A).unwrap()), // Motor BR
+                scope: Scope::Single(FrameId::new_extended(0x1023F10A).unwrap()), // Motor BL EN
+                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
+                comment: "EN_BL"
+            }).is_err() as u32;
+
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(0x1003870A).unwrap()), // Motor BR Rpm
                 action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
                 comment: "Rpm_BR"
             }).is_err() as u32;
-        } else if #[cfg(feauture = "tr")] {
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(0x1024550A).unwrap()), // Motor BR EN
+                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
+                comment: "EN_BR"
+            }).is_err() as u32;
+        } else if #[cfg(feature = "tr")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D90A).unwrap()), // Tacho TR
                 action: RoutingAction::Forward(Destination::Broadcast),
