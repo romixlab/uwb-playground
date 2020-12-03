@@ -97,7 +97,7 @@ pub const REQUIRED_SLAVE_COUNT: u8 = 3;
 /// Maximum number of nodes in a PAN
 // pub type TotalNodeCount = consts::U5;
 
-pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel3;
+pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel5;
 
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);
