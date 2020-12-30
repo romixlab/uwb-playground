@@ -1,13 +1,10 @@
 use crate::board::hal;
-use crate::units::{MilliSeconds, ms, U32UnitsExt};
-use typenum::consts;
+use crate::units::{ms, MilliSeconds, U32UnitsExt};
 use bbqueue::{BBBuffer, Consumer, Producer};
-use hal::gpio::{PushPull, Output, Input, PullDown, Floating, DefaultMode};
+use hal::gpio::{DefaultMode, Floating, Input, Output, PullDown, PushPull};
 use heapless::binary_heap::{BinaryHeap, Min};
 use heapless::consts::*;
-
-#[cfg(feature = "pozyx-board")]
-use hal::gpio::{AF5, gpioa::{PA4, PA5, PA6, PA7}};
+use typenum::consts;
 
 #[cfg(feature = "gcharger-board")]
 pub type Can0Tx = PB9<Input<Floating>>;
@@ -26,15 +23,6 @@ pub type RxRoutingTableSize = consts::U32;
 pub type ImxSerialTx = PC4<Input<Floating>>;
 pub type ImxSerialRx = PC5<Input<Floating>>;
 pub type ImxSerial = hal::serial::Serial<hal::stm32::USART1, ImxSerialTx, ImxSerialRx>;
-
-#[cfg(feature = "pozyx-board")]
-pub type Dw1000Clk = PA5<Alternate<AF5>>;
-#[cfg(feature = "pozyx-board")]
-pub type Dw1000Miso = PA6<Alternate<AF5>>;
-#[cfg(feature = "pozyx-board")]
-pub type Dw1000Mosi = PA7<Alternate<AF5>>;
-#[cfg(feature = "pozyx-board")]
-pub type Dw1000Cs = PA4<Output<PushPull>>;
 
 #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
 use hal::gpio::{gpioa::*, gpiob::*, gpioc::*, gpiod::*, gpiof::*};
@@ -137,20 +125,13 @@ pub const UWB_ADDR: ShortAddress = DEV_UWB_ADDR;
 #[cfg(feature = "anchor")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x666);
 
-#[cfg(feature = "pozyx-board")]
-use hal::gpio::{gpioa::{PA0, PA1}, gpiob::{PB5}};
 use dw1000::configs::UwbChannel;
 
-#[cfg(feature = "pozyx-board")]
-pub type LedBlinkyPin = PB5<Output<PushPull>>;
 #[cfg(feature = "gcharger-board")]
 pub type LedBlinkyPin = PB15<Output<PushPull>>;
 #[cfg(feature = "gcarrier-board")]
 pub type LedBlinkyPin = PB1<Output<PushPull>>;
 
-#[cfg(feature = "pozyx-board")]
-pub type RadioIrqPin = PA0<Input<PullDown>>;
-//type RadioIrqPin = PC4<Input<PullDown>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioIrqPin = PC15<Input<PullDown>>;
 #[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
@@ -158,8 +139,6 @@ pub type RadioIrqPin = PA8<Input<PullDown>>;
 #[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type RadioIrqPin = PC8<Input<PullDown>>;
 
-#[cfg(feature = "pozyx-board")]
-pub type RadioTracePin = PA1<Output<PushPull>>;
 #[cfg(feature = "gcharger-board")]
 pub type RadioTracePin = PA2<Output<PushPull>>;
 #[cfg(feature = "gcarrier-board")]

@@ -1,31 +1,26 @@
 use crate::board::hal;
-use crate::radio;
-use crate::config;
 use crate::color;
+use crate::config;
+use crate::radio;
 
-use bbqueue::{BBBuffer};
-use rtt_target::{rtt_init_print, rprint, rprintln};
+use crate::hal::spi::Spi;
+use bbqueue::BBBuffer;
+use cfg_if::cfg_if;
 use cortex_m::peripheral::DWT;
-#[cfg(feature = "pozyx-board")]
-use hal::gpio::{Edge, ExtiPin};
 use dw1000::DW1000;
 use embedded_hal::digital::v2::OutputPin;
-use cfg_if::cfg_if;
-use radio::types::Event;
 use radio::scheduler::Scheduler;
+use radio::types::Event;
 use radio::types::RadioConfig;
-use crate::hal::spi::Spi;
+use rtt_target::{rprint, rprintln, rtt_init_print};
 
-use core::sync::atomic::{
-    compiler_fence,
-    Ordering
-};
+use crate::radio::types::{Pong, ReadyRadio};
+use core::sync::atomic::{compiler_fence, Ordering};
+use dw1000::hl::SendTime;
+use dw1000::mac::{Address, PanId, ShortAddress};
 use embedded_hal::blocking::spi::Transfer;
 use embedded_hal::spi::FullDuplex;
 use stm32g4xx_hal::gpio::SignalEdge;
-use crate::radio::types::{ReadyRadio, Pong};
-use dw1000::mac::{Address, PanId, ShortAddress};
-use dw1000::hl::SendTime;
 
 pub fn init(
     cx: crate::init::Context,
@@ -67,43 +62,27 @@ pub fn init(
     let rcc = device.RCC.constrain();
     use hal::time::U32Ext;
     // If you change clock frequency, make sure to also change tracer sysclk!
-    cfg_if! {
-        if #[cfg(feature = "pozyx-board")] {
-            let clocks = rcc.cfgr.sysclk(72.mhz()).freeze();
-        } else if #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))] {
-            let mut rcc = rcc.freeze(stm32g4xx_hal::rcc::Config::default());
-            let clocks = rcc.clocks;
-        }
+    #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
+    {
+        let mut rcc = rcc.freeze(stm32g4xx_hal::rcc::Config::default());
+        let clocks = rcc.clocks;
     }
     rprintln!("Clocks: {:#?}", clocks);
     let mut syscfg = device.SYSCFG;
     let mut exti = device.EXTI;
 
     use hal::gpio::GpioExt;
-    cfg_if! {
-        if #[cfg(feature = "pozyx-board")] {
-            let gpioa = device.GPIOA.split();
-            let gpiob = device.GPIOB.split();
-            let gpioc = device.GPIOC.split();
-        } else if #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))] {
-            let mut gpioa = device.GPIOA.split(&mut rcc);
-            let mut gpiob = device.GPIOB.split(&mut rcc);
-            let mut gpioc = device.GPIOC.split(&mut rcc);
-            let mut gpiod = device.GPIOD.split(&mut rcc);
-            let mut gpiof = device.GPIOF.split(&mut rcc);
-        }
+    #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
+    {
+        let mut gpioa = device.GPIOA.split(&mut rcc);
+        let mut gpiob = device.GPIOB.split(&mut rcc);
+        let mut gpioc = device.GPIOC.split(&mut rcc);
+        let mut gpiod = device.GPIOD.split(&mut rcc);
+        let mut gpiof = device.GPIOF.split(&mut rcc);
     }
 
     cfg_if! {
-        if #[cfg(feature = "pozyx-board")] {
-            let mut led1_red = gpiob.pb4.into_push_pull_output();
-            let mut led_blinky = gpiob.pb5.into_push_pull_output();
-            let mut led2_red = gpiob.pb8.into_push_pull_output();
-            let mut led2_green = gpiob.pb9.into_push_pull_output();
-            led1_red.set_low().ok();
-            led2_green.set_high().ok();
-            led2_red.set_low().ok();
-        } else if #[cfg(feature = "gcharger-board")] {
+        if #[cfg(feature = "gcharger-board")] {
             let mut led_blinky = gpiob.pb15.into_push_pull_output();
         } else if #[cfg(feature = "gcarrier-board")] {
             let mut led_blinky = gpiob.pb1.into_push_pull_output();
@@ -120,13 +99,9 @@ pub fn init(
             let fdcan1_rx = gpioa.pa11;
         }
     }
-    use hal::can;
     use can::{CanController, CanInstance, ClockSource};
-    let mut can_ctrl = CanController::new(
-        ClockSource::Pllq,
-        &mut rcc,
-        &mut core.DWT
-    ).unwrap();
+    use hal::can;
+    let mut can_ctrl = CanController::new(ClockSource::Pllq, &mut rcc, &mut core.DWT).unwrap();
     let mut can0 = CanInstance::new_classical(
         &mut can_ctrl,
         device.FDCAN1,
@@ -150,7 +125,9 @@ pub fn init(
         can0.ll(|can_regs| {
             can_regs.ie.write(|w| w.bits(0xff_ffff)); // enable all interrupts
             can_regs.ils.write(|w| w.bits(0b0000_0000)); // all interrupts to irq0 line
-            can_regs.ile.write(|w| w.eint0().set_bit().eint1().clear_bit()); // enable irq0 line
+            can_regs
+                .ile
+                .write(|w| w.eint0().set_bit().eint1().clear_bit()); // enable irq0 line
             can_regs.txbtie.write(|w| w.bits(0b001)); // enable tx buffer interrupt
         });
     }
@@ -168,27 +145,7 @@ pub fn init(
     let dw1000_spi_freq_hi = 18.mhz();
 
     cfg_if! {
-        if #[cfg(feature = "pozyx-board")] {
-            let mut dw1000_reset  = gpiob.pb0.into_open_drain_output(); // open drain, do not pull high
-            let mut dw1000_cs = gpioa.pa4.into_push_pull_output();
-            let dw1000_clk    = gpioa.pa5.into_alternate_af5();
-            let dw1000_mosi   = gpioa.pa7.into_alternate_af5();
-            let dw1000_miso   = gpioa.pa6.into_alternate_af5();
-            let _dw1000_wakeup = gpioc.pc5;
-            let mut dw1000_irq = gpiob.pb11.into_pull_down_input(); // Header pin 2 jump wired to IRQ pin
-            //let mut dw1000_irq    = gpioc.pc4.into_pull_down_input(); // IRQ never ends with this
-            let trace_pin = gpioa.pa2.into_push_pull_output(); // unsafe bit banged in radio.rs
-            dw1000_irq.make_interrupt_source(&mut syscfg);
-            dw1000_irq.trigger_on_edge(&mut exti, Edge::RISING);
-            dw1000_irq.enable_interrupt(&mut exti);
-
-            let dw1000_spi = Spi::spi1(
-                device.SPI1,(dw1000_clk, dw1000_miso, dw1000_mosi),
-                embedded_hal::spi::MODE_0,
-                dw1000_spi_freq.into(),
-                clocks
-            );
-        } else if #[cfg(feature = "gcharger-board")] {
+        if #[cfg(feature = "gcharger-board")] {
             let mut dw1000_reset  = gpioc.pc14.into_open_drain_output(); // open drain, do not pull high
             let mut dw1000_cs = gpiod.pd2.into_push_pull_output();
             let dw1000_clk    = gpioc.pc10; // SPI3
@@ -253,42 +210,44 @@ pub fn init(
     match dw1000.device_info() {
         Ok(info) => {
             if info.tag_is_correct {
-                rprintln!("DW1000: ok, model:{} ver:{} rev:{}", info.model, info.version, info.revision);
+                rprintln!(
+                    "DW1000: ok, model:{} ver:{} rev:{}",
+                    info.model,
+                    info.version,
+                    info.revision
+                );
             } else {
-                rprintln!("{}DW1000 SPI communication error: IncorrectTag{}", color::RED, color::DEFAULT);
+                rprintln!(
+                    "{}DW1000 SPI communication error: IncorrectTag{}",
+                    color::RED,
+                    color::DEFAULT
+                );
                 panic!("DW1000 SPI broken");
             }
-        },
+        }
         Err(e) => {
-            rprintln!("{}DW1000 SPI communication error: {:?}{}", color::RED, e, color::DEFAULT);
+            rprintln!(
+                "{}DW1000 SPI communication error: {:?}{}",
+                color::RED,
+                e,
+                color::DEFAULT
+            );
             panic!("DW1000 SPI broken");
         }
     }
     let dw1000 = dw1000.init(dw1000::configs::MaximumFrameLength::Decawave1023);
     let mut dw1000 = match dw1000 {
-        Ok(dw1000) => { dw1000 },
-        Err(e) => { panic!("DW1000 init error {:?}", e); }
+        Ok(dw1000) => dw1000,
+        Err(e) => {
+            panic!("DW1000 init error {:?}", e);
+        }
     };
     for _ in 0..10 {
         let sys_status = dw1000.ll().sys_status().read().unwrap();
         if sys_status.clkpll_ll() == 0b0 {
             rprint!("SPI speed bump to: {}MHz, ", dw1000_spi_freq_hi.0);
             cfg_if! {
-                if #[cfg(feature = "pozyx-board")] {
-                    dw1000.ll().access_spi(|spi| {
-                        let (old_spi, pins) = spi.free();
-                        Spi::spi1(
-                            old_spi, pins,
-                            embedded_hal::spi::MODE_0,
-                            dw1000_spi_freq_hi.into(),
-                            clocks
-                        )
-                    });
-                    let br = unsafe {
-                        let spi1 = unsafe { &(*hal::stm32::SPI1::ptr()) };
-                        spi1.cr1.read().br().bits()
-                    };
-                } else if #[cfg(feature = "gcharger-board")] {
+                if #[cfg(feature = "gcharger-board")] {
                     dw1000.ll().access_spi(|spi| {
                         let (old_spi, pins) = spi.release();
                         Spi::spi3(
@@ -333,12 +292,13 @@ pub fn init(
                 }
             }
             let ratio = 1 << (br + 1);
-            cfg_if! {
-                if #[cfg(feature = "pozyx-board")] {
-                    rprintln!("done, actual ratio:{} baud:{}", ratio, clocks.pclk2().0 / ratio);
-                } else if #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))] {
-                    rprintln!("done, actual ratio:{} baud:{}", ratio, clocks.apb1_clk.0 / ratio);
-                }
+            #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
+            {
+                rprintln!(
+                    "done, actual ratio:{} baud:{}",
+                    ratio,
+                    clocks.apb1_clk.0 / ratio
+                );
             }
             break;
         } else {
@@ -346,11 +306,17 @@ pub fn init(
             busywait!(ms_alt, clocks, 10);
         }
     }
-    dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
-    dw1000.configure_leds(false, false, true, true, 1, true, false, true).unwrap();
+    dw1000
+        .set_address(config::PAN_ID, config::UWB_ADDR)
+        .unwrap();
+    dw1000
+        .configure_leds(false, false, true, true, 1, true, false, true)
+        .unwrap();
     //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
     //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
-    dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
+    dw1000
+        .set_antenna_delay(16128, 16145)
+        .expect("Failed to set antenna delay");
     cfg_if! {
         if #[cfg(feature = "gcarrier-board")] {
             let mut dw_b_select = gpioa.pa10.into_push_pull_output(); // DW_A_SELECT in sch, RF paths are swapped, ok
@@ -394,97 +360,98 @@ pub fn init(
         imx_terminal_tx,
         imx_terminal_rx,
         imx_terminal_config,
-        &mut rcc
-    ).unwrap();
+        &mut rcc,
+    )
+    .unwrap();
 
     cfg_if::cfg_if! {
-            if #[cfg(feature = "master")] {
-                crate::init::LateResources {
-                    clocks,
+        if #[cfg(feature = "master")] {
+            crate::init::LateResources {
+                clocks,
 
-                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
-                    trace_pin,
-                    radio_commands: radio_commands_p,
-                    scheduler: Scheduler::new(),
-                    event_state_data,
-                    channels: crate::channels::Channels::new(),
+                radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                trace_pin,
+                radio_commands: radio_commands_p,
+                scheduler: Scheduler::new(),
+                event_state_data,
+                channels: crate::channels::Channels::new(),
 
-                    led_blinky,
-                    idle_counter: core::num::Wrapping(0u32),
+                led_blinky,
+                idle_counter: core::num::Wrapping(0u32),
 
-                    rtt_down_channel: rtt_channels.down.0,
+                rtt_down_channel: rtt_channels.down.0,
 
-                    can0,
-                    can0_irq_statistics,
-                    can0_receive_heap,
-                    can0_ll_statistics,
-                    can0_rx_routing_table,
-                    can0_rx_routing_statistics,
-                    can0_local_processing_heap,
-                    can0_analyzer,
+                can0,
+                can0_irq_statistics,
+                can0_receive_heap,
+                can0_ll_statistics,
+                can0_rx_routing_table,
+                can0_rx_routing_statistics,
+                can0_local_processing_heap,
+                can0_analyzer,
 
-                    imx_serial,
+                imx_serial,
 
-                    counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
-                }
-            } else if #[cfg(any(feature = "tr", feature = "bl", feature = "br"))] {
-                crate::init::LateResources {
-                    clocks,
+                counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
+            }
+        } else if #[cfg(any(feature = "tr", feature = "bl", feature = "br"))] {
+            crate::init::LateResources {
+                clocks,
 
-                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
-                    trace_pin,
-                    radio_commands: radio_commands_p,
-                    scheduler: Scheduler::new(),
-                    event_state_data,
-                    channels: crate::channels::Channels::new(),
+                radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                trace_pin,
+                radio_commands: radio_commands_p,
+                scheduler: Scheduler::new(),
+                event_state_data,
+                channels: crate::channels::Channels::new(),
 
-                    led_blinky,
-                    idle_counter: core::num::Wrapping(0u32),
+                led_blinky,
+                idle_counter: core::num::Wrapping(0u32),
 
-                    rtt_down_channel: rtt_channels.down.0,
+                rtt_down_channel: rtt_channels.down.0,
 
-                    can0,
-                    can0_irq_statistics,
-                    can0_receive_heap,
-                    can0_ll_statistics,
-                    can0_rx_routing_table,
-                    can0_rx_routing_statistics,
-                    can0_local_processing_heap,
-                    can0_analyzer,
+                can0,
+                can0_irq_statistics,
+                can0_receive_heap,
+                can0_ll_statistics,
+                can0_rx_routing_table,
+                can0_rx_routing_statistics,
+                can0_local_processing_heap,
+                can0_analyzer,
 
-                    imx_serial,
+                imx_serial,
 
-                    counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
-                }
-            } else if #[cfg(feature = "anchor")] {
-                crate::init::LateResources {
-                    clocks,
+                counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
+            }
+        } else if #[cfg(feature = "anchor")] {
+            crate::init::LateResources {
+                clocks,
 
-                    radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
-                    trace_pin,
-                    radio_commands: radio_commands_p,
-                    scheduler: Scheduler::new(),
-                    event_state_data,
-                    channels: crate::channels::Channels::new(),
+                radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
+                trace_pin,
+                radio_commands: radio_commands_p,
+                scheduler: Scheduler::new(),
+                event_state_data,
+                channels: crate::channels::Channels::new(),
 
-                    led_blinky,
-                    idle_counter: core::num::Wrapping(0u32),
+                led_blinky,
+                idle_counter: core::num::Wrapping(0u32),
 
-                    rtt_down_channel: rtt_channels.down.0,
+                rtt_down_channel: rtt_channels.down.0,
 
-                    can0,
-                    can0_irq_statistics,
-                    can0_receive_heap,
-                    can0_ll_statistics,
-                    can0_rx_routing_table,
-                    can0_rx_routing_statistics,
-                    can0_local_processing_heap,
-                    can0_analyzer,
+                can0,
+                can0_irq_statistics,
+                can0_receive_heap,
+                can0_ll_statistics,
+                can0_rx_routing_table,
+                can0_rx_routing_statistics,
+                can0_local_processing_heap,
+                can0_analyzer,
 
-                    imx_serial,
+                imx_serial,
 
-                    counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
-                }
+                counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
             }
         }
+    }
 }

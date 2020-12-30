@@ -1,11 +1,11 @@
-use core::panic::PanicInfo;
-use rtt_target::rprintln;
 use crate::board::hal::cortex_m;
+use crate::board::hal::gpio::GpioExt;
+use crate::board::hal::stm32::Peripherals;
+use crate::color;
+use core::panic::PanicInfo;
 use cortex_m::asm::delay;
 use embedded_hal::digital::v2::OutputPin;
-use crate::color;
-use crate::board::hal::stm32::Peripherals;
-use crate::board::hal::gpio::GpioExt;
+use rtt_target::rprintln;
 
 fn blink_code_impl<O: OutputPin>(mut led: O, delay_cycles: u32) {
     for _ in 0..20 {
@@ -14,15 +14,6 @@ fn blink_code_impl<O: OutputPin>(mut led: O, delay_cycles: u32) {
         led.set_low().ok();
         delay(delay_cycles);
     }
-}
-
-#[cfg(feature = "pozyx-board")]
-fn blink_led_angrily() {
-    let device = unsafe { Peripherals::steal() };
-    let gpiob = device.GPIOB.split();
-    let led1_red = gpiob.pb4.into_push_pull_output();
-    //let mut led2_red = gpiob.pb8.into_push_pull_output();
-    blink_code_impl(led1_red, 72_000_000 / 1_000 * 50);
 }
 
 #[cfg(feature = "gcharger-board")]

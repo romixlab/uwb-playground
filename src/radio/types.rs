@@ -1,20 +1,17 @@
-use dw1000::configs::{UwbChannel, BitRate, PulseRepetitionFrequency, SfdSequence, PreambleLength};
-use crate::units::{
-    NanoSeconds,
-    MicroSeconds,
-};
-use crate::config;
 use crate::board::hal;
-use dw1000::{DW1000, Ready, Receiving, Sending, TxConfig};
+use crate::config;
 use crate::units;
-use typenum::marker_traits::Unsigned;
-use heapless::spsc::{Queue, Producer, Consumer};
-use heapless::consts::*;
-use rtic::cyccnt::Instant as CycntInstant;
-use rtic::cyccnt::Duration as CycntDuration;
-use dw1000::time::Instant as RadioInstant;
+use crate::units::{MicroSeconds, NanoSeconds};
 use core::fmt::Formatter;
+use dw1000::configs::{BitRate, PreambleLength, PulseRepetitionFrequency, SfdSequence, UwbChannel};
 use dw1000::mac::Address;
+use dw1000::time::Instant as RadioInstant;
+use dw1000::{Ready, Receiving, Sending, TxConfig, DW1000};
+use heapless::consts::*;
+use heapless::spsc::{Consumer, Producer, Queue};
+use rtic::cyccnt::Duration as CycntDuration;
+use rtic::cyccnt::Instant as CycntInstant;
+use typenum::marker_traits::Unsigned;
 
 #[derive(Debug)]
 pub enum Error {
@@ -30,8 +27,6 @@ pub enum Error {
     WrongDiscriminant,
 }
 
-#[cfg(feature = "pozyx-board")]
-pub type Dw10000SpiIface = hal::stm32::SPI1;
 #[cfg(feature = "gcharger-board")]
 pub type Dw10000SpiIface = hal::stm32::SPI3;
 #[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
@@ -39,8 +34,8 @@ pub type Dw10000SpiIface = hal::stm32::SPI1;
 #[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
 pub type Dw10000SpiIface = hal::stm32::SPI2;
 
-pub type Dw1000Spi = hal::spi::Spi<Dw10000SpiIface,
-    (config::Dw1000Clk, config::Dw1000Miso, config::Dw1000Mosi)>;
+pub type Dw1000Spi =
+    hal::spi::Spi<Dw10000SpiIface, (config::Dw1000Clk, config::Dw1000Miso, config::Dw1000Mosi)>;
 
 pub type ReadyRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Ready>;
 pub type SendingRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Sending>;
@@ -58,42 +53,83 @@ pub enum RadioState {
     DynSending(Option<SendingRadio>),
     //DynamicWindowAckSending(Option<SendingRadio>),
     //DynamicWindowDataSending(Option<SendingRadio>),
-
     #[cfg(any(feature = "slave", feature = "anchor"))]
     GTSStartWaiting((Option<ReceivingRadio>, RadioConfig)),
     #[cfg(any(feature = "slave", feature = "anchor"))]
     GTSAnswerSending(Option<SendingRadio>),
 
-    RangingPingSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
-    RangingPingWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
-    RangingRequestSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
-    RangingRequestWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
-    RangingResponseSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
-    RangingResponseWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+    RangingPingSending(
+        (
+            Option<SendingRadio>,
+            CycntInstant,
+            MicroSeconds,
+            RadioConfig,
+        ),
+    ),
+    RangingPingWaiting(
+        (
+            Option<ReceivingRadio>,
+            CycntInstant,
+            MicroSeconds,
+            RadioConfig,
+        ),
+    ),
+    RangingRequestSending(
+        (
+            Option<SendingRadio>,
+            CycntInstant,
+            MicroSeconds,
+            RadioConfig,
+        ),
+    ),
+    RangingRequestWaiting(
+        (
+            Option<ReceivingRadio>,
+            CycntInstant,
+            MicroSeconds,
+            RadioConfig,
+        ),
+    ),
+    RangingResponseSending(
+        (
+            Option<SendingRadio>,
+            CycntInstant,
+            MicroSeconds,
+            RadioConfig,
+        ),
+    ),
+    RangingResponseWaiting(
+        (
+            Option<ReceivingRadio>,
+            CycntInstant,
+            MicroSeconds,
+            RadioConfig,
+        ),
+    ),
 
     OneOffSending(Option<SendingRadio>),
-    Listening(Option<ReceivingRadio>)
+    Listening(Option<ReceivingRadio>),
 }
 
 impl RadioState {
     pub fn is_sending_state(&self) -> bool {
         use RadioState::*;
         match self {
-            Ready(_) => { false },
+            Ready(_) => false,
             #[cfg(feature = "master")]
-            GTSStartSending(_) => { true },
+            GTSStartSending(_) => true,
             #[cfg(feature = "master")]
-            GTSAnswersReceiving(_) => { false },
+            GTSAnswersReceiving(_) => false,
             #[cfg(any(feature = "slave", feature = "anchor"))]
-            GTSStartWaiting(_) => { false },
+            GTSStartWaiting(_) => false,
             #[cfg(any(feature = "slave", feature = "anchor"))]
-            GTSAnswerSending(_) => { true },
-            DynReceiving(_) => { false },
-            DynSending(_) => { true },
-            RangingPingSending(_) | RangingRequestSending(_) | RangingResponseSending(_)  => { true },
-            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false },
-            OneOffSending(_) => { true },
-            Listening(_) => { false }
+            GTSAnswerSending(_) => true,
+            DynReceiving(_) => false,
+            DynSending(_) => true,
+            RangingPingSending(_) | RangingRequestSending(_) | RangingResponseSending(_) => true,
+            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => false,
+            OneOffSending(_) => true,
+            Listening(_) => false,
         }
     }
 }
@@ -113,7 +149,7 @@ impl Into<TxConfig> for RadioConfig {
             pulse_repetition_frequency: self.prf,
             preamble_length: self.recommended_preamble(),
             channel: self.channel,
-            sfd_sequence: self.recommended_sfd()
+            sfd_sequence: self.recommended_sfd(),
         }
     }
 }
@@ -123,7 +159,7 @@ impl Default for RadioConfig {
         RadioConfig {
             channel: config::DEFAULT_UWB_CHANNEL,
             bitrate: BitRate::Kbps850,
-            prf: PulseRepetitionFrequency::Mhz64
+            prf: PulseRepetitionFrequency::Mhz64,
         }
     }
 }
@@ -132,18 +168,18 @@ impl RadioConfig {
     pub fn recommended_sfd(&self) -> SfdSequence {
         use SfdSequence::*;
         match self.bitrate {
-            BitRate::Kbps110 =>  { Decawave },
-            BitRate::Kbps850 =>  { DecawaveAlt },
-            BitRate::Kbps6800 => { IEEE },
+            BitRate::Kbps110 => Decawave,
+            BitRate::Kbps850 => DecawaveAlt,
+            BitRate::Kbps6800 => IEEE,
         }
     }
 
     pub fn recommended_preamble(&self) -> PreambleLength {
         use PreambleLength::*;
         match self.bitrate {
-            BitRate::Kbps110 =>  { Symbols1024 },
-            BitRate::Kbps850 =>  { Symbols256 },
-            BitRate::Kbps6800 => { Symbols64 },
+            BitRate::Kbps110 => Symbols1024,
+            BitRate::Kbps850 => Symbols256,
+            BitRate::Kbps6800 => Symbols64,
         }
     }
 
@@ -151,7 +187,7 @@ impl RadioConfig {
         RadioConfig {
             channel: RadioConfig::default().channel,
             bitrate: BitRate::Kbps6800,
-            prf: PulseRepetitionFrequency::Mhz64
+            prf: PulseRepetitionFrequency::Mhz64,
         }
     }
 }
@@ -174,7 +210,9 @@ pub enum SlotType {
 }
 
 impl Default for SlotType {
-    fn default() -> Self { SlotType::_Reserved1 }
+    fn default() -> Self {
+        SlotType::_Reserved1
+    }
 }
 
 /// One window of message exchanges. Requested by slaves and granted by master.
@@ -281,7 +319,6 @@ pub enum Event {
     DynShouldHaveEnded,
 
     // Ranging slot handling
-
     RangingSlotAboutToStart(MicroSeconds, RadioConfig),
     RangingSlotEnded,
 
@@ -299,23 +336,51 @@ impl core::fmt::Display for Event {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(any(feature = "slave", feature = "anchor"))]
-            Event::GTSStartAboutToBeBroadcasted => { write!(f, "G_ATB") },
+            Event::GTSStartAboutToBeBroadcasted => {
+                write!(f, "G_ATB")
+            }
             #[cfg(any(feature = "slave", feature = "anchor"))]
-            Event::GTSStartReceived(_) => { write!(f, "G_SR") },
+            Event::GTSStartReceived(_) => {
+                write!(f, "G_SR")
+            }
             #[cfg(feature = "master")]
-            Event::TimeMark(_) => { write!(f, "TM") },
-            Event::GTSAboutToStart(_, _) => { write!(f, "G_AS") },
-            Event::GTSProcessingFinished => { write!(f, "G_PF") },
-            Event::GTSShouldHaveEnded => { write!(f, "G_SX") },
-            Event::AlohaSlotAboutToStart(_, _) => { write!(f, "A_ATS") },
-            Event::AlohaSlotEnded => { write!(f, "A_X") },
-            Event::DynUplinkAboutToStart(_, _) => { write!(f, "D_ATS") },
-            Event::DynProcessingFinished => { write!(f, "Dyn_PF") },
-            Event::DynShouldHaveEnded => { write!(f, "D_SX") },
+            Event::TimeMark(_) => {
+                write!(f, "TM")
+            }
+            Event::GTSAboutToStart(_, _) => {
+                write!(f, "G_AS")
+            }
+            Event::GTSProcessingFinished => {
+                write!(f, "G_PF")
+            }
+            Event::GTSShouldHaveEnded => {
+                write!(f, "G_SX")
+            }
+            Event::AlohaSlotAboutToStart(_, _) => {
+                write!(f, "A_ATS")
+            }
+            Event::AlohaSlotEnded => {
+                write!(f, "A_X")
+            }
+            Event::DynUplinkAboutToStart(_, _) => {
+                write!(f, "D_ATS")
+            }
+            Event::DynProcessingFinished => {
+                write!(f, "Dyn_PF")
+            }
+            Event::DynShouldHaveEnded => {
+                write!(f, "D_SX")
+            }
             #[cfg(any(feature = "slave", feature = "anchor"))]
-            Event::ReceiveCheck => { write!(f, "RC") }
-            Event::RangingSlotAboutToStart(_, _) => { write!(f, "R_ATS") }
-            Event::RangingSlotEnded => { write!(f, "R_SX") }
+            Event::ReceiveCheck => {
+                write!(f, "RC")
+            }
+            Event::RangingSlotAboutToStart(_, _) => {
+                write!(f, "R_ATS")
+            }
+            Event::RangingSlotEnded => {
+                write!(f, "R_SX")
+            }
         }
     }
 }
@@ -344,7 +409,7 @@ impl NodeState {
     #[allow(dead_code)]
     pub fn find_slot(&self, t: SlotType) -> Option<Slot> {
         match self {
-            NodeState::Disconnected => { None },
+            NodeState::Disconnected => None,
             NodeState::Active(node) => {
                 for s in node.slots.iter() {
                     if s.is_some() {
@@ -381,7 +446,7 @@ impl Radio {
             // #[cfg(any(feature = "master", feature = "devnode"))]
             // nodes: [NodeState::Disconnected; config::TotalNodeCount::USIZE],
             #[cfg(any(feature = "slave", feature = "anchor"))]
-            master: NodeState::Disconnected
+            master: NodeState::Disconnected,
         }
     }
 }
@@ -393,6 +458,4 @@ pub struct Stat {
     pub br_gts_answers: u32,
 }
 
-pub struct Pong {
-
-}
+pub struct Pong {}
