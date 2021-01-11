@@ -15,6 +15,7 @@ use rtic::cyccnt::Duration as CycntDuration;
 use dw1000::time::Instant as RadioInstant;
 use core::fmt::Formatter;
 use dw1000::mac::Address;
+use core::fmt;
 
 #[derive(Debug)]
 pub enum Error {
@@ -73,6 +74,32 @@ pub enum RadioState {
 
     OneOffSending(Option<SendingRadio>),
     Listening(Option<ReceivingRadio>)
+}
+impl fmt::Debug for RadioState {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            #[cfg(feature = "master")]
+            RadioState::GTSStartSending((_, _)) => { write!(f, "GTSStartSending") }
+            #[cfg(feature = "master")]
+            RadioState::GTSAnswersReceiving((_, _, _)) => { write!(f, "GTSAnswersReceiving") },
+            RadioState::Ready(_) => { write!(f, "Ready") }
+            RadioState::DynReceiving(_) => { write!(f, "DynReceiving") }
+            RadioState::DynSending(_) => { write!(f, "DynSending") }
+            #[cfg(any(feature = "slave", feature = "anchor"))]
+            RadioState::GTSStartWaiting(_) => { write!(f, "GTSStartWaiting") }
+            #[cfg(any(feature = "slave", feature = "anchor"))]
+            RadioState::GTSAnswerSending(_) => { write!(f, "GTSAnswerSending") }
+            RadioState::RangingPingSending(_) => { write!(f, "RangingPingSending") }
+            RadioState::RangingPingWaiting(_) => { write!(f, "RangingPingWaiting") }
+            RadioState::RangingRequestSending(_) => { write!(f, "RangingRequestSending") }
+            RadioState::RangingRequestWaiting(_) => { write!(f, "RangingRequestWaiting") }
+            RadioState::RangingResponseSending(_) => { write!(f, "RangingResponseSending") }
+            RadioState::RangingResponseWaiting(_) => { write!(f, "RangingResponseWaiting") }
+            RadioState::OneOffSending(_) => { write!(f, "OneOffSending") }
+            RadioState::Listening(_) => { write!(f, "Listening") }
+        }
+
+    }
 }
 
 impl RadioState {

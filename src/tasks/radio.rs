@@ -303,24 +303,24 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             }
 
             // Schedule the start of Ranging slot, if any.
-            let ranging_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::Ranging) );
-            match ranging_slot {
-                Some(s) => {
-                    let shift: MicroSeconds = s.shift;
-                    let shift = us2cycles!(cx.resources.clocks, s.shift.0);
-                    let duration: MicroSeconds = s.duration;
-                    let duration = us2cycles!(cx.resources.clocks, duration.0);
-                    cx.schedule.radio_event(
-                        time_mark + shift,
-                        Event::RangingSlotAboutToStart(s.duration, s.radio_config)
-                    ).ok(); // TODO: count
-                    cx.schedule.radio_event(
-                        time_mark + shift + duration + quarter_guard,
-                        Event::RangingSlotEnded
-                    ).ok(); // TODO: count
-                },
-                None => {}
-            }
+            // let ranging_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::Ranging) );
+            // match ranging_slot {
+            //     Some(s) => {
+            //         let shift: MicroSeconds = s.shift;
+            //         let shift = us2cycles!(cx.resources.clocks, s.shift.0);
+            //         let duration: MicroSeconds = s.duration;
+            //         let duration = us2cycles!(cx.resources.clocks, duration.0);
+            //         cx.schedule.radio_event(
+            //             time_mark + shift,
+            //             Event::RangingSlotAboutToStart(s.duration, s.radio_config)
+            //         ).ok(); // TODO: count
+            //         cx.schedule.radio_event(
+            //             time_mark + shift + duration + quarter_guard,
+            //             Event::RangingSlotEnded
+            //         ).ok(); // TODO: count
+            //     },
+            //     None => {}
+            // }
 
             // Schedule the listen command just before the next GTSStart is about to be sent from master
             let dt: MilliSeconds = config::GTS_PERIOD - MilliSeconds(2); // TODO: improve
@@ -332,6 +332,10 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartAboutToBeBroadcasted => {
             radio_command!(cx, Command::ListenForGTSStart(RadioConfig::fast()));
+            // cx.schedule.radio_event(
+            //     cx.scheduled + ms2cycles!(cx.resources.clocks, config::GTS_PERIOD.0),
+            //     GTSStartAboutToBeBroadcasted
+            // ).ok(); // TODO: count
         },
         #[cfg(any(feature = "slave", feature = "anchor"))]
         ReceiveCheck => {

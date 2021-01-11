@@ -159,6 +159,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
     let commands = &mut radio.commands;
     let mut commands_processed = 0;
 
+    rprint!(=>13, "I-{:?} -> ", radio.state);
     while commands.ready() {
         match commands.dequeue() {
             Some(command) => {
@@ -245,6 +246,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
         return;
     }
 
+    rprint!(=>13, "C-{:?} -> ", radio.state);
     radio.state = match &mut radio.state {
         Ready(sd) => {
             let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
@@ -268,7 +270,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
         #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSAnswerSending(sd) => {
             let sending_radio = sd.take().expect(SM_FAIL_MESSAGE);
-            advance_dyn_sending(sending_radio, &mut cx, buffer)
+            advance_gts_answer_sending(sending_radio, &mut cx, buffer)
         },
         DynReceiving(sd) => {
             let receiving_radio = sd.0.take().expect(SM_FAIL_MESSAGE);
@@ -311,6 +313,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
             advance_listening_to_listening(receiving_radio, &mut cx, buffer)
         }
     };
+    rprintln!(=>13, "E-{:?}", radio.state);
 }
 
 fn get_txconfig(radio_config: RadioConfig) -> TxConfig {
@@ -735,6 +738,7 @@ fn process_messages_gts_start_waiting<T: Tracer>(
     receiving_radio: ReceivingRadio,
     mut cx: &mut SMContext<T>,
     message: dw1000::hl::Message,
+    radio_config: RadioConfig
 ) -> RadioState
 {
     let cycnt_now = CycntInstant::now();
@@ -793,9 +797,11 @@ fn process_messages_gts_start_waiting<T: Tracer>(
         let instant = CycntInstant::now();
         let processing_delay = us2cycles!(cx.clocks, 400);
         cx.spawn.radio_event(Event::GTSStartReceived(instant - processing_delay)).ok(); // TODO: count
+        RadioState::Ready(Some(ready_radio))
+    } else {
+        let receiving_radio = enable_receiver(ready_radio, radio_config);
+        RadioState::GTSStartWaiting((Some(receiving_radio), radio_config))
     }
-
-    RadioState::Ready(Some(ready_radio))
 }
 
 #[cfg(any(feature = "slave", feature = "anchor"))]
@@ -813,7 +819,7 @@ fn advance_gts_start_waiting<T: Tracer>(
         Ok((message, _sys_status_before)) => {
             *cx.state_instant = None;
             cx.tracer.event(TraceEvent::MessageReceived);
-            process_messages_gts_start_waiting(receiving_radio, cx, message)
+            process_messages_gts_start_waiting(receiving_radio, cx, message, radio_config)
         },
         Err(e) => {
             if let nb::Error::WouldBlock = e { // Still receiving
