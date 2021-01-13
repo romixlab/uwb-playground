@@ -16,7 +16,7 @@ use super::types::{
 };
 use super::Error;
 use crate::units::MicroSeconds;
-use crate::radio::types::Pong;
+use crate::radio::types::{Pong, DummyMessage};
 use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response as RangingResponse};
 
 fn channel_from_u8(n: u8) -> Option<UwbChannel> {
@@ -60,6 +60,11 @@ impl MessageSpec for Slot {
 }
 
 // &[u8] ID = 0xfd
+
+impl MessageSpec for DummyMessage {
+    const ID: u8 = 0xfe;
+    const SIZE: usize = 1; // + len
+}
 
 impl MessageSpec for Pong {
     const ID: u8 = 0x30;
@@ -319,5 +324,86 @@ impl Deserialize for RangingResponse {
         let mut request_reply_time = eat_duration!(buf);
 
         Ok(RangingResponse{ ping_reply_time, ping_round_trip_time, request_tx_time, request_reply_time })
+    }
+}
+
+impl Serialize for DummyMessage {
+    type Error = Error;
+
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        put_id!(buf, Self::ID, Self::SIZE + self.length as usize, {});
+        buf.put_nothing(self.length as usize);
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize {
+        self.length as usize + 1
+    }
+}
+
+use crate::tasks::canbus::ForwardEntry;
+use vhrdcan::{FrameId, Frame, RawFrame};
+use vhrdcan::id::{StandardId, ExtendedId};
+
+impl Serialize for ForwardEntry {
+    type Error = Error;
+
+    // StandardId => |0000_0sss|s7:0|len|[data]
+    // ExtendedId => |100e_eeee|e|e|e|len|[data]
+    fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error> {
+        put_id!(buf, 0xcb, self.size_hint(), {});
+        match self.frame.id() {
+            FrameId::Standard(sid) => {
+                buf.put_u16_be(sid.id());
+            }
+            FrameId::Extended(eid) => {
+                buf.put_u32_be(eid.id() | (1 << 31));
+            }
+        }
+        buf.put_u8(self.frame.len() as u8);
+        buf.put_slice(self.frame.data());
+        Ok(())
+    }
+
+    fn size_hint(&self) -> usize {
+        let mut len = self.frame.len() + 2;
+        match self.frame.id() {
+            FrameId::Standard(_) => { len += 2; }
+            FrameId::Extended(_) => { len += 4; }
+        }
+        len
+    }
+}
+impl Deserialize for ForwardEntry {
+    type Output = RawFrame;
+    type Error = Error;
+
+    fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error> {
+        eat_id!(buf, 0xcb, {
+            if buf.remaining() < 3 {
+                return Err(Error::Eof);
+            }
+        });
+        let maybe_sid = buf.get_u16_be();
+        let id = if maybe_sid & (1 << 15) == 0 { // sid
+            FrameId::Standard(unsafe { StandardId::new_unchecked(maybe_sid & 0x7_ff) })
+        } else { // eid
+            if buf.remaining() < 3 {
+                return Err(Error::Eof);
+            }
+            let eid15_0 = buf.get_u16_be() as u32;
+            FrameId::Extended(unsafe { ExtendedId::new_unchecked(((maybe_sid as u32 & 0x1F_FF) << 16) | eid15_0) })
+        };
+        let len = buf.get_u8();
+        if buf.remaining() < len as usize {
+            return Err(Error::Eof);
+        }
+        let mut data = [0u8; 8];
+        data[0..len as usize].copy_from_slice(buf.slice_to(len as usize));
+        Ok(RawFrame {
+            id,
+            data,
+            len
+        })
     }
 }

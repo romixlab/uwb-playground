@@ -8,123 +8,80 @@ mod panic_handler;
 mod radio;
 mod channels;
 mod config;
-mod codec;
+//mod codec;
 mod units;
 mod tasks;
-mod motion;
-mod rplidar;
+//mod motion;
+//mod rplidar;
 mod color;
+mod vl53l1x_multi;
+mod dump_delay;
+mod newconfig;
 
 use board::hal;
 use core::num::Wrapping;
 use rtic::{app};
 use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
-use tasks::usart::{
-    Usart1WorkerEvent,
-    Usart2WorkerEvent
-};
+use rtt_target::{rprint, rprintln};
+
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         clocks: Clocks,
-
         radio: radio::Radio,
+        trace_pin: config::RadioTracePin,
         radio_commands: radio::types::CommandQueueP,
-        scheduler: radio::scheduler::Scheduler,
         channels: channels::Channels,
+        scheduler: radio::scheduler::Scheduler,
         event_state_data: tasks::radio::EventStateData,
-
-        // USART1 - tl/tr/bl/br <-> vesc.
-        usart1_coder: codec::Usart1Coder,
-        usart1_dma_tcx: config::Usart1DmaTxContext,
-        usart1_dma_rcx: config::Usart1DmaRxContext,
-        usart1_decoder: codec::Usart1Decoder,
-
-        lift_serial: config::LiftSerial,
-
-        // USART2 - master <-> ros, br <-> lidar.
-        #[cfg(feature = "master")]
-        usart2_coder: codec::Usart2Coder,
-        #[cfg(any(feature = "master", feature = "br"))]
-        usart2_dma_tcx: config::Usart2DmaTxContext,
-        #[cfg(any(feature = "master", feature = "br"))]
-        usart2_dma_rcx: config::Usart2DmaRxContext,
-        #[cfg(feature = "master")]
-        usart2_decoder: codec::Usart2Decoder,
-
-        #[cfg(feature = "master")]
-        mecanum_wheels: motion::MecanumWheels,
-        #[cfg(feature = "slave")]
-        wheel: motion::MCData,
-
         led_blinky: config::LedBlinkyPin,
-
         idle_counter: Wrapping<u32>,
-        exti: hal::stm32::EXTI,
+        rtt_down_channel: rtt_target::DownChannel,
 
-        #[cfg(feature = "br")]
-        lidar: rplidar::RpLidar,
-        #[cfg(feature = "master")]
-        lidar_frame_c: rplidar::LidarBBufferC,
-        #[cfg(feature = "br")]
-        usart2_c: config::Usart2DmaRxBufferC,
-        #[cfg(feature = "br")]
-        usart2_p: config::Usart2DmaTxBufferP,
+        can0: config::Can0,
+        can0_irq_statistics: tasks::canbus::IrqStatistics,
+        can0_receive_heap: config::CanReceiveHeap,
+        can0_ll_statistics: tasks::canbus::LLStatistics,
+        can0_rx_routing_table: tasks::canbus::RxRoutingTable,
+        can0_rx_routing_statistics: tasks::canbus::RxRoutingStatistics,
+        can0_local_processing_heap: config::CanLocalProcessingHeap,
+        can0_analyzer: tasks::canbus::CanAnalyzer,
 
-        #[cfg(feature = "master")]
-        motion_channel_p: motion::ChannelP,
-        #[cfg(feature = "slave")]
-        motion_channel_c: motion::ChannelC,
-        #[cfg(feature = "master")]
-        motion_telemetry_c: motion::TelemetryChannelC,
-        #[cfg(feature = "master")]
-        local_motion_telemetry_p: motion::TelemetryLocalChannelP, // receive from mc -> C in arbiter
-        #[cfg(feature = "slave")]
-        motion_telemetry_p: motion::TelemetryChannelP,
+        imx_serial: config::ImxSerial,
 
-        rtt_down_channel: rtt_target::DownChannel
-}
+        counter_deltas: tasks::blinker::CounterDeltas,
+
+        vl53l1_multi: vl53l1x_multi::Vl53l1Multi,
+    }
 
     #[init(
         schedule = [],
         spawn = [
             radio_event,
             blinker,
-            usart2_worker
         ]
     )]
     fn init(cx: init::Context) -> init::LateResources {
         static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
-        static mut LIDAR_BBUFFER: rplidar::LidarBBuffer = BBBuffer(ConstBBBuffer::new());
-        static mut USART1_DMA_RX_BUFFER: config::Usart1DmaRxBuffer = BBBuffer(ConstBBBuffer::new());
-        static mut USART1_DMA_TX_BUFFER: config::Usart1DmaTxBuffer = BBBuffer(ConstBBBuffer::new());
-        static mut USART2_DMA_RX_BUFFER: config::Usart2DmaRxBuffer = BBBuffer(ConstBBBuffer::new());
-        static mut USART2_DMA_TX_BUFFER: config::Usart2DmaTxBuffer = BBBuffer(ConstBBBuffer::new());
-        static mut MOTION_CHANNEL: motion::Channel = heapless::spsc::Queue(heapless::i::Queue::new());
-        static mut TELEMETRY_CHANNEL: motion::TelemetryChannel = heapless::spsc::Queue(heapless::i::Queue::new());
-        static mut LOCAL_TELEMETRY_CHANNEL: motion::TelemetryLocalChannel = heapless::spsc::Queue(heapless::i::Queue::new());
         tasks::init::init(
             cx,
             RADIO_COMMANDS_QUEUE,
-            LIDAR_BBUFFER,
-            USART1_DMA_RX_BUFFER,
-            USART1_DMA_TX_BUFFER,
-            USART2_DMA_RX_BUFFER,
-            USART2_DMA_TX_BUFFER,
-            MOTION_CHANNEL,
-            TELEMETRY_CHANNEL,
-            LOCAL_TELEMETRY_CHANNEL
         )
     }
 
     #[idle(
         resources = [
             idle_counter,
-            mecanum_wheels,
             rtt_down_channel,
-            radio_commands
+            radio_commands,
+            imx_serial,
+            vl53l1_multi,
+            channels
+        ],
+        spawn = [
+            can_analyzer
         ]
     )]
     fn idle(cx: idle::Context) -> ! {
@@ -135,25 +92,45 @@ const APP: () = {
         resources = [
             &clocks,
             led_blinky,
+            channels,
         ],
         schedule = [
             blinker,
+        ],
+        spawn = [
+            can_analyzer
         ]
     )]
     fn blinker(cx: blinker::Context) {
-        static mut LED_STATE: bool = false;
-        tasks::blinker::blinker(cx, LED_STATE);
+        tasks::blinker::blinker(cx);
     }
 
     #[task(
-        binds = EXTI0,
-        priority = 3,
+        resources = [
+            &clocks,
+            can0_ll_statistics,
+            can0_rx_routing_statistics,
+            channels, // for statistics
+            counter_deltas,
+            can0_irq_statistics,
+            can0_analyzer,
+        ]
+    )]
+    fn can_analyzer(cx: can_analyzer::Context, e: tasks::canbus::CanAnalyzerEvent) {
+        tasks::canbus::can_analyzer(cx, e);
+    }
+
+    #[task(
+        // binds = EXTI15_10,
+        binds = EXTI9_5,
+        priority = 4,
         resources = [
             &clocks,
             radio,
-            channels,
+            trace_pin,
             scheduler,
             idle_counter,
+            channels,
         ],
         spawn = [radio_event],
         schedule = [radio_event]
@@ -164,19 +141,15 @@ const APP: () = {
     }
 
     #[task(
-        priority = 2,
+        priority = 3,
         capacity = 24,
         resources = [
             &clocks,
             radio,
             radio_commands,
             event_state_data,
-            wheel,
-            mecanum_wheels,
         ],
         spawn = [
-            motor_control,
-            usart2_worker,
         ],
         schedule = [
             radio_event,
@@ -187,171 +160,55 @@ const APP: () = {
     }
 
     #[task(
-        priority = 4,
-
-    )]
-    fn usart1_worker(cx: usart1_worker::Context, e: Usart1WorkerEvent) {
-        tasks::usart::usart1_worker(cx, e);
-    }
-
-    #[task(
-        binds = USART1,
-        priority = 4,
-        resources = [usart1_dma_rcx],
-        spawn = [usart1_worker]
-    )]
-    fn usart1_irq(cx: usart1_irq::Context) {
-        let spawn = cx.spawn;
-        cx.resources.usart1_dma_rcx.handle_usart_irq(|| {
-            spawn.usart1_worker(Usart1WorkerEvent::Rx).ok();
-        });
-    }
-
-    #[task(
-        binds = DMA2_STREAM5,
-        priority = 4,
-        resources = [usart1_dma_rcx],
-        spawn = [usart1_worker]
-    )]
-    fn usart1_dma_rx_irq(cx: usart1_dma_rx_irq::Context) {
-        let spawn = cx.spawn;
-        cx.resources.usart1_dma_rcx.handle_dma_rx_irq(|| {
-            spawn.usart1_worker(Usart1WorkerEvent::Rx).ok();
-        });
-    }
-
-    #[task(
-    binds = DMA2_STREAM7,
-    priority = 4,
-    resources = [usart1_dma_tcx]
-    )]
-    fn usart1_dma_tx_irq(cx: usart1_dma_tx_irq::Context) {
-        cx.resources.usart1_dma_tcx.handle_dma_tx_irq();
-    }
-
-    #[task(
-        priority = 4,
+        binds = FDCAN1_INTR0_IT,
+        priority = 5,
+        spawn = [can0_rx_router],
         resources = [
-            usart2_coder,
-            usart2_decoder,
-            motion_channel_p,
-            lidar,
-            usart2_p,
-            usart2_c,
-        ],
-        spawn = [
-            motor_control,
-            lift_control,
+            can0,
+            channels, //can0_send_heap,
+            can0_receive_heap,
+            can0_ll_statistics,
+            can0_irq_statistics
         ]
     )]
-    fn usart2_worker(cx: usart2_worker::Context, e: Usart2WorkerEvent) {
-        tasks::usart::usart2_worker(cx, e);
+    fn can0_irq0(cx: can0_irq0::Context) {
+        tasks::canbus::can0_irq0(cx);
     }
 
-    #[task(
-        binds = USART2,
-        priority = 4,
-        resources = [usart2_dma_rcx],
-        spawn = [usart2_worker]
-    )]
-    fn usart2_irq(cx: usart2_irq::Context) {
-        cfg_if::cfg_if! {
-            if #[cfg(any(feature = "master", feature = "br"))] {
-                let spawn = cx.spawn;
-                cx.resources.usart2_dma_rcx.handle_usart_irq(|| {
-                    spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
-                });
-            }
-        }
-    }
-
-    #[task(
-        binds = DMA1_STREAM5,
-        priority = 4,
-        resources = [usart2_dma_rcx],
-        spawn = [usart2_worker]
-    )]
-    fn usart2_dma_rx_irq(cx: usart2_dma_rx_irq::Context) {
-        cfg_if::cfg_if! {
-            if #[cfg(any(feature = "master", feature = "br"))] {
-                let spawn = cx.spawn;
-                cx.resources.usart2_dma_rcx.handle_dma_rx_irq(|| {
-                    spawn.usart2_worker(Usart2WorkerEvent::Rx).ok();
-                });
-            }
-        }
-
-    }
-
-    #[task(
-        binds = DMA1_STREAM6,
-        priority = 4,
-        resources = [usart2_dma_tcx]
-    )]
-    fn usart2_dma_tx_irq(cx: usart2_dma_tx_irq::Context) {
-        cfg_if::cfg_if! {
-            if #[cfg(any(feature = "master", feature = "br"))] {
-                cx.resources.usart2_dma_tcx.handle_dma_tx_irq();
-            }
-        }
-
-    }
-
-    #[task(
-        priority = 4,
-        capacity = 4,
-        resources = [
-            &clocks,
-            mecanum_wheels,
-            wheel,
-            usart1_coder,
-        ],
-        schedule = [motor_control],
-        spawn = [motor_control]
-    )]
-    fn motor_control(cx: motor_control::Context, e: motion::MotorControlEvent) {
-        // static mut LAST_COMMAND_INSTANT: Option<rtic::cyccnt::Instant> = None;
-        // static mut STOPPED: bool = false;
-        tasks::motion::motor_control(cx, e);
-    }
-
-    #[task(
-        binds = EXTI4,
-        priority = 3,
-        resources = [
-            motion_channel_c,
-            channels,
-        ],
-        spawn = [
-            motor_control,
-            usart2_worker,
-        ]
-    )]
-    fn channel_event(cx: channel_event::Context) {
-        tasks::channel_event::channel_event(cx);
-    }
+    // #[task(
+    //     binds = FDCAN1_INTR0_IT,
+    //     priority = 2,
+    // )]
+    // fn can_irq1(cx: can_irq1::Context) {
+    //     rprintln!("can_irq1");
+    // }
 
     #[task(
         priority = 2,
-        capacity = 4,
         resources = [
-            &clocks,
-            lift_serial,
-        ],
-        schedule = [
-            lift_control,
+            can0_receive_heap,
+            can0_rx_routing_table,
+            can0_rx_routing_statistics,
+            can0_local_processing_heap,
+            channels, // can0_forward_heap,
+            can0_analyzer
         ]
     )]
-    fn lift_control(cx: lift_control::Context, command: tasks::lift::LiftControlCommand) {
-        static mut TOKENS: u16 = 0;
-        static mut CURRENT_SYMBOL: u8 = 0;
-        tasks::lift::lift_control(cx, command, TOKENS, CURRENT_SYMBOL);
+    fn can0_rx_router(cx: can0_rx_router::Context) {
+        tasks::canbus::can0_rx_router(cx);
     }
 
     extern "C" {
         fn EXTI1();
         fn EXTI2();
         fn EXTI3();
-        fn EXTI9_5();
+        // fn EXTI9_5();
     }
 };
+
+use cortex_m_rt::exception;
+#[exception]
+fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {
+    // prints the exception frame as a panic message
+    panic!("{:#?}", ef);
+}

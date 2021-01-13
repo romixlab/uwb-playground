@@ -1,11 +1,11 @@
 use crate::config;
 use crate::radio;
-use crate::motion;
 use crate::board::hal;
 use crate::radio::types::{Command, Event, RadioConfig, SlotType};
 use rtic::Mutex;
 use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
+#[cfg(feature = "pozyx-board")]
 use hal::gpio::ExtiPin;
 use embedded_hal::digital::v2::{OutputPin, InputPin, ToggleableOutputPin};
 use crate::util::{Tracer, TraceEvent};
@@ -33,37 +33,46 @@ impl Tracer for RttTracer {
 
         use crate::board::hal::stm32::Peripherals;
         let device = unsafe { Peripherals::steal() };
-        let gpioa = device.GPIOA;
         let count = e as u8;
-        for _ in 0..count {
-            gpioa.bsrr.write(|w| w.bs1().set_bit());
-            cortex_m::asm::nop();
-            gpioa.bsrr.write(|w| w.br1().set_bit());
+
+        cfg_if!{
+            if #[cfg(feature = "gcarrier-board")] {
+                let gpioc = device.GPIOC;
+                for _ in 0..count {
+                    gpioc.bsrr.write(|w| w.bs3().set_bit()); // PC3
+                    cortex_m::asm::nop();
+                    gpioc.bsrr.write(|w| w.br3().set_bit());
+                }
+            }
         }
 
-        let dt_gts = now - self.prev_gts;
-        let dt_prev = now - self.prev;
-        if e == TraceEvent::GTSStart {
-            rprintln!(=> 13, "\n\x1b[2J\x1b[0m---\n");
-        } else if e == TraceEvent::TimingMarker {
-            self.prev_gts = now;
-        } else if e == TraceEvent::GTSStartReceived {
-            // Cannot easily forward this number for now, see https://github.com/rust-lang/rust/issues/60553
-            let rx_to_process_delay = 155u32; // [us] from rx timestamp till this moment
-            self.prev_gts = now - self.sysclk / 1_000_000 * rx_to_process_delay;
-            rprintln!(=> 13, "\n\n\n---\n");
-        }
-        self.prev = now;
+        cfg_if! {
+            if #[cfg(feature = "event-rtt-trace")] {
+                let dt_gts = now - self.prev_gts;
+                let dt_prev = now - self.prev;
+                if e == TraceEvent::GTSStart {
+                    rprintln!(=> 13, "\n\x1b[2J\x1b[0m---\n");
+                } else if e == TraceEvent::TimingMarker {
+                    self.prev_gts = now;
+                } else if e == TraceEvent::GTSStartReceived {
+                    // Cannot easily forward this number for now, see https://github.com/rust-lang/rust/issues/60553
+                    let rx_to_process_delay = 155u32; // [us] from rx timestamp till this moment
+                    self.prev_gts = now - self.sysclk / 1_000_000 * rx_to_process_delay;
+                    rprintln!(=> 13, "\n\n\n---\n");
+                }
+                self.prev = now;
 
-        let dt_gts = cycles2us_alt!(self.sysclk, dt_gts);
-        let dt_prev = cycles2us_alt!(self.sysclk, dt_prev);
-        rprintln!(=> 13,
-            "{}({}) +{}.{:03} d{}.{:03}\n",
-            e,
-            count,
-            dt_gts / 1000, dt_gts % 1000,
-            dt_prev / 1000, dt_prev % 1000
-        );
+                let dt_gts = cycles2us_alt!(self.sysclk, dt_gts);
+                let dt_prev = cycles2us_alt!(self.sysclk, dt_prev);
+                rprintln!(=> 13,
+                    "{}({}) +{}.{:03} d{}.{:03}\n",
+                    e,
+                    count,
+                    dt_gts / 1000, dt_gts % 1000,
+                    dt_prev / 1000, dt_prev % 1000
+                );
+            }
+        }
     }
 }
 
@@ -73,9 +82,10 @@ impl Tracer for NoOpTracer {
     fn event(&mut self, _e: TraceEvent) { }
 }
 
-static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 72_000_000 };
+#[cfg(feature = "gcarrier-board")]
+static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 160_000_000 };
 
-pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
+pub fn radio_irq(mut cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // let now = DWT::get_cycle_count() as i32;
     // let dt = now.wrapping_sub(*LAST_IDLE_INSTANT);
     // *LAST_IDLE_INSTANT = now;
@@ -87,12 +97,13 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     //     *LAST_IDLE_COUNTER = *cx.resources.idle_counter;
     // }
     //rprintln!(=>2, "IRQ: {}us", cycles2us!(cx, dt));
-
+    // cx.resources.trace_pin.set_high().ok();
     cx.resources.radio.irq.clear_interrupt_pending_bit();
+
     for _ in 0..42 {
         radio::state_machine::advance(
             cx.resources.radio,
-            cx.resources.channels,
+            &mut cx.resources.channels,
             buffer,
             &cx.spawn,
             &cx.schedule,
@@ -105,8 +116,9 @@ pub fn radio_irq(cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
         }
     }
     if cx.resources.radio.irq.is_high().unwrap() {
-        rprintln!(=>2, "radio_irq: still pending after many tries!");
+        rprintln!(=>0, "radio_irq: still pending after many tries!");
     }
+    // cx.resources.trace_pin.set_low().ok();
 }
 
 #[derive(Default)]
@@ -140,34 +152,34 @@ fn overlap_check(
 {
     if !done {
         // Message may still be sending, stop it not to overlap with anyone. This should not normally happen.
-        radio_commands.enqueue(Command::ForceReadyIfSending).ok();
-        rtic::pend(config::DW1000_IRQ_EXTI);
-        rprintln!(=>2, "{}{} slot overlap detected{}", color::YELLOW, name, color::DEFAULT);
+        // radio_commands.enqueue(Command::ForceReadyIfSending).ok();
+        // rtic::pend(config::DW1000_IRQ_EXTI);
+        //rprintln!(=>2, "{}{} slot overlap detected{}", color::YELLOW, name, color::DEFAULT);
     }
     let time_exceeded = actually_took > should_have_taken;
     if time_exceeded && done {
         // irq processing probably took too long, message could have overlapped with other slot.
-        rprintln!(=>2,
-            "{}{} slot hard overlap detected by={} already_sent={}{}",
-            color::RED,
-            name,
-            actually_took - should_have_taken,
-            done,
-            color::DEFAULT
-        );
+        // rprintln!(=>2,
+        //     "{}{} slot hard overlap detected by={} already_sent={}{}",
+        //     color::RED,
+        //     name,
+        //     actually_took - should_have_taken,
+        //     done,
+        //     color::DEFAULT
+        // );
     }
 }
 
 pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
-    if let Event::GTSAboutToStart(_, _) = e {
-        rprintln!(=>2, "\n\n\n---\n");
-    }
-    rprintln!(=>2, "e: {}\n", e);
+    // if let Event::GTSAboutToStart(_, _) = e {
+    //     rprintln!(=>2, "\n\n\n---\n");
+    // }
+    // rprintln!(=>2, "e: {}\n", e);
     use Event::*;
     match e {
         #[cfg(feature = "master")]
         GTSAboutToStart(gt_phase_duration, radio_config) => {
-            radio_command!(cx, Command::GTSStart);
+            radio_command!(cx, Command::GTSStart(radio_config));
             let dt: MicroSeconds = config::GTS_PERIOD.into();
             cx.schedule.radio_event(
                 cx.scheduled + us2cycles!(cx.resources.clocks, dt.0),
@@ -180,7 +192,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         TimeMark(instant) => {
             cx.resources.event_state_data.time_mark = Some(instant);
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSAboutToStart(gt_slot_duration, radio_config) => {
             radio_command!(cx, Command::SendGTSAnswer(gt_slot_duration, radio_config));
             cx.resources.event_state_data.clear_flags();
@@ -197,7 +209,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         },
         GTSShouldHaveEnded => {
             let elapsed = cx.resources.event_state_data.gts_elapsed;
-            rprintln!(=>2, "G_SX: {}\n", elapsed);
+            // rprintln!(=>2, "G_SX: {}\n", elapsed);
             overlap_check(
                 &mut cx.resources.radio_commands,
                 cx.resources.event_state_data.gts_processing_finished,
@@ -206,7 +218,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 "GTS"
             );
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartReceived(time_mark) => {
             // Save timing marker
             cx.resources.event_state_data.time_mark = Some(time_mark);
@@ -291,24 +303,24 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             }
 
             // Schedule the start of Ranging slot, if any.
-            let ranging_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::Ranging) );
-            match ranging_slot {
-                Some(s) => {
-                    let shift: MicroSeconds = s.shift;
-                    let shift = us2cycles!(cx.resources.clocks, s.shift.0);
-                    let duration: MicroSeconds = s.duration;
-                    let duration = us2cycles!(cx.resources.clocks, duration.0);
-                    cx.schedule.radio_event(
-                        time_mark + shift,
-                        Event::RangingSlotAboutToStart(s.duration, s.radio_config)
-                    ).ok(); // TODO: count
-                    cx.schedule.radio_event(
-                        time_mark + shift + duration + quarter_guard,
-                        Event::RangingSlotEnded
-                    ).ok(); // TODO: count
-                },
-                None => {}
-            }
+            // let ranging_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::Ranging) );
+            // match ranging_slot {
+            //     Some(s) => {
+            //         let shift: MicroSeconds = s.shift;
+            //         let shift = us2cycles!(cx.resources.clocks, s.shift.0);
+            //         let duration: MicroSeconds = s.duration;
+            //         let duration = us2cycles!(cx.resources.clocks, duration.0);
+            //         cx.schedule.radio_event(
+            //             time_mark + shift,
+            //             Event::RangingSlotAboutToStart(s.duration, s.radio_config)
+            //         ).ok(); // TODO: count
+            //         cx.schedule.radio_event(
+            //             time_mark + shift + duration + quarter_guard,
+            //             Event::RangingSlotEnded
+            //         ).ok(); // TODO: count
+            //     },
+            //     None => {}
+            // }
 
             // Schedule the listen command just before the next GTSStart is about to be sent from master
             let dt: MilliSeconds = config::GTS_PERIOD - MilliSeconds(2); // TODO: improve
@@ -317,11 +329,15 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 Event::GTSStartAboutToBeBroadcasted
             ).ok(); // TODO: count
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartAboutToBeBroadcasted => {
-            radio_command!(cx, Command::ListenForGTSStart(RadioConfig::default()));
+            radio_command!(cx, Command::ListenForGTSStart(RadioConfig::fast()));
+            // cx.schedule.radio_event(
+            //     cx.scheduled + ms2cycles!(cx.resources.clocks, config::GTS_PERIOD.0),
+            //     GTSStartAboutToBeBroadcasted
+            // ).ok(); // TODO: count
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         ReceiveCheck => {
             rtic::pend(config::DW1000_IRQ_EXTI);
             let dt: MilliSeconds = config::DW1000_CHECK_PERIOD;
@@ -342,7 +358,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             cx.resources.event_state_data.dyn_started = Some(CycntInstant::now());
             radio_command!(cx, Command::DynListen(dyn_phase_duration, radio_config));
         },
-        #[cfg(feature = "slave")]
+        #[cfg(any(feature = "slave", feature = "anchor"))]
         DynUplinkAboutToStart(dyn_slot_duration, radio_config) => {
             cx.resources.event_state_data.dyn_duration = dyn_slot_duration;
             cx.resources.event_state_data.dyn_started = Some(CycntInstant::now());
@@ -358,7 +374,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         },
         DynShouldHaveEnded => {
             let elapsed = cx.resources.event_state_data.dyn_elapsed;
-            rprintln!(=>2, "D_SX: {}\n", elapsed);
+            // rprintln!(=>2, "D_SX: {}\n", elapsed);
             overlap_check(
                 &mut cx.resources.radio_commands,
                 cx.resources.event_state_data.dyn_processing_finished,

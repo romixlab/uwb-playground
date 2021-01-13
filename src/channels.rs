@@ -8,16 +8,15 @@ use crate::radio::serdes::{
     Deserialize,
     Buf,
 };
-use crate::radio::Error;
-use crate::motion;
+
 use rtt_target::{
     rprint,
     rprintln
 };
-use crate::rplidar;
+
 use crate::config;
 use cfg_if::cfg_if;
-use crate::motion::{TelemetryItem, Tachometer};
+
 use crate::units::Watts;
 use dw1000::mac::Address;
 use crate::color;
@@ -59,277 +58,103 @@ use crate::color;
 /// **Channels**
 /// * `@ID` - data is grabbed from specific queue and enqueued to the same id on the other node.
 pub struct Channels {
-    ///// I/0/_/T/G/H/_/10 @66
-    //pub stop_command: Option<Stop>,
-    //#[queue(I/0/L/T/D/H/S/9 @70)]
-    #[cfg(feature = "master")]
-    pub motion_c: motion::ChannelC, // P in ctrl_link task (receive from ros)
-    #[cfg(feature = "slave")]
-    pub motion_p: motion::ChannelP, // C in motion task (send to mc)
+    pub can0_forward_heap: crate::tasks::canbus::ForwardHeap,
+    pub can0_forward_pool: vhrdcan::FramePool,
+    pub can0_send_heap: config::CanSendHeap,
+    pub can0_forward_analyzer: crate::tasks::canbus::CanAnalyzer,
 
-    #[cfg(feature = "master")]
-    pub motion_telemetry_p: motion::TelemetryChannelP, // C in ctrl_link task (send to ros)
-    #[cfg(feature = "master")]
-    pub local_motion_telemetry_c: motion::TelemetryLocalChannelC, // P in motion task (receive from mc)
-    #[cfg(feature = "master")]
-    pub telemetry_staging_area_tacho: TelemetryStagingAreaTacho,
-    #[cfg(feature = "master")]
-    pub telemetry_staging_area_power: TelemetryStagingAreaPower,
-
-    #[cfg(feature = "slave")]
-    pub motion_telemetry_c: motion::TelemetryChannelC, // P in ctrl_link task (receive from mc)
-    ///// I/0/L/T/D/H/S/9 @71
-    //pub odometry: Option<OdometryData>
-    ///// I/0/_/T/D/H/S/8 @72
-    //pub heartbeat: Option<Heartbeat>
-
-    ///// I/P/L/A/D/H/U/10 @170
-    #[cfg(feature = "br")]
-    pub lidar_bbuffer_c: rplidar::LidarBBufferC,
-    //pub lidar_queue_c: rplidar::LidarQueueC,
-    #[cfg(feature = "master")]
-    pub lidar_bbuffer_p: rplidar::LidarBBufferP,
-
-    ///// R/P/F/A/D/H/S/9 @171
-    // pub reqrep
-}
-
-#[derive(Default)]
-pub struct TelemetryStagingAreaTacho {
-    top_left: Option<Tachometer>,
-    top_right: Option<Tachometer>,
-    bottom_left: Option<Tachometer>,
-    bottom_right: Option<Tachometer>,
-}
-
-#[derive(Default)]
-pub struct TelemetryStagingAreaPower {
-    top_left: Option<Watts>,
-    top_right: Option<Watts>,
-    bottom_left: Option<Watts>,
-    bottom_right: Option<Watts>,
-}
-
-impl TelemetryStagingAreaPower {
-    pub fn is_all_ready(&self) -> bool {
-        self.top_left.is_some() &&
-            self.top_right.is_some() &&
-            self.bottom_left.is_some() &&
-            self.bottom_right.is_some()
-    }
-
-    pub fn remove_all(&mut self) {
-        *self = Self::default()
-    }
-}
-
-impl TelemetryStagingAreaTacho {
-    pub fn is_all_ready(&self) -> bool {
-        self.top_left.is_some() &&
-            self.top_right.is_some() &&
-            self.bottom_left.is_some() &&
-            self.bottom_right.is_some()
-    }
-
-    pub fn remove_all(&mut self) {
-        *self = Self::default()
-    }
+    pub can2uwb: u32,
+    pub uwb2can_ok: u32,
+    pub uwb2can_drop: u32,
 }
 
 impl Channels {
-    #[cfg(feature = "master")]
-    pub fn grab_local_telemetry(&mut self) {
-        match self.local_motion_telemetry_c.dequeue() {
-            Some(telem_item) => {
-                rprint!(=>5, "{}local telem grabbed{}\n", color::GREEN, color::DEFAULT);
-                Self::stage(
-                    telem_item,
-                    &mut self.telemetry_staging_area_tacho.top_left,
-                    &mut self.telemetry_staging_area_power.top_left
-                );
-            },
-            None => {}
-        }
-    }
-    #[cfg(feature = "master")]
-    fn stage(telem_item: TelemetryItem, tacho_stage: &mut Option<Tachometer>, power_stage: &mut Option<Watts>) {
-        match telem_item {
-            TelemetryItem::Tachometer(tacho) => {
-                *tacho_stage = Some(tacho);
-            },
-            TelemetryItem::Power(power) => {
-                *power_stage = Some(power);
-            },
-            _ => {}
+    pub fn new() -> Self {
+        Channels {
+            can0_forward_heap: heapless::BinaryHeap::new(),
+            can0_forward_pool: vhrdcan::FramePool::new_pool(),
+            can0_send_heap: vhrdcan::FrameHeap::new(),
+            can0_forward_analyzer: crate::tasks::canbus::CanAnalyzer::new(),
+
+            can2uwb: 0,
+            uwb2can_ok: 0,
+            uwb2can_drop: 0
         }
     }
 }
 
-impl Arbiter for Channels {
-    type Error = Error;
+use crate::tasks::canbus;
 
-    fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M)
-    {
+impl Arbiter for Channels {
+    type Error = crate::radio::Error;
+
+    fn source_sync<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
         cfg_if! {
             if #[cfg(feature = "master")] {
-                match self.motion_c.dequeue() {
-                    Some(rpm_array) => {
-                        let _ = mux.mux(&rpm_array.top_right, LogicalDestination::Unicast(config::TR_UWB_ADDR), ChannelId::new(2));
-                        let _ = mux.mux(&rpm_array.bottom_left, LogicalDestination::Unicast(config::BL_UWB_ADDR), ChannelId::new(2));
-                        let _ = mux.mux(&rpm_array.bottom_right, LogicalDestination::Unicast(config::BR_UWB_ADDR), ChannelId::new(2));
-                    },
-                    None => {}
-                }
-            } else if #[cfg(feature = "slave")] {
-                loop {
-                    match self.motion_telemetry_c.dequeue() {
-                        Some(telem_item) => {
-                            rprintln!(=> 5, "{}source ok: {:?}{}\n", color::GREEN, telem_item, color::DEFAULT);
-                            let _ = mux.mux(&telem_item, LogicalDestination::Implicit, ChannelId::new(3));
-                        },
-                        None => {
-                            break;
-                        }
-                    }
-                }
+                const MAX_FRAMES_PER_GTS: u32 = 10;
+            } else if #[cfg(any(feature = "tr", feature = "bl"))] {
+                const MAX_FRAMES_PER_GTS: u32 = 10;
+            } else if #[cfg(feature = "br")] {
+                const MAX_FRAMES_PER_GTS: u32 = 60;
             }
         }
+
+        //rprintln!(=>3, "");
+        //rprintln!(=>3, "was: {}", self.can0_forward_heap.len());
+        let mut frames_muxed = 0;
+        while let Some(forward_entry) = self.can0_forward_heap.pop() {
+            let destination = match forward_entry.to {
+                canbus::Destination::Unicast(address) => LogicalDestination::Unicast(address),
+                canbus::Destination::Multicast(_) => LogicalDestination::Implicit,
+                canbus::Destination::Broadcast => LogicalDestination::Implicit,
+            };
+            let _ = mux.mux(&forward_entry, destination, ChannelId::new(7));
+            frames_muxed += 1;
+            self.can2uwb += 1;
+            if frames_muxed >= MAX_FRAMES_PER_GTS {
+                break;
+            }
+        }
+        //rprintln!(=>3, "muxed: {} left: {}", frames_muxed, self.can0_forward_heap.len());
+        //rprintln!(=>3, "");
     }
 
     fn source_async<M: Multiplex<Error = Self::Error>>(&mut self, mux: &mut M) {
-        cfg_if! {
-            if #[cfg(feature = "br")] {
-                let mut scans_written = 0;
-                loop {
-                    if scans_written > 11 {
-                        break;
-                    }
-                    let rgr = self.lidar_bbuffer_c.read();
-                    match rgr {
-                        Some(rgr) => {
-                            mux.mux(&&rgr[..], LogicalDestination::Implicit, ChannelId::new(11));
-                            scans_written += 1;
-                            rgr.release();
-                        },
-                        None => { break; }
-                    }
-                }
-            }
-        }
+
     }
 
     fn sink_sync(&mut self, source: Address,  channel: ChannelId, chunk: &[u8]) {
-        // rprint!(=>1, "arb: CH{}:[", channel);
-        // for b in chunk {
-        //     rprint!(=>1, "{:02x} ", b);
-        // }
-        // rprintln!(=>1, "]\n");
         let mut buf = Buf::new(chunk);
-        cfg_if! {
-            if #[cfg(feature = "master")] {
-                match motion::TelemetryItem::des(&mut buf) {
-                    Ok(telem_item) => {
-                    //     let r = self.motion_telemetry_p.enqueue(telem_item);
-                    //     rprintln!(=>1, "telem enq: {:?}", r);\
-                        if let Address::Short(pan_id, short_addr) = source {
-                            if pan_id == config::PAN_ID {
-                                if short_addr == config::TR_UWB_ADDR {
-                                    rprintln!(=>5, "{}Stage TR {:?}{}\n", color::CYAN, telem_item, color::DEFAULT);
-                                    Channels::stage(
-                                        telem_item,
-                                        &mut self.telemetry_staging_area_tacho.top_right,
-                                        &mut self.telemetry_staging_area_power.top_right
-                                    );
-                                } else if short_addr == config::BL_UWB_ADDR {
-                                    rprintln!(=>5, "{}Stage BL {:?}{}\n", color::CYAN, telem_item, color::DEFAULT);
-                                    Channels::stage(
-                                        telem_item,
-                                        &mut self.telemetry_staging_area_tacho.bottom_left,
-                                        &mut self.telemetry_staging_area_power.bottom_left
-                                    );
-                                } else if short_addr == config::BR_UWB_ADDR {
-                                    rprintln!(=>5, "{}Stage BR {:?}{}\n", color::CYAN, telem_item, color::DEFAULT);
-                                    Channels::stage(
-                                        telem_item,
-                                        &mut self.telemetry_staging_area_tacho.bottom_right,
-                                        &mut self.telemetry_staging_area_power.bottom_right
-                                    );
-                                }
-                            }
-                            use crate::motion::{ TelemetryArray, PowerArray, TachoArray };
-                            if self.telemetry_staging_area_tacho.is_all_ready() {
-                                let tacho_array = TachoArray {
-                                    top_left: self.telemetry_staging_area_tacho.top_left.unwrap(),
-                                    top_right: self.telemetry_staging_area_tacho.top_right.unwrap(),
-                                    bottom_left: self.telemetry_staging_area_tacho.bottom_left.unwrap(),
-                                    bottom_right: self.telemetry_staging_area_tacho.bottom_right.unwrap()
-                                };
-                                let item = TelemetryArray::Tachometer(tacho_array);
-                                let r = self.motion_telemetry_p.enqueue(item);
-                                rprintln!(=>5, "{}tacho arr enq: {}{}", color::GREEN, r.is_ok(), color::DEFAULT);
-                                self.telemetry_staging_area_tacho.remove_all();
-                                rtic::pend(config::CHANNEL_EVENT_IRQ);
-                            }
-                            if self.telemetry_staging_area_power.is_all_ready() {
-                                let power_array = PowerArray {
-                                    top_left: self.telemetry_staging_area_power.top_left.unwrap(),
-                                    top_right: self.telemetry_staging_area_power.top_right.unwrap(),
-                                    bottom_left: self.telemetry_staging_area_power.bottom_left.unwrap(),
-                                    bottom_right: self.telemetry_staging_area_power.bottom_right.unwrap()
-                                };
-                                let item = TelemetryArray::Power(power_array);
-                                let r = self.motion_telemetry_p.enqueue(item);
-                                rprintln!(=>5, "{}power arr enq: {}{}", color::GREEN, r.is_ok(), color::DEFAULT);
-                                self.telemetry_staging_area_power.remove_all();
-                                rtic::pend(config::CHANNEL_EVENT_IRQ);
-                            }
-                        }
+        // rprintln!(=>3, "chunk:{}", chunk.len());
+        // for b in chunk {
+        //     rprint!(=>3, "{:02x} ", *b);
+        // }
+        // rprintln!(=>3, "");
+        let mut sinked = 0;
+        match crate::tasks::canbus::ForwardEntry::des(&mut buf) {
+            Ok(raw_frame) => {
+                let frame = self.can0_send_heap.pool.new_frame(raw_frame.id, raw_frame.data()).unwrap();
+                match self.can0_send_heap.heap.push(frame) {
+                    Ok(_) => {
+                        self.uwb2can_ok += 1;
+                        sinked += 1;
+                        self.can0_forward_analyzer.analyze(&frame);
                     },
-                    Err(_) => {}
+                    Err(_) => {
+                        self.uwb2can_drop += 1;
+                    }
                 }
-            } else if #[cfg(feature = "slave")] {
-                match motion::Rpm::des(&mut buf) {
-                    Ok(rpm) => {
-                        let r = self.motion_p.enqueue(rpm);
-                        rprintln!(=>5, "{}Rpm enq:{} {:?}{}", color::GREEN, r.is_ok(), rpm, color::DEFAULT);
-                        rtic::pend(config::CHANNEL_EVENT_IRQ);
-                    },
-                    Err(_) => {}
-                }
+            },
+            Err(e) => {
+                rprintln!(=>3, "demux err:{:?}", e);
             }
+        }
+        if sinked > 0 {
+            rtic::pend(config::CAN0_SEND_IRQ);
         }
     }
 
     fn sink_async(&mut self, source: Address, channel: ChannelId, chunk: &[u8]) {
-        //rprintln!(=>1, "async: CH{}:[{}]\n", channel, chunk.len());
-        // for b in &chunk[..10] {
-        //     rprint!(=>1, "{:02x} ", b);
-        // }
-        //rprintln!(=>1, "]\n");
-        cfg_if! {
-            if #[cfg(feature = "master")] {
-                if channel == ChannelId::new(11) && chunk[0] == 0xfd && chunk.len() == rplidar::FRAME_SIZE + 1 {
-                    // let mut frame = [0u8; rplidar::FRAME_SIZE];
-                    // frame.copy_from_slice(&chunk[1..]);
-                    // let frame = rplidar::Frame(frame);
-                    // let r = self.lidar_queue_p.enqueue(frame);
-                    // rtic::pend(config::CHANNEL_EVENT_IRQ);
-                    // rprintln!(=>1, "l.frame.enq: {}\n", r.is_ok());
-
-                    let r = self.lidar_bbuffer_p.grant(rplidar::FRAME_SIZE);
-                    match r {
-                        Ok(mut wgr) => {
-                            wgr.copy_from_slice(&chunk[1..]);
-                            wgr.commit(rplidar::FRAME_SIZE);
-                            rprintln!(=>15, "{}sink.frame.enq OK\n{}", color::GREEN, color::DEFAULT);
-                            rtic::pend(config::CHANNEL_EVENT_IRQ);
-                        },
-                        Err(_) => {
-                            rprintln!(=>15, "{}sink.frame.DROP\n{}", color::YELLOW, color::DEFAULT);
-                        }
-                    }
-                }
-            }
-        }
+        self.sink_sync(source, channel, chunk);
     }
 }
