@@ -14,6 +14,8 @@ use rtic::cyccnt::Instant as CycntInstant;
 use rtic::cyccnt::Duration as CycntDuration;
 use dw1000::time::Instant as RadioInstant;
 use core::fmt::Formatter;
+use dw1000::mac::Address;
+use core::fmt;
 
 #[derive(Debug)]
 pub enum Error {
@@ -29,7 +31,16 @@ pub enum Error {
     WrongDiscriminant,
 }
 
-pub type Dw1000Spi = hal::spi::Spi<hal::stm32::SPI1,
+#[cfg(feature = "pozyx-board")]
+pub type Dw10000SpiIface = hal::stm32::SPI1;
+#[cfg(feature = "gcharger-board")]
+pub type Dw10000SpiIface = hal::stm32::SPI3;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-a"))]
+pub type Dw10000SpiIface = hal::stm32::SPI1;
+#[cfg(all(feature = "gcarrier-board", feature = "uwb-b"))]
+pub type Dw10000SpiIface = hal::stm32::SPI2;
+
+pub type Dw1000Spi = hal::spi::Spi<Dw10000SpiIface,
     (config::Dw1000Clk, config::Dw1000Miso, config::Dw1000Mosi)>;
 
 pub type ReadyRadio = DW1000<Dw1000Spi, config::Dw1000Cs, Ready>;
@@ -40,18 +51,18 @@ pub enum RadioState {
     Ready(Option<ReadyRadio>),
 
     #[cfg(feature = "master")]
-    GTSStartSending(Option<SendingRadio>),
+    GTSStartSending((Option<SendingRadio>, RadioConfig)),
     #[cfg(feature = "master")]
-    GTSAnswersReceiving((Option<ReceivingRadio>, u8)),
+    GTSAnswersReceiving((Option<ReceivingRadio>, u8, RadioConfig)),
 
     DynReceiving((Option<ReceivingRadio>, RadioConfig)),
     DynSending(Option<SendingRadio>),
     //DynamicWindowAckSending(Option<SendingRadio>),
     //DynamicWindowDataSending(Option<SendingRadio>),
 
-    #[cfg(feature = "slave")]
-    GTSStartWaiting(Option<ReceivingRadio>),
-    #[cfg(feature = "slave")]
+    #[cfg(any(feature = "slave", feature = "anchor"))]
+    GTSStartWaiting((Option<ReceivingRadio>, RadioConfig)),
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     GTSAnswerSending(Option<SendingRadio>),
 
     RangingPingSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
@@ -60,6 +71,35 @@ pub enum RadioState {
     RangingRequestWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
     RangingResponseSending((Option<SendingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
     RangingResponseWaiting((Option<ReceivingRadio>, CycntInstant, MicroSeconds, RadioConfig)),
+
+    OneOffSending(Option<SendingRadio>),
+    Listening(Option<ReceivingRadio>)
+}
+impl fmt::Debug for RadioState {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            #[cfg(feature = "master")]
+            RadioState::GTSStartSending((_, _)) => { write!(f, "GTSStartSending") }
+            #[cfg(feature = "master")]
+            RadioState::GTSAnswersReceiving((_, _, _)) => { write!(f, "GTSAnswersReceiving") },
+            RadioState::Ready(_) => { write!(f, "Ready") }
+            RadioState::DynReceiving(_) => { write!(f, "DynReceiving") }
+            RadioState::DynSending(_) => { write!(f, "DynSending") }
+            #[cfg(any(feature = "slave", feature = "anchor"))]
+            RadioState::GTSStartWaiting(_) => { write!(f, "GTSStartWaiting") }
+            #[cfg(any(feature = "slave", feature = "anchor"))]
+            RadioState::GTSAnswerSending(_) => { write!(f, "GTSAnswerSending") }
+            RadioState::RangingPingSending(_) => { write!(f, "RangingPingSending") }
+            RadioState::RangingPingWaiting(_) => { write!(f, "RangingPingWaiting") }
+            RadioState::RangingRequestSending(_) => { write!(f, "RangingRequestSending") }
+            RadioState::RangingRequestWaiting(_) => { write!(f, "RangingRequestWaiting") }
+            RadioState::RangingResponseSending(_) => { write!(f, "RangingResponseSending") }
+            RadioState::RangingResponseWaiting(_) => { write!(f, "RangingResponseWaiting") }
+            RadioState::OneOffSending(_) => { write!(f, "OneOffSending") }
+            RadioState::Listening(_) => { write!(f, "Listening") }
+        }
+
+    }
 }
 
 impl RadioState {
@@ -71,14 +111,16 @@ impl RadioState {
             GTSStartSending(_) => { true },
             #[cfg(feature = "master")]
             GTSAnswersReceiving(_) => { false },
-            #[cfg(feature = "slave")]
+            #[cfg(any(feature = "slave", feature = "anchor"))]
             GTSStartWaiting(_) => { false },
-            #[cfg(feature = "slave")]
+            #[cfg(any(feature = "slave", feature = "anchor"))]
             GTSAnswerSending(_) => { true },
             DynReceiving(_) => { false },
             DynSending(_) => { true },
             RangingPingSending(_) | RangingRequestSending(_) | RangingResponseSending(_)  => { true },
-            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false }
+            RangingPingWaiting(_) | RangingRequestWaiting(_) | RangingResponseWaiting(_) => { false },
+            OneOffSending(_) => { true },
+            Listening(_) => { false }
         }
     }
 }
@@ -178,11 +220,11 @@ pub struct Slot {
 #[derive(PartialEq)]
 pub enum Command {
     #[cfg(feature = "master")]
-    GTSStart,
+    GTSStart(RadioConfig),
     GTSEnd,
-    #[cfg(feature = "slave")]
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     ListenForGTSStart(RadioConfig),
-    #[cfg(feature = "slave")]
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     SendGTSAnswer(MicroSeconds, RadioConfig),
     AlohaSlotStart(MicroSeconds, RadioConfig),
 
@@ -194,20 +236,28 @@ pub enum Command {
     ForceReadyIfSending,
 
     SetAntennaDelay(u16, u16), // tx, rx
+    SendMessage(RadioConfig, Address, DummyMessage),
+    Listen(RadioConfig),
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub struct DummyMessage {
+    pub length: u16,
+}
+
+#[allow(dead_code)]
 pub enum Event {
     // Guaranteed slot handling
     /// scheduled: when GTSStart has been received and after power on.
     /// dt: a little bit before the next GTSStart.
     /// ▶ start listening for a GTSStart.
-    #[cfg(feature = "slave")]
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     GTSStartAboutToBeBroadcasted,
     /// * Emitted from the SM when GTSStart message received from the PAN master.
     /// * .0 is a time when message was received, use to schedule tasks to the time mark irrelevant of processing delays
     /// * ▶ action: schedule gt, aloha and dyn slot starts and guards, if available.
     /// * ▶ action: if gt slot available with zero shift, execute GTSAboutToStart event right away.
-    #[cfg(feature = "slave")]
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     GTSStartReceived(CycntInstant),
 
     /// * Emitted from the SM when GTSStart message was just sent with the current cycle counter value.
@@ -266,7 +316,7 @@ pub enum Event {
     /// * Emitted from the SM if radio irq is pended but message was not received yet.
     /// * ▶ schedule itself and pend radio irq to re-enable receiver, if `config::DW1000_CHECK_PERIOD_MS` passed.
     /// It can get stuck, at least on RTT disconnect, and do not receive anything.
-    #[cfg(feature = "slave")]
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     ReceiveCheck,
     // Emitted from the SM if radio irq is pended but message was not sended yet.
     //StillSending,
@@ -275,9 +325,9 @@ pub enum Event {
 impl core::fmt::Display for Event {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            #[cfg(feature = "slave")]
+            #[cfg(any(feature = "slave", feature = "anchor"))]
             Event::GTSStartAboutToBeBroadcasted => { write!(f, "G_ATB") },
-            #[cfg(feature = "slave")]
+            #[cfg(any(feature = "slave", feature = "anchor"))]
             Event::GTSStartReceived(_) => { write!(f, "G_SR") },
             #[cfg(feature = "master")]
             Event::TimeMark(_) => { write!(f, "TM") },
@@ -289,7 +339,7 @@ impl core::fmt::Display for Event {
             Event::DynUplinkAboutToStart(_, _) => { write!(f, "D_ATS") },
             Event::DynProcessingFinished => { write!(f, "Dyn_PF") },
             Event::DynShouldHaveEnded => { write!(f, "D_SX") },
-            #[cfg(feature = "slave")]
+            #[cfg(any(feature = "slave", feature = "anchor"))]
             Event::ReceiveCheck => { write!(f, "RC") }
             Event::RangingSlotAboutToStart(_, _) => { write!(f, "R_ATS") }
             Event::RangingSlotEnded => { write!(f, "R_SX") }
@@ -310,6 +360,7 @@ pub struct Node {
     // stats: NodeStatistics
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum NodeState {
     Disconnected,
@@ -317,6 +368,7 @@ pub enum NodeState {
 }
 
 impl NodeState {
+    #[allow(dead_code)]
     pub fn find_slot(&self, t: SlotType) -> Option<Slot> {
         match self {
             NodeState::Disconnected => { None },
@@ -339,9 +391,9 @@ pub struct Radio {
     pub(crate) state_instant: Option<CycntInstant>,
     pub irq: config::RadioIrqPin,
     pub(crate) commands: CommandQueueC,
-    #[cfg(any(feature = "master", feature = "devnode"))]
-    pub(crate) nodes: [NodeState; config::TotalNodeCount::USIZE],
-    #[cfg(feature = "slave")]
+    // #[cfg(any(feature = "master", feature = "devnode"))]
+    // pub(crate) nodes: [NodeState; config::TotalNodeCount::USIZE],
+    #[cfg(any(feature = "slave", feature = "anchor"))]
     pub(crate) master: NodeState,
     //address_map: heapless::FnvIndexMap<dw1000::mac::ShortAddress, usize, config::TOTAL_NODE_COUNT>,
 }
@@ -353,9 +405,9 @@ impl Radio {
             state_instant: None,
             irq,
             commands,
-            #[cfg(any(feature = "master", feature = "devnode"))]
-            nodes: [NodeState::Disconnected; config::TotalNodeCount::USIZE],
-            #[cfg(feature = "slave")]
+            // #[cfg(any(feature = "master", feature = "devnode"))]
+            // nodes: [NodeState::Disconnected; config::TotalNodeCount::USIZE],
+            #[cfg(any(feature = "slave", feature = "anchor"))]
             master: NodeState::Disconnected
         }
     }

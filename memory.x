@@ -2,7 +2,7 @@ MEMORY
 {
   /* FLASH and RAM are mandatory memory regions */
   /* Update examples/data_overflow.rs if you change these sizes. */
-  FLASH : ORIGIN = 0x08000000, LENGTH = 256K
+  FLASH : ORIGIN = 0x08000000, LENGTH = 512K
   RAM : ORIGIN = 0x20000000, LENGTH = 64K
 
   /* More memory regions can declared: for example this is a second RAM region */

@@ -18,6 +18,7 @@ use dw1000::{
 use crate::units::MicroSeconds;
 use crate::config;
 use core::iter::Filter;
+use crate::radio::types::ReadyRadio;
 
 pub struct Scheduler {
     #[cfg(feature = "master")]
@@ -68,44 +69,55 @@ impl Scheduler {
         // GTS
         slot.slot_type = SlotType::GtsUplink;
         slot.radio_config = RadioConfig::default();
+        slot.radio_config.bitrate = BitRate::Kbps6800;
+
         slot.shift = MicroSeconds(0);
-        slot.duration = MicroSeconds(940);
+        slot.duration = MicroSeconds(779);
         slots[0] = slot;
-        slot.shift = MicroSeconds(1640);
+
+        slot.shift = MicroSeconds(1479);
+        slot.duration = MicroSeconds(779);
         slots[1] = slot;
-        slot.shift = MicroSeconds(3280);
+
+        slot.shift = MicroSeconds(2959);
+        slot.duration = MicroSeconds(2298);
         slots[2] = slot;
         // Aloha
-        slot.slot_type = SlotType::Aloha;
-        slot.shift = Self::aloha_period_start();
-        slot.duration = Self::aloha_phase_duration();
-        slots[3] = slot;
+        // slot.slot_type = SlotType::Aloha;
+        // slot.shift = Self::aloha_period_start();
+        // slot.duration = MicroSeconds(1000);//Self::aloha_phase_duration();
+        // slots[3] = slot;
         // Dynamic
-        slot.radio_config.bitrate = BitRate::Kbps6800;
-        slot.slot_type = SlotType::DynUplink;
-        slot.shift = MicroSeconds(7600);
-        slot.duration = MicroSeconds(4440);
-        slots[4] = slot;
-        slot.shift = MicroSeconds(12750);
-        slot.duration = MicroSeconds(4440);
-        slots[5] = slot;
-        slot.shift = MicroSeconds(17900);
-        slot.duration = MicroSeconds(5420);
-        slots[6] = slot;
+        // slot.radio_config.bitrate = BitRate::Kbps6800;
+        // slot.slot_type = SlotType::DynUplink;
+        // slot.shift = MicroSeconds(7600);
+        // slot.duration = MicroSeconds(1000);
+        // slots[3] = slot;
+        // slot.shift = MicroSeconds(12750);
+        // slot.duration = MicroSeconds(1000);
+        // slots[4] = slot;
+        // slot.shift = MicroSeconds(17900);
+        // slot.duration = MicroSeconds(5420);
+        // slots[5] = slot;
         // Ranging
         slot.radio_config.bitrate = BitRate::Kbps6800;
         slot.slot_type = SlotType::Ranging;
-        slot.shift = MicroSeconds(24720);
+        slot.shift = Self::ranging_period_start();
         slot.duration = Self::ranging_phase_duration();
-        slots[7] = slot;
+        slots[3] = slot;
 
         Scheduler {
             slots,
-            active: 8
+            active: 4
         }
     }
 
     #[cfg(feature = "slave")]
+    pub fn new() -> Self {
+        Scheduler {}
+    }
+
+    #[cfg(feature = "anchor")]
     pub fn new() -> Self {
         Scheduler {}
     }
@@ -160,18 +172,18 @@ impl Scheduler {
 
     /// Guaranteed time slot phase duration.
     /// (not implemented) May be 0 if no slots had been given to anyone.
-    pub fn gts_phase_duration() -> MicroSeconds { MicroSeconds(4220) }
+    pub fn gts_phase_duration() -> MicroSeconds { MicroSeconds(7000) }
 
     /// Aloha slot duration. Anyone except master can send in this period.
     /// Randomize send time in this slot.
     /// Even better - use slotted Aloha if several messages with equal length need to be sent.
-    pub fn aloha_phase_duration() -> MicroSeconds { MicroSeconds(1980) }
+    pub fn aloha_phase_duration() -> MicroSeconds { MicroSeconds(0) }
 
     /// Dynamic slots phase duration.
     /// (not implemented) May be 0 if no slots had been given to anyone.
-    pub fn dyn_phase_duration() -> MicroSeconds { MicroSeconds(15700) }
+    pub fn dyn_phase_duration() -> MicroSeconds { MicroSeconds(0) }
 
-    pub fn ranging_phase_duration() -> MicroSeconds { MicroSeconds(15000) }
+    pub fn ranging_phase_duration() -> MicroSeconds { MicroSeconds(3000) }
 
     /// GTS phase should definitely end at this moment.
     pub fn gts_period_end() -> MicroSeconds {
@@ -195,7 +207,8 @@ impl Scheduler {
     }
 
     pub fn ranging_period_start() -> MicroSeconds {
-        Self::dyn_period_start() + Self::dyn_phase_duration() + Self::guard()
+        //Self::dyn_period_start() + Self::dyn_phase_duration() + Self::guard()
+        Self::gts_phase_duration() + Self::guard()
     }
 
     pub fn ranging_period_end() -> MicroSeconds {
@@ -206,3 +219,11 @@ impl Scheduler {
     pub fn half_guard() -> MicroSeconds { Self::guard() / 2 }
     pub fn quarter_guard() -> MicroSeconds { Self::guard() / 4 }
 }
+
+// pub struct Trainer {
+//
+// }
+//
+// impl Trainer {
+//     pub fn train(ready_radio: ReadyRadio) ->
+// }

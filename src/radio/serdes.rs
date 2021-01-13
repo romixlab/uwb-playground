@@ -66,6 +66,17 @@ impl<'a> Buf<'a> {
         u16::from_le_bytes(le)
     }
 
+    pub fn get_u16_be(&mut self) -> u16 {
+        let mut be = unsafe {
+            [
+                *self.buf.get_unchecked(self.idx),
+                *self.buf.get_unchecked(self.idx + 1)
+            ]
+        };
+        self.idx += 2;
+        u16::from_be_bytes(be)
+    }
+
     pub fn get_u32(&mut self) -> u32 {
         let mut le = unsafe {
             [
@@ -134,6 +145,15 @@ impl<'a> BufMut<'a> {
         self.idx += 2;
     }
 
+    pub fn put_u16_be(&mut self, val: u16) {
+        let be = val.to_be_bytes();
+        unsafe {
+            *self.buf.get_unchecked_mut(self.idx) = be[0];
+            *self.buf.get_unchecked_mut(self.idx + 1) = be[1];
+        }
+        self.idx += 2;
+    }
+
     pub fn put_u32(&mut self, val: u32) {
         let le = val.to_le_bytes();
         unsafe {
@@ -141,6 +161,17 @@ impl<'a> BufMut<'a> {
             *self.buf.get_unchecked_mut(self.idx + 1) = le[1];
             *self.buf.get_unchecked_mut(self.idx + 2) = le[2];
             *self.buf.get_unchecked_mut(self.idx + 3) = le[3];
+        }
+        self.idx += 4;
+    }
+
+    pub fn put_u32_be(&mut self, val: u32) {
+        let be = val.to_be_bytes();
+        unsafe {
+            *self.buf.get_unchecked_mut(self.idx) = be[0];
+            *self.buf.get_unchecked_mut(self.idx + 1) = be[1];
+            *self.buf.get_unchecked_mut(self.idx + 2) = be[2];
+            *self.buf.get_unchecked_mut(self.idx + 3) = be[3];
         }
         self.idx += 4;
     }
@@ -169,6 +200,10 @@ impl<'a> BufMut<'a> {
             );
         }
         self.idx += s.len();
+    }
+
+    pub fn put_nothing(&mut self, len: usize) {
+        self.idx += len;
     }
 }
 
