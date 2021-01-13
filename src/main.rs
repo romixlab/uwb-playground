@@ -159,6 +159,7 @@ const APP: () = {
         tasks::radio::radio_event(cx, e);
     }
 
+    // Not an error!, vectors are swapped
     #[task(
         binds = FDCAN1_INTR0_IT,
         priority = 5,
