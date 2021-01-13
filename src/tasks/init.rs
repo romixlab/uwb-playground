@@ -27,10 +27,20 @@ use crate::radio::types::{ReadyRadio, Pong};
 use dw1000::mac::{Address, PanId, ShortAddress};
 use dw1000::hl::SendTime;
 
+// i2c
+use hal::i2c::Config;
+use stm32g4xx_hal::i2c::I2cExt;
+use stm32g4xx_hal::delay::Delay;
+use crate::vl53l1x_multi;
+use crate::dump_delay;
+use stm32g4xx_hal::watchdog::{IndependentWatchdog, IWDGExt};
+use embedded_hal::watchdog::WatchdogEnable;
+
 pub fn init(
     cx: crate::init::Context,
     radio_commands_queue: &'static mut radio::types::CommandQueue,
 ) -> crate::init::LateResources {
+
     // rtt_init_print!(NoBlockSkip);
     let rtt_channels = rtt_target::rtt_init! {
         up: {
@@ -56,15 +66,22 @@ pub fn init(
     rprintln!("=============={}\n", color::DEFAULT);
     rprintln!("init...");
 
-    let mut core/*: cortex_m::Peripherals */= cx.core;
+    let mut core/*: cortex_m::Peripherals*/ = cx.core;
     core.DCB.enable_trace();
     DWT::unlock();
     core.DWT.enable_cycle_counter();
 
     let device: hal::stm32::Peripherals = cx.device;
+
+
+
     //let _flash = device.FLASH;
     use hal::rcc::RccExt;
-    let rcc = device.RCC.constrain();
+    let mut rcc = device.RCC.constrain();
+
+    let mut iwdg = device.IWDG.constrain();
+    iwdg.start(crate::hal::time::MicroSecond(1_000_000));
+
     use hal::time::U32Ext;
     // If you change clock frequency, make sure to also change tracer sysclk!
     cfg_if! {
@@ -107,9 +124,86 @@ pub fn init(
             let mut led_blinky = gpiob.pb15.into_push_pull_output();
         } else if #[cfg(feature = "gcarrier-board")] {
             let mut led_blinky = gpiob.pb1.into_push_pull_output();
+            let mut led_red = gpiob.pb0.into_push_pull_output();
         }
     }
     led_blinky.set_low().ok();
+    led_red.set_high().ok();
+    cortex_m::asm::delay(16_000_000u32);
+    led_red.set_low().ok();
+
+    cfg_if! {
+        if #[cfg(feature = "gcharger-board")] {
+            let fdcan1_tx = gpiob.pb9;
+            let fdcan1_rx = gpiob.pb8;
+        } else if #[cfg(feature = "gcarrier-board")] {
+            let fdcan1_tx = gpioa.pa12;
+            let fdcan1_rx = gpioa.pa11;
+        }
+    }
+    use hal::can;
+    use can::{CanController, CanInstance, ClockSource};
+    let mut can_ctrl = CanController::new(
+        ClockSource::Pllq,
+        &mut rcc,
+        &mut core.DWT
+    ).unwrap();
+    let mut can0 = CanInstance::new_classical(
+        &mut can_ctrl,
+        device.FDCAN1,
+        (fdcan1_tx, fdcan1_rx),
+        can::Mode::Normal,
+        can::Retransmission::Enabled,
+        can::TransmitPause::Disabled,
+        can::TxBufferMode::Fifo,
+        can::ClockDiv::Div1,
+        can::BitTiming::default_1mbps(),
+    );
+    rprintln!("can::new_classical: {}", can0.is_ok());
+    let mut can0 = match can0 {
+        Ok((can0, _)) => can0,
+        Err(e) => {
+            panic!("can::new_classical: err: {:?}", e.0);
+        }
+    };
+    use can::ClassicalCan;
+    unsafe {
+        can0.ll(|can_regs| {
+            can_regs.ie.write(|w| w.bits(0xff_ffff)); // enable all interrupts
+            can_regs.ils.write(|w| w.bits(0b0000_0000)); // all interrupts to irq0 line
+            can_regs.ile.write(|w| w.eint0().set_bit().eint1().clear_bit()); // enable irq0 line
+            can_regs.txbtie.write(|w| w.bits(0b001)); // enable tx buffer interrupt
+        });
+    }
+    let mut can0_receive_heap = vhrdcan::FrameHeap::new();
+    let can0_ll_statistics = crate::tasks::canbus::LLStatistics::default();
+    let mut can0_rx_routing_table = heapless::Vec::new();
+    crate::tasks::canbus::load_rx_routing_table(&mut can0_rx_routing_table);
+    let can0_rx_routing_statistics = crate::tasks::canbus::RxRoutingStatistics::default();
+    let can0_local_processing_heap = vhrdcan::FrameHeap::new();
+    let can0_irq_statistics = crate::tasks::canbus::IrqStatistics::default();
+    let can0_analyzer = crate::tasks::canbus::CanAnalyzer::new();
+
+    //i2c1
+    let sda = gpiob.pb7.into_open_drain_output();
+    let scl = gpioa.pa15.into_open_drain_output();
+    let mut i2c: config::I2cPortType = device
+        .I2C1
+        .i2c(sda, scl, Config::with_timing(0x2020151b), &mut rcc);
+    //let cp = cortex_m::Peripherals::take().unwrap();
+
+    let mut delay = dump_delay::DumpDelay::new();
+
+    rprintln!("before init tof");
+    let mut vl53l1_multi = vl53l1x_multi::Vl53l1Multi::new(i2c, delay, [0,1,2,3], 0x70);
+    rprintln!("tof::new {}");
+    vl53l1_multi.init_devices();
+    rprintln!("tof::init_devs {}");
+    // test i2c
+    /*loop {
+        let tof_mes = vl53l1_multi.read_all();
+        rprintln!(=>4, "{:#?} mm, {:#?} mm, {:#?} mm, {:#?} mm ", tof_mes[0], tof_mes[1], tof_mes[2],tof_mes[3]);
+    }*/
 
     cfg_if! {
         if #[cfg(feature = "gcharger-board")] {
@@ -264,7 +358,16 @@ pub fn init(
             panic!("DW1000 SPI broken");
         }
     }
-    let dw1000 = dw1000.init(dw1000::configs::MaximumFrameLength::Decawave1023);
+    use dw1000::hl::{TxPowerControl, ManualPowerGain, PowerGain, CoarsePowerGain, FinePowerGain};
+    let dw1000_power_gain = PowerGain {
+        coarse: CoarsePowerGain::_12dB5,
+        fine: FinePowerGain::_10dB
+    };
+    let dw1000_tx_power = TxPowerControl::Manual(ManualPowerGain {
+        phy_header: dw1000_power_gain,
+        shr_and_data: dw1000_power_gain
+    });
+    let dw1000 = dw1000.init(dw1000_tx_power, dw1000::configs::MaximumFrameLength::Decawave1023);
     let mut dw1000 = match dw1000 {
         Ok(dw1000) => { dw1000 },
         Err(e) => { panic!("DW1000 init error {:?}", e); }
@@ -426,6 +529,8 @@ pub fn init(
                     imx_serial,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
+
+                    vl53l1_multi
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl", feature = "br"))] {
                 crate::init::LateResources {
@@ -455,6 +560,8 @@ pub fn init(
                     imx_serial,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
+
+                    vl53l1_multi
                 }
             } else if #[cfg(feature = "anchor")] {
                 crate::init::LateResources {

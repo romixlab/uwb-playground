@@ -427,18 +427,18 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
-version = "1.0.118"
+version = "1.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06c64263859d87aa2eb554587e2d23183398d617427327cf2b3d0ed8c69e4800"
+checksum = "9bdd36f49e35b61d49efd8aa7fc068fd295961fd2286d0b2ee9a4c7a14e99cc3"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.118"
+version = "1.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c84d3526699cd55261af4b941e4e725444df67aa4f9e6a3564f18030d12672df"
+checksum = "552954ce79a059ddd5fd68c271592374bd15cab2274970380c000118aeffe1cd"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.8",
@@ -493,7 +493,7 @@ dependencies = [
 [[package]]
 name = "stm32g4"
 version = "0.12.1"
-source = "git+https://github.com/diseraluca/stm32g4?branch=main#fcb0bf9cd23fcccfa4b46696efe27a33f2525491"
+source = "git+https://github.com/diseraluca/stm32g4?branch=main#9bc5e7083bc785e291bd4306ebb485a5afa1a3f0"
 dependencies = [
  "bare-metal",
  "cortex-m",
@@ -615,6 +615,7 @@ dependencies = [
  "stm32l4xx-hal",
  "typenum",
  "vhrdcan",
+ "vl53l1",
 ]
 
 [[package]]
@@ -636,6 +637,27 @@ dependencies = [
  "hash32",
  "hash32-derive",
  "heapless",
+]
+
+[[package]]
+name = "vl53l1"
+version = "0.1.0"
+source = "git+https://github.com/klimatt/vl53l1.git?branch=speedup#93a26148a93c52bd1349ae0fe9bd48116575f242"
+dependencies = [
+ "bitfield",
+ "embedded-hal",
+ "nb 1.0.0",
+ "vl53l1-reg",
+]
+
+[[package]]
+name = "vl53l1-reg"
+version = "0.1.0"
+source = "git+https://github.com/klimatt/vl53l1.git?branch=speedup#93a26148a93c52bd1349ae0fe9bd48116575f242"
+dependencies = [
+ "bitfield",
+ "embedded-hal",
+ "rtt-target",
 ]
 
 [[package]]

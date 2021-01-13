@@ -14,6 +14,9 @@ mod tasks;
 //mod motion;
 //mod rplidar;
 mod color;
+mod vl53l1x_multi;
+mod dump_delay;
+mod newconfig;
 
 use board::hal;
 use core::num::Wrapping;
@@ -21,6 +24,7 @@ use rtic::{app};
 use hal::rcc::Clocks;
 use bbqueue::{BBBuffer, ConstBBBuffer};
 use rtt_target::{rprint, rprintln};
+
 
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -47,7 +51,9 @@ const APP: () = {
 
         imx_serial: config::ImxSerial,
 
-        counter_deltas: tasks::blinker::CounterDeltas
+        counter_deltas: tasks::blinker::CounterDeltas,
+
+        vl53l1_multi: vl53l1x_multi::Vl53l1Multi,
     }
 
     #[init(
@@ -70,7 +76,9 @@ const APP: () = {
             idle_counter,
             rtt_down_channel,
             radio_commands,
-            imx_serial
+            imx_serial,
+            vl53l1_multi,
+            channels
         ],
         spawn = [
             can_analyzer
@@ -153,7 +161,7 @@ const APP: () = {
 
     // Not an error!, vectors are swapped
     #[task(
-        binds = FDCAN1_INTR1_IT,
+        binds = FDCAN1_INTR0_IT,
         priority = 5,
         spawn = [can0_rx_router],
         resources = [

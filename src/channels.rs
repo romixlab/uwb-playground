@@ -59,6 +59,7 @@ use crate::color;
 /// * `@ID` - data is grabbed from specific queue and enqueued to the same id on the other node.
 pub struct Channels {
     pub can0_forward_heap: crate::tasks::canbus::ForwardHeap,
+    pub can0_forward_pool: vhrdcan::FramePool,
     pub can0_send_heap: config::CanSendHeap,
     pub can0_forward_analyzer: crate::tasks::canbus::CanAnalyzer,
 
@@ -71,6 +72,7 @@ impl Channels {
     pub fn new() -> Self {
         Channels {
             can0_forward_heap: heapless::BinaryHeap::new(),
+            can0_forward_pool: vhrdcan::FramePool::new_pool(),
             can0_send_heap: vhrdcan::FrameHeap::new(),
             can0_forward_analyzer: crate::tasks::canbus::CanAnalyzer::new(),
 

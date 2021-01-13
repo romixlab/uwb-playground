@@ -2,7 +2,8 @@ use crate::board::hal;
 use crate::units::{MilliSeconds, ms, U32UnitsExt};
 use typenum::consts;
 use bbqueue::{BBBuffer, Consumer, Producer};
-use hal::gpio::{PushPull, Output, Input, PullDown, Floating, DefaultMode};
+use hal::gpio::{PushPull, Output, Input, PullDown, Floating, DefaultMode, OpenDrain};
+use hal::stm32::I2C1;
 use heapless::binary_heap::{BinaryHeap, Min};
 use heapless::consts::*;
 
@@ -16,9 +17,9 @@ pub type Can0Rx = PB8<Input<Floating>>;
 #[cfg(any(feature = "gcharger-board", feature = "gcarrier-board"))]
 pub type Can0 = hal::can::ClassicalCanInstance;
 
-pub type CanSendHeap = vhrdcan::FrameHeap<U256>;
-pub type CanReceiveHeap = vhrdcan::FrameHeap<U128>;
-pub type CanLocalProcessingHeap = vhrdcan::FrameHeap<U32>;
+pub type CanSendHeap = vhrdcan::FrameHeap<U256>; // uwb -> can
+pub type CanReceiveHeap = vhrdcan::FrameHeap<U128>; // from can
+pub type CanLocalProcessingHeap = vhrdcan::FrameHeap<U32>; // receiveHeap -> Routing table -> this
 pub type ForwardHeapSize = consts::U128;
 pub const CAN0_SEND_IRQ: Interrupt = Interrupt::FDCAN1_INTR1_IT;
 pub type RxRoutingTableSize = consts::U32;
@@ -26,6 +27,10 @@ pub type RxRoutingTableSize = consts::U32;
 pub type ImxSerialTx = PC4<Input<Floating>>;
 pub type ImxSerialRx = PC5<Input<Floating>>;
 pub type ImxSerial = hal::serial::Serial<hal::stm32::USART1, ImxSerialTx, ImxSerialRx>;
+pub type I2cPortType = hal::i2c::I2c<I2C1,
+    hal::gpio::gpiob::PB7<hal::gpio::Output<OpenDrain>>, //SDA
+    hal::gpio::gpioa::PA15<hal::gpio::Output<OpenDrain>>, //SCL
+>;
 
 #[cfg(feature = "pozyx-board")]
 pub type Dw1000Clk = PA5<Alternate<AF5>>;
