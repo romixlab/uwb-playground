@@ -35,6 +35,7 @@ use crate::vl53l1x_multi;
 use crate::dump_delay;
 use stm32g4xx_hal::watchdog::{IndependentWatchdog, IWDGExt};
 use embedded_hal::watchdog::WatchdogEnable;
+use hal::can;
 
 pub fn init(
     cx: crate::init::Context,
@@ -80,7 +81,7 @@ pub fn init(
     let mut rcc = device.RCC.constrain();
 
     let mut iwdg = device.IWDG.constrain();
-    iwdg.start(crate::hal::time::MicroSecond(1_000_000));
+    iwdg.start(crate::hal::time::MicroSecond(2_000_000));
 
     use hal::time::U32Ext;
     // If you change clock frequency, make sure to also change tracer sysclk!
@@ -141,7 +142,6 @@ pub fn init(
             let fdcan1_rx = gpioa.pa11;
         }
     }
-    use hal::can;
     use can::{CanController, CanInstance, ClockSource};
     let mut can_ctrl = CanController::new(
         ClockSource::Pllq,
@@ -204,58 +204,6 @@ pub fn init(
         let tof_mes = vl53l1_multi.read_all();
         rprintln!(=>4, "{:#?} mm, {:#?} mm, {:#?} mm, {:#?} mm ", tof_mes[0], tof_mes[1], tof_mes[2],tof_mes[3]);
     }*/
-
-    cfg_if! {
-        if #[cfg(feature = "gcharger-board")] {
-            let fdcan1_tx = gpiob.pb9;
-            let fdcan1_rx = gpiob.pb8;
-        } else if #[cfg(feature = "gcarrier-board")] {
-            let fdcan1_tx = gpioa.pa12;
-            let fdcan1_rx = gpioa.pa11;
-        }
-    }
-    use hal::can;
-    use can::{CanController, CanInstance, ClockSource};
-    let mut can_ctrl = CanController::new(
-        ClockSource::Pllq,
-        &mut rcc,
-        &mut core.DWT
-    ).unwrap();
-    let mut can0 = CanInstance::new_classical(
-        &mut can_ctrl,
-        device.FDCAN1,
-        (fdcan1_tx, fdcan1_rx),
-        can::Mode::Normal,
-        can::Retransmission::Enabled,
-        can::TransmitPause::Disabled,
-        can::TxBufferMode::Fifo,
-        can::ClockDiv::Div1,
-        can::BitTiming::default_1mbps(),
-    );
-    rprintln!("can::new_classical: {}", can0.is_ok());
-    let mut can0 = match can0 {
-        Ok((can0, _)) => can0,
-        Err(e) => {
-            panic!("can::new_classical: err: {:?}", e.0);
-        }
-    };
-    use can::ClassicalCan;
-    unsafe {
-        can0.ll(|can_regs| {
-            can_regs.ie.write(|w| w.bits(0xff_ffff)); // enable all interrupts
-            can_regs.ils.write(|w| w.bits(0b0000_0000)); // all interrupts to irq0 line
-            can_regs.ile.write(|w| w.eint0().set_bit().eint1().clear_bit()); // enable irq0 line
-            can_regs.txbtie.write(|w| w.bits(0b001)); // enable tx buffer interrupt
-        });
-    }
-    let mut can0_receive_heap = vhrdcan::FrameHeap::new();
-    let can0_ll_statistics = crate::tasks::canbus::LLStatistics::default();
-    let mut can0_rx_routing_table = heapless::Vec::new();
-    crate::tasks::canbus::load_rx_routing_table(&mut can0_rx_routing_table);
-    let can0_rx_routing_statistics = crate::tasks::canbus::RxRoutingStatistics::default();
-    let can0_local_processing_heap = vhrdcan::FrameHeap::new();
-    let can0_irq_statistics = crate::tasks::canbus::IrqStatistics::default();
-    let can0_analyzer = crate::tasks::canbus::CanAnalyzer::new();
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -503,6 +451,7 @@ pub fn init(
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
                 crate::init::LateResources {
+                    watchdog: iwdg,
                     clocks,
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
@@ -534,6 +483,7 @@ pub fn init(
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl", feature = "br"))] {
                 crate::init::LateResources {
+                    watchdog: iwdg,
                     clocks,
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),
@@ -565,6 +515,7 @@ pub fn init(
                 }
             } else if #[cfg(feature = "anchor")] {
                 crate::init::LateResources {
+                    watchdog: iwdg,
                     clocks,
 
                     radio: radio::Radio::new(dw1000, dw1000_irq, radio_commands_c),

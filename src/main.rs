@@ -29,6 +29,7 @@ use rtt_target::{rprint, rprintln};
 #[app(device = crate::board::hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
+        watchdog: IndependentWatchdog,
         clocks: Clocks,
         radio: radio::Radio,
         trace_pin: config::RadioTracePin,
@@ -93,6 +94,7 @@ const APP: () = {
             &clocks,
             led_blinky,
             channels,
+            watchdog
         ],
         schedule = [
             blinker,
@@ -159,7 +161,6 @@ const APP: () = {
         tasks::radio::radio_event(cx, e);
     }
 
-    // Not an error!, vectors are swapped
     #[task(
         binds = FDCAN1_INTR0_IT,
         priority = 5,
@@ -208,6 +209,8 @@ const APP: () = {
 };
 
 use cortex_m_rt::exception;
+use stm32g4xx_hal::watchdog::IndependentWatchdog;
+
 #[exception]
 fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {
     // prints the exception frame as a panic message

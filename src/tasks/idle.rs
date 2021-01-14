@@ -76,7 +76,7 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
             tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes[i].to_be_bytes());
         }
 
-        cx.resources.channels.lock(|channels| {
+        let r = cx.resources.channels.lock(|channels| {
             let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
             let forward_pool: &mut vhrdcan::FramePool = &mut channels.can0_forward_pool;
             let frame = forward_pool.new_frame(FrameId::new_extended(newconfig::TOF_CAN_ID).unwrap(), &tof_data).unwrap();
@@ -84,9 +84,11 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
                 to: Destination::Broadcast,
                 frame
             };
-            let _ = forward_heap.push(forward_entry);
+            forward_heap.push(forward_entry)
         });
-
+        if r.is_err() {
+            rprintln!(=>4, "{}Heap full!{}", color::YELLOW, color::DEFAULT);
+        }
 
         cx.resources.idle_counter.lock(|counter| *counter += Wrapping(1u32));
         //cortex_m::asm::delay(1_000_000);

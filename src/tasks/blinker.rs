@@ -7,6 +7,7 @@ use stm32g4xx_hal::pac::Interrupt;
 use rtic::Mutex;
 use rtt_target::rprintln;
 use crate::tasks::canbus::{LLStatistics, RxRoutingStatistics};
+use embedded_hal::watchdog::Watchdog;
 
 #[allow(dead_code)]
 #[derive(Default)]
@@ -20,6 +21,7 @@ pub struct CounterDeltas {
 
 pub fn blinker(mut cx: crate::blinker::Context) {
     cx.resources.led_blinky.toggle().ok();
+    cx.resources.watchdog.feed();
 
     cx.resources.channels.lock(|channels| {
         let h = &mut channels.can0_send_heap;

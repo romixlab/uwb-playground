@@ -642,7 +642,7 @@ dependencies = [
 [[package]]
 name = "vl53l1"
 version = "0.1.0"
-source = "git+https://github.com/klimatt/vl53l1.git?branch=speedup#93a26148a93c52bd1349ae0fe9bd48116575f242"
+source = "git+https://github.com/klimatt/vl53l1.git?branch=speedup#05ed6486b540e7dd686fe410dc89adacc3cc79a5"
 dependencies = [
  "bitfield",
  "embedded-hal",
@@ -653,7 +653,7 @@ dependencies = [
 [[package]]
 name = "vl53l1-reg"
 version = "0.1.0"
-source = "git+https://github.com/klimatt/vl53l1.git?branch=speedup#93a26148a93c52bd1349ae0fe9bd48116575f242"
+source = "git+https://github.com/klimatt/vl53l1.git?branch=speedup#05ed6486b540e7dd686fe410dc89adacc3cc79a5"
 dependencies = [
  "bitfield",
  "embedded-hal",
