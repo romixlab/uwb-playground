@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run [Carrier, Master, A, 6389]" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="Run [Carrier, BR, A]" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="channel" value="DEFAULT" />
-    <option name="command" value="run --release --features=&quot;master gcarrier-board uwb-a&quot; -- USB 801016389" />
+    <option name="command" value=" run --release --features=&quot;gcarrier-board uwb-a slave br&quot; " />
     <option name="allFeatures" value="false" />
     <option name="emulateTerminal" value="false" />
     <option name="backtrace" value="SHORT" />
