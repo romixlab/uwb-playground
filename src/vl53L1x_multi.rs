@@ -6,6 +6,7 @@ use stm32g4xx_hal::prelude::_embedded_hal_blocking_i2c_Write;
 use stm32g4xx_hal::prelude::_embedded_hal_blocking_delay_DelayUs;
 use vl53l1::{RangingMeasurementData, RangeStatus};
 
+const MULTIPLEXER_DELAY: u32 = 1000;
 
 struct DevMulti{
     device: vl53l1::Device,
@@ -39,7 +40,7 @@ impl Vl53l1Multi{
     pub fn init_devices(&mut self){
         for i in 0..4{
             self.i2c.write(self.tcaaddr, &[1 <<  self.devs[i].i2c_multi_chan]);
-            self.delay.delay_us(100u32);
+            self.delay.delay_us(MULTIPLEXER_DELAY);
 
             vl53l1::software_reset(&mut self.devs[i].device, &mut self.i2c, &mut self.delay);
 
@@ -74,12 +75,12 @@ impl Vl53l1Multi{
         let mut mes:[u16; 4] = [0; 4];
         for i in 0..4 {
             self.i2c.write(self.tcaaddr, &[1 << self.devs[i].i2c_multi_chan]);
-            self.delay.delay_us(100u32);
+            self.delay.delay_us(MULTIPLEXER_DELAY);
             vl53l1::wait_measurement_data_ready(&mut self.devs[i].device, &mut self.i2c, &mut self.delay);
         }
         for i in 0..4{
             self.i2c.write(self.tcaaddr, &[1 << self.devs[i].i2c_multi_chan]);
-            self.delay.delay_us(100u32);
+            self.delay.delay_us(MULTIPLEXER_DELAY);
            // vl53l1::wait_measurement_data_ready(&mut self.devs[i].device, &mut self.i2c, &mut self.delay);
             let rmd =
                 match vl53l1::get_ranging_measurement_data(&mut self.devs[i].device, &mut self.i2c)
@@ -113,7 +114,7 @@ impl Vl53l1Multi{
         }
         for i in 0..4{
             self.i2c.write(self.tcaaddr, &[1 << self.devs[i].i2c_multi_chan]);
-            self.delay.delay_us(100u32);
+            self.delay.delay_us(MULTIPLEXER_DELAY);
             vl53l1::clear_interrupt_and_start_measurement(&mut self.devs[i].device, &mut self.i2c, &mut self.delay);
         }
 

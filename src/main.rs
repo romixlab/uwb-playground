@@ -79,7 +79,8 @@ const APP: () = {
             radio_commands,
             imx_serial,
             vl53l1_multi,
-            channels
+            channels,
+            watchdog
         ],
         spawn = [
             can_analyzer
@@ -94,7 +95,6 @@ const APP: () = {
             &clocks,
             led_blinky,
             channels,
-            watchdog
         ],
         schedule = [
             blinker,

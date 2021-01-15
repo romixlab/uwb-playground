@@ -11,10 +11,13 @@ use embedded_hal::serial::{Read, Write};
 use crate::tasks::canbus::{ForwardHeap, ForwardEntry, Destination};
 use vhrdcan::{FramePool, FrameId};
 use crate::newconfig;
+use embedded_hal::watchdog::Watchdog;
 
 pub fn idle(mut cx: crate::idle::Context) -> ! {
     rprint!(=>0, "{}> {}", color::GREEN, color::DEFAULT);
     loop {
+        cx.resources.watchdog.feed();
+
         let mut rtt_down = [0u8; 128];
         let rtt_down_len = cx.resources.rtt_down_channel.read(&mut rtt_down);
         if rtt_down_len > 0 {

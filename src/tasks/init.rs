@@ -81,7 +81,7 @@ pub fn init(
     let mut rcc = device.RCC.constrain();
 
     let mut iwdg = device.IWDG.constrain();
-    iwdg.start(crate::hal::time::MicroSecond(2_000_000));
+    iwdg.start(crate::hal::time::MicroSecond(6_000_000));
 
     use hal::time::U32Ext;
     // If you change clock frequency, make sure to also change tracer sysclk!
