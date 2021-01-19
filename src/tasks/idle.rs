@@ -74,10 +74,10 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
         cfg_if! {
             if #[cfg(feature = "tof")] {
                 let tof_mes = cx.resources.vl53l1_multi.read_all();
-                rprintln!(=>4, "{:#?} mm, {:#?} mm, {:#?} mm, {:#?} mm \n\n", tof_mes[0], tof_mes[1], tof_mes[2],tof_mes[3]);
+                rprintln!(=>4, "{:#?} mm\n\n", tof_mes);
                 let mut tof_data = [0u8; 8];
-                for i in 0..=3 {
-                    tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes[i].to_be_bytes());
+                for i in 0..=1 {
+                    tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes.to_be_bytes());
                 }
 
                 let r = cx.resources.channels.lock(|channels| {
