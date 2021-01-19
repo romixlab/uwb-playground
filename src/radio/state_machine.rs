@@ -73,6 +73,7 @@ struct SMContext<'a, 'c, T> {
     #[cfg(any(feature = "slave", feature = "anchor"))]
     master_node: &'a mut NodeState,
     state_instant: &'a mut Option<CycntInstant>,
+    watchdog: &'a mut IndependentWatchdog,
 }
 
 /// Get radio in the `Ready` state.
@@ -144,15 +145,16 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
     schedule: &'a crate::radio_irq::Schedule,
     clocks: &'a crate::board::hal::rcc::Clocks,
     scheduler: &'a mut Scheduler,
+    watchdog: &'a mut IndependentWatchdog,
     tracer: &'a mut T
 ) {
     use RadioState::*;
     // Hint: do not try to put buffer into the SMContext struct, borrow checker would not be happy
     cfg_if! {
         if #[cfg(feature = "master")] {
-            let mut cx = SMContext { channels, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant };
+            let mut cx = SMContext { channels, tracer, spawn, schedule, clocks, scheduler, state_instant: &mut radio.state_instant, watchdog };
         } else if #[cfg(any(feature = "slave", feature = "anchor"))] {
-            let mut cx = SMContext { channels, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant };
+            let mut cx = SMContext { channels, tracer, spawn, schedule, clocks, scheduler, master_node: &mut radio.master, state_instant: &mut radio.state_instant, watchdog };
         }
     }
 
@@ -505,7 +507,8 @@ fn advance_listening_to_listening<T: Tracer>(
     match receiving_radio.wait(buffer) {
         Ok(message) => {
             cx.tracer.event(TraceEvent::MessageReceived);
-            rprintln!(=>10, "{:?}", message.0);
+            cx.watchdog.feed();
+            rprintln!(=>10, "{:?}\n", receiving_radio.calculate_rssi());
             let ready_radio = receiving_radio.finish_receiving().expect("dw1000 crate or spi failure"); // TODO: try to re-init and recover
             let receiving_radio = enable_receiver(ready_radio, RadioConfig::default());
             RadioState::Listening(Some(receiving_radio))
@@ -573,6 +576,8 @@ fn advance_gts_answers_receiving<T: Tracer>(
     match receiving_radio.wait(buffer) {
         Ok(message) => {
             cx.tracer.event(TraceEvent::MessageReceived);
+            cx.watchdog.feed();
+            rprintln!(=>10, "{:?}\n", receiving_radio.calculate_rssi());
             process_messages_gts_answers_receiving(receiving_radio, cx, message.0, answers_received, radio_config)
         },
         Err(e) => {
@@ -681,6 +686,8 @@ fn advance_dyn_waiting<T: Tracer>(
     match receiving_radio.wait(buffer) {
         Ok((message, _sys_status_before)) => {
             cx.tracer.event(TraceEvent::MessageReceived);
+            cx.watchdog.feed();
+            rprintln!(=>10, "{:?}\n", receiving_radio.calculate_rssi());
             process_messages_dyn_waiting(receiving_radio, cx, message)
         },
         Err(e) => {
@@ -819,6 +826,8 @@ fn advance_gts_start_waiting<T: Tracer>(
         Ok((message, _sys_status_before)) => {
             *cx.state_instant = None;
             cx.tracer.event(TraceEvent::MessageReceived);
+            cx.watchdog.feed();
+            rprintln!(=>10, "{:?}\n", receiving_radio.calculate_rssi());
             process_messages_gts_start_waiting(receiving_radio, cx, message, radio_config)
         },
         Err(e) => {
@@ -879,6 +888,8 @@ use dw1000::ranging::{Ping as RangingPing, Request as RangingRequest, Response a
 use crate::radio::serdes_impl;
 use dw1000::mac::Address;
 use no_std_compat::marker::PhantomData;
+use stm32g4xx_hal::watchdog::IndependentWatchdog;
+use embedded_hal::watchdog::Watchdog;
 
 pub fn send_message_no_mux<S: crate::radio::serdes::Serialize>(
     mut ready_radio: ReadyRadio,

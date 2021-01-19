@@ -31,6 +31,7 @@ use dw1000::hl::SendTime;
 use hal::i2c::Config;
 use stm32g4xx_hal::i2c::I2cExt;
 use stm32g4xx_hal::delay::Delay;
+#[cfg(feature = "tof")]
 use crate::vl53l1x_multi;
 use crate::dump_delay;
 use stm32g4xx_hal::watchdog::{IndependentWatchdog, IWDGExt};
@@ -194,16 +195,15 @@ pub fn init(
 
     let mut delay = dump_delay::DumpDelay::new();
 
-    rprintln!("before init tof");
-    let mut vl53l1_multi = vl53l1x_multi::Vl53l1Multi::new(i2c, delay, [0,1,2,3], 0x70);
-    rprintln!("tof::new {}");
-    vl53l1_multi.init_devices();
-    rprintln!("tof::init_devs {}");
-    // test i2c
-    /*loop {
-        let tof_mes = vl53l1_multi.read_all();
-        rprintln!(=>4, "{:#?} mm, {:#?} mm, {:#?} mm, {:#?} mm ", tof_mes[0], tof_mes[1], tof_mes[2],tof_mes[3]);
-    }*/
+    cfg_if! {
+        if #[cfg(feature = "tof")] {
+            rprintln!("before init tof");
+            let mut vl53l1_multi = vl53l1x_multi::Vl53l1Multi::new(i2c, delay, [0,1,2,3], 0x70);
+            rprintln!("tof::new {}");
+            vl53l1_multi.init_devices();
+            rprintln!("tof::init_devs {}");
+        }
+    }
 
     // DW1000
     let dw1000_spi_freq = 1.mhz();
@@ -309,7 +309,7 @@ pub fn init(
     use dw1000::hl::{TxPowerControl, ManualPowerGain, PowerGain, CoarsePowerGain, FinePowerGain};
     let dw1000_power_gain = PowerGain {
         coarse: CoarsePowerGain::_12dB5,
-        fine: FinePowerGain::_10dB
+        fine: FinePowerGain::_15dB
     };
     let dw1000_tx_power = TxPowerControl::Manual(ManualPowerGain {
         phy_header: dw1000_power_gain,
@@ -479,6 +479,7 @@ pub fn init(
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
 
+                    #[cfg(feature = "tof")]
                     vl53l1_multi
                 }
             } else if #[cfg(any(feature = "tr", feature = "bl", feature = "br"))] {
@@ -510,7 +511,7 @@ pub fn init(
                     imx_serial,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
-
+                    #[cfg(feature = "tof")]
                     vl53l1_multi
                 }
             } else if #[cfg(feature = "anchor")] {

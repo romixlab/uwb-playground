@@ -12,12 +12,11 @@ use crate::tasks::canbus::{ForwardHeap, ForwardEntry, Destination};
 use vhrdcan::{FramePool, FrameId};
 use crate::newconfig;
 use embedded_hal::watchdog::Watchdog;
+use cfg_if::cfg_if;
 
 pub fn idle(mut cx: crate::idle::Context) -> ! {
     rprint!(=>0, "{}> {}", color::GREEN, color::DEFAULT);
     loop {
-        cx.resources.watchdog.feed();
-
         let mut rtt_down = [0u8; 128];
         let rtt_down_len = cx.resources.rtt_down_channel.read(&mut rtt_down);
         if rtt_down_len > 0 {
@@ -72,26 +71,31 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
         cx.resources.imx_serial.write(0xaa);
         cx.resources.imx_serial.flush();
 
-        let tof_mes = cx.resources.vl53l1_multi.read_all();
-        rprintln!(=>4, "{:#?} mm, {:#?} mm, {:#?} mm, {:#?} mm \n\n", tof_mes[0], tof_mes[1], tof_mes[2],tof_mes[3]);
-        let mut tof_data = [0u8; 8];
-        for i in 0..=3 {
-            tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes[i].to_be_bytes());
+        cfg_if! {
+            if #[cfg(feature = "tof")] {
+                let tof_mes = cx.resources.vl53l1_multi.read_all();
+                rprintln!(=>4, "{:#?} mm, {:#?} mm, {:#?} mm, {:#?} mm \n\n", tof_mes[0], tof_mes[1], tof_mes[2],tof_mes[3]);
+                let mut tof_data = [0u8; 8];
+                for i in 0..=3 {
+                    tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes[i].to_be_bytes());
+                }
+
+                let r = cx.resources.channels.lock(|channels| {
+                    let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
+                    let forward_pool: &mut vhrdcan::FramePool = &mut channels.can0_forward_pool;
+                    let frame = forward_pool.new_frame(FrameId::new_extended(newconfig::TOF_CAN_ID).unwrap(), &tof_data).unwrap();
+                    let forward_entry = ForwardEntry {
+                        to: Destination::Broadcast,
+                        frame
+                    };
+                    forward_heap.push(forward_entry)
+                });
+                if r.is_err() {
+                    rprintln!(=>4, "{}Heap full!{}", color::YELLOW, color::DEFAULT);
+                }
+            }
         }
 
-        let r = cx.resources.channels.lock(|channels| {
-            let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
-            let forward_pool: &mut vhrdcan::FramePool = &mut channels.can0_forward_pool;
-            let frame = forward_pool.new_frame(FrameId::new_extended(newconfig::TOF_CAN_ID).unwrap(), &tof_data).unwrap();
-            let forward_entry = ForwardEntry {
-                to: Destination::Broadcast,
-                frame
-            };
-            forward_heap.push(forward_entry)
-        });
-        if r.is_err() {
-            rprintln!(=>4, "{}Heap full!{}", color::YELLOW, color::DEFAULT);
-        }
 
         cx.resources.idle_counter.lock(|counter| *counter += Wrapping(1u32));
         //cortex_m::asm::delay(1_000_000);

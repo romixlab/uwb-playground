@@ -109,6 +109,7 @@ pub fn radio_irq(mut cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
             &cx.schedule,
             cx.resources.clocks,
             cx.resources.scheduler,
+            cx.resources.watchdog,
             unsafe { &mut TRACER }
         );
         if cx.resources.radio.irq.is_low().unwrap() {

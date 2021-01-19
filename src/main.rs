@@ -14,6 +14,7 @@ mod tasks;
 //mod motion;
 //mod rplidar;
 mod color;
+#[cfg(feature = "tof")]
 mod vl53l1x_multi;
 mod dump_delay;
 mod newconfig;
@@ -54,6 +55,7 @@ const APP: () = {
 
         counter_deltas: tasks::blinker::CounterDeltas,
 
+        #[cfg(feature = "tof")]
         vl53l1_multi: vl53l1x_multi::Vl53l1Multi,
     }
 
@@ -80,7 +82,6 @@ const APP: () = {
             imx_serial,
             vl53l1_multi,
             channels,
-            watchdog
         ],
         spawn = [
             can_analyzer
@@ -133,6 +134,7 @@ const APP: () = {
             scheduler,
             idle_counter,
             channels,
+            watchdog
         ],
         spawn = [radio_event],
         schedule = [radio_event]
