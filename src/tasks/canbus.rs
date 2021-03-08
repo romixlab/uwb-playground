@@ -11,6 +11,7 @@ use rtic::Mutex;
 use core::fmt;
 use no_std_compat::fmt::Formatter;
 use crate::color;
+use crate::newconfig;
 
 #[derive(Default)]
 pub struct DirectionStatistics {
@@ -447,6 +448,16 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 action: RoutingAction::Drop,
                 comment: "Tacho_TL"
             }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(101).unwrap()), // LED TL
+                action: RoutingAction::Drop,
+                comment: "LED_TL"
+            }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(200).unwrap()), // ToF TL
+                action: RoutingAction::Drop,
+                comment: "ToF_TL"
+            }).is_err() as u32;
 
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003850A).unwrap()), // Motor TR Rpm
@@ -457,6 +468,11 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 scope: Scope::Single(FrameId::new_extended(0x10238D0A).unwrap()), // Motor TR EN
                 action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
                 comment: "EN_TR"
+            }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(102).unwrap()), // LED TR
+                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
+                comment: "LED_TR"
             }).is_err() as u32;
 
             failed += table.push(RoutingEntry{
@@ -469,6 +485,11 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
                 comment: "EN_BL"
             }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(103).unwrap()), // LED BL
+                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
+                comment: "LED_BL"
+            }).is_err() as u32;
 
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1003870A).unwrap()), // Motor BR Rpm
@@ -480,17 +501,43 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
                 comment: "EN_BR"
             }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(104).unwrap()), // LED BR
+                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
+                comment: "LED_BR"
+            }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::ExtendedRange(ExtendedId::new(1237).unwrap(), ExtendedId::new(1239).unwrap()), // Radars config
+                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
+                comment: "RadarsConf_BR"
+            }).is_err() as u32;
+
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(newconfig::SOFTOFF_EXT_ID).unwrap()), // Turn off command
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "Off"
+            }).is_err() as u32;
         } else if #[cfg(feature = "tr")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004D90A).unwrap()), // Tacho TR
                 action: RoutingAction::Forward(Destination::Broadcast),
                 comment: "Tacho_TR"
             }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(201).unwrap()), // ToF from Arduino
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "ToF_TR"
+            }).is_err() as u32;
         } else if #[cfg(feature = "bl")] {
             failed += table.push(RoutingEntry{
                 scope: Scope::Single(FrameId::new_extended(0x1004DA0A).unwrap()), // Tacho BL
                 action: RoutingAction::Forward(Destination::Broadcast),
                 comment: "Tacho_BL"
+            }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(202).unwrap()), // ToF from Arduino
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "ToF_BL"
             }).is_err() as u32;
         } else if #[cfg(feature = "br")] {
             failed += table.push(RoutingEntry{
@@ -513,6 +560,11 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 action: RoutingAction::Forward(Destination::Broadcast),
                 comment: "Tacho_BR"
             }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::Single(FrameId::new_extended(203).unwrap()), // ToF from Arduino
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "ToF_BR"
+            }).is_err() as u32;
         }
     }
     if failed > 0 {
@@ -527,6 +579,8 @@ pub enum CanAnalyzerEvent {
 }
 pub fn can_analyzer(mut cx: crate::can_analyzer::Context, e: CanAnalyzerEvent) {
     let reset = e == CanAnalyzerEvent::Reset;
+    rprintln!(=>6, "");
+    rprintln!(=>6, "");
     rprintln!(=>6, "");
     rprintln!(=>6, "\n\x1b[2J\x1b[0m---\n");
     cx.resources.can0_irq_statistics.lock(|irq_statistics: &mut crate::tasks::canbus::IrqStatistics| {
@@ -578,5 +632,8 @@ pub fn can_analyzer(mut cx: crate::can_analyzer::Context, e: CanAnalyzerEvent) {
         }
         channels.can0_forward_analyzer.print_statistics(clocks);
     });
+    rprintln!(=>6, "\n=====\n");
+    rprintln!(=>6, "\n=====\n");
+    rprintln!(=>6, "\n=====\n");
     rprintln!(=>6, "\n=====\n");
 }

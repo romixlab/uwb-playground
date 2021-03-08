@@ -320,6 +320,8 @@ pub enum Event {
     ReceiveCheck,
     // Emitted from the SM if radio irq is pended but message was not sended yet.
     //StillSending,
+    #[cfg(feature = "master")]
+    MessageReceived(dw1000::mac::Address, usize)
 }
 
 impl core::fmt::Display for Event {
@@ -343,6 +345,8 @@ impl core::fmt::Display for Event {
             Event::ReceiveCheck => { write!(f, "RC") }
             Event::RangingSlotAboutToStart(_, _) => { write!(f, "R_ATS") }
             Event::RangingSlotEnded => { write!(f, "R_SX") }
+            #[cfg(feature = "master")]
+            Event::MessageReceived(_, _) => { write!(f, "") },
         }
     }
 }

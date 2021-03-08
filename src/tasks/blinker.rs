@@ -29,5 +29,19 @@ pub fn blinker(mut cx: crate::blinker::Context) {
 
     cx.schedule.blinker(cx.scheduled + ms2cycles!(cx.resources.clocks, config::BLINK_PERIOD_MS)).ok(); // TODO: count errors
     let _ = cx.spawn.can_analyzer(crate::tasks::canbus::CanAnalyzerEvent::Print);
+
+    rprintln!(=>7, "");
+    rprintln!(=>7, "");
+    rprintln!(=>7, "");
+    rprintln!(=>7, "\n\x1b[2J\x1b[0m---\n");
+    cx.resources.event_state_data.lock(|esd| {
+        let nodes: &mut crate::tasks::radio::NodesMap = &mut esd.nodes;
+        for (address, node) in nodes {
+            rprintln!(=>7, "{:?}: {:?}", address, node);
+        }
+    });
+    rprintln!(=>7, "");
+    rprintln!(=>7, "");
+    rprintln!(=>7, "");
     // cx.schedule.blinker(cx.scheduled + us2cycles!(cx.resources.clocks, 300)).ok(); // TODO: count errors
 }

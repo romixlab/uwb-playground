@@ -20,13 +20,24 @@ pub type Can0 = hal::can::ClassicalCanInstance;
 pub type CanSendHeap = vhrdcan::FrameHeap<U256>; // uwb -> can
 pub type CanReceiveHeap = vhrdcan::FrameHeap<U128>; // from can
 pub type CanLocalProcessingHeap = vhrdcan::FrameHeap<U32>; // receiveHeap -> Routing table -> this
-pub type ForwardHeapSize = consts::U128;
+pub type ForwardHeapSize = consts::U512;
 pub const CAN0_SEND_IRQ: Interrupt = Interrupt::FDCAN1_INTR1_IT;
 pub type RxRoutingTableSize = consts::U32;
 
-pub type ImxSerialTx = PC4<Input<Floating>>;
-pub type ImxSerialRx = PC5<Input<Floating>>;
-pub type ImxSerial = hal::serial::Serial<hal::stm32::USART1, ImxSerialTx, ImxSerialRx>;
+pub type ImxSerialTx = PB3<Input<Floating>>;
+pub type ImxSerialRx = PA15<Input<Floating>>;
+pub type ImxSerial = hal::serial::Serial<hal::stm32::USART2, hal::serial::config::FullConfig>;
+pub type Usart2DmaRxBufferSize = consts::U129; // Must be power of 2 + 1 for bip buffer to function properly in this case
+pub type Usart2DmaRxBuffer = BBBuffer<Usart2DmaRxBufferSize>;
+pub type Usart2DmaRxBufferC = Consumer<'static, Usart2DmaRxBufferSize>;
+pub type Usart2DmaRxContext = crate::tasks::dma::DmaRxContext<Usart2DmaRxBufferSize>;
+// pub type Usart2DmaTxBuffer = BBBuffer<Usart2DmaTxBufferSize>;
+// pub type Usart2DmaTxBufferP = Producer<'static, Usart2DmaTxBufferSize>;
+// pub type Usart2DmaTxContext = crate::tasks::dma::DmaTxContext<Usart2DmaTxBufferSize>;
+// Pend after any write to [tx buffer](Usart2DmaTxBufferP) to start the DMA.
+// pub const USART2_TX_DMA: Interrupt = Interrupt::DMA1_STREAM6;
+
+
 pub type I2cPortType = hal::i2c::I2c<I2C1,
     hal::gpio::gpiob::PB7<hal::gpio::Output<OpenDrain>>, //SDA
     hal::gpio::gpioa::PA15<hal::gpio::Output<OpenDrain>>, //SCL
@@ -97,12 +108,16 @@ pub const PAN_ID: PanId = PanId(0x777);
 
 /// Allocate at least this amount of GTS and signal a failure (to all slaves and to uplink)
 /// if one or more is missing for >= THRESH
-pub const REQUIRED_SLAVE_COUNT: u8 = 3;
+pub const REQUIRED_SLAVE_COUNT: u8 = 4; // 2 for BR
 
 /// Maximum number of nodes in a PAN
 // pub type TotalNodeCount = consts::U5;
 
+#[cfg(not(feature = "dev-uwb-channel"))]
 pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel5;
+
+#[cfg(feature = "dev-uwb-channel")]
+pub const DEFAULT_UWB_CHANNEL: UwbChannel = UwbChannel::Channel3;
 
 #[cfg(feature = "master")]
 pub const UWB_ADDR: ShortAddress = ShortAddress(0x999);

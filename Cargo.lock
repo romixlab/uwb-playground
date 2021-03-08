@@ -272,8 +272,7 @@ dependencies = [
 [[package]]
 name = "ieee802154"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af632b4000a49093d3612d43529b9847a45690168dbe1f0877b8535e0670d281"
+source = "git+https://github.com/romixlab/rust-ieee802.15.4.git#799ac5a570b48a29da5a58021bc133ef6777378c"
 dependencies = [
  "byteorder",
  "hash32",
@@ -605,6 +604,7 @@ dependencies = [
  "embedded-hal",
  "embedded-timeout-macros",
  "generic-array 0.13.2",
+ "hash32",
  "heapless",
  "nb 1.0.0",
  "no-std-compat",

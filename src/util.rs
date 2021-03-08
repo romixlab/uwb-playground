@@ -1,4 +1,5 @@
 use core::fmt::Formatter;
+use embedded_hal::watchdog::Watchdog;
 /// * busywait!(ms, rtic_cx, 100);
 /// * busywait!(us, rtix_cx, 100);
 /// * busywait!(ms_alt, clocks, 100);
@@ -137,3 +138,5 @@ impl core::fmt::Display for TraceEvent {
 pub trait Tracer {
     fn event(&mut self, e: TraceEvent);
 }
+
+

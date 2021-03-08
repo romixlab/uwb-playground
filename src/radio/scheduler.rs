@@ -72,16 +72,20 @@ impl Scheduler {
         slot.radio_config.bitrate = BitRate::Kbps6800;
 
         slot.shift = MicroSeconds(0);
-        slot.duration = MicroSeconds(779);
+        slot.duration = MicroSeconds(1000);
         slots[0] = slot;
 
-        slot.shift = MicroSeconds(1479);
-        slot.duration = MicroSeconds(779);
+        slot.shift = MicroSeconds(2000);
+        slot.duration = MicroSeconds(1000);
         slots[1] = slot;
 
-        slot.shift = MicroSeconds(2959);
-        slot.duration = MicroSeconds(2298);
+        slot.shift = MicroSeconds(4000);
+        slot.duration = MicroSeconds(2500);
         slots[2] = slot;
+
+        slot.shift = MicroSeconds(7500);
+        slot.duration = MicroSeconds(2500);
+        slots[3] = slot;
         // Aloha
         // slot.slot_type = SlotType::Aloha;
         // slot.shift = Self::aloha_period_start();
@@ -100,11 +104,11 @@ impl Scheduler {
         // slot.duration = MicroSeconds(5420);
         // slots[5] = slot;
         // Ranging
-        slot.radio_config.bitrate = BitRate::Kbps6800;
-        slot.slot_type = SlotType::Ranging;
-        slot.shift = Self::ranging_period_start();
-        slot.duration = Self::ranging_phase_duration();
-        slots[3] = slot;
+        // slot.radio_config.bitrate = BitRate::Kbps6800;
+        // slot.slot_type = SlotType::Ranging;
+        // slot.shift = Self::ranging_period_start();
+        // slot.duration = Self::ranging_phase_duration();
+        // slots[4] = slot;
 
         Scheduler {
             slots,
@@ -134,7 +138,8 @@ impl Scheduler {
         let destinations = [
             Unicast(config::TR_UWB_ADDR),
             Unicast(config::BL_UWB_ADDR),
-            Unicast(config::BR_UWB_ADDR)
+            Unicast(config::BR_UWB_ADDR),
+            Unicast(config::BR_UWB_ADDR),
         ];
         for (s, d) in gt_slots.zip(destinations.iter()) {
             let _ = mux.mux(&s, *d, ctrl_ch);
@@ -172,7 +177,7 @@ impl Scheduler {
 
     /// Guaranteed time slot phase duration.
     /// (not implemented) May be 0 if no slots had been given to anyone.
-    pub fn gts_phase_duration() -> MicroSeconds { MicroSeconds(7000) }
+    pub fn gts_phase_duration() -> MicroSeconds { MicroSeconds(14000) }
 
     /// Aloha slot duration. Anyone except master can send in this period.
     /// Randomize send time in this slot.

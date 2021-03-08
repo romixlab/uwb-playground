@@ -28,6 +28,7 @@ btoi = { version = "0.4.2", default-features = false }
 vhrdcan = { path = "../vhrdcan" }
 #vl53l1 = { path = "../vl53l1/lib/vl53l1"}
 vl53l1 = {git = "https://github.com/klimatt/vl53l1.git", branch = "speedup", optional = true}
+hash32 = "0.1"
 
 [dependencies.stm32f4xx-hal]
 version = "0.8"
@@ -69,6 +70,9 @@ uwb-a = []
 uwb-b = []
 event-rtt-trace = []
 tof = ["vl53l1"]
+disable-watchdogs = []
+dev-uwb-channel = []
+
 
 [[bin]]
 name = "uwb"

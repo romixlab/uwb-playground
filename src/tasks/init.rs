@@ -41,6 +41,8 @@ use hal::can;
 pub fn init(
     cx: crate::init::Context,
     radio_commands_queue: &'static mut radio::types::CommandQueue,
+    usart2_dma_rx_buffer: &'static mut config::Usart2DmaRxBuffer,
+    lidar_bbuffer: &'static mut crate::rplidar::LidarBBuffer,
 ) -> crate::init::LateResources {
 
     // rtt_init_print!(NoBlockSkip);
@@ -75,13 +77,12 @@ pub fn init(
 
     let device: hal::stm32::Peripherals = cx.device;
 
-
-
     //let _flash = device.FLASH;
     use hal::rcc::RccExt;
     let mut rcc = device.RCC.constrain();
 
     let mut iwdg = device.IWDG.constrain();
+    #[cfg(not(feature = "disable-watchdogs"))]
     iwdg.start(crate::hal::time::MicroSecond(6_000_000));
 
     use hal::time::U32Ext;
@@ -124,6 +125,7 @@ pub fn init(
             led2_red.set_low().ok();
         } else if #[cfg(feature = "gcharger-board")] {
             let mut led_blinky = gpiob.pb15.into_push_pull_output();
+            let mut led_red = gpioc.pc6.into_push_pull_output();
         } else if #[cfg(feature = "gcarrier-board")] {
             let mut led_blinky = gpiob.pb1.into_push_pull_output();
             let mut led_red = gpiob.pb0.into_push_pull_output();
@@ -185,18 +187,16 @@ pub fn init(
     let can0_irq_statistics = crate::tasks::canbus::IrqStatistics::default();
     let can0_analyzer = crate::tasks::canbus::CanAnalyzer::new();
 
-    //i2c1
-    let sda = gpiob.pb7.into_open_drain_output();
-    let scl = gpioa.pa15.into_open_drain_output();
-    let mut i2c: config::I2cPortType = device
-        .I2C1
-        .i2c(sda, scl, Config::with_timing(0x2020151b), &mut rcc);
-    //let cp = cortex_m::Peripherals::take().unwrap();
-
-    let mut delay = dump_delay::DumpDelay::new();
-
     cfg_if! {
         if #[cfg(feature = "tof")] {
+            let mut delay = dump_delay::DumpDelay::new();
+            //i2c1
+            let sda = gpiob.pb7.into_open_drain_output();
+            let scl = gpioa.pa15.into_open_drain_output();
+            let mut i2c: config::I2cPortType = device
+                .I2C1
+                .i2c(sda, scl, Config::with_timing(0x2020151b), &mut rcc);
+
             rprintln!("before init tof");
             let mut vl53l1_multi = vl53l1x_multi::Vl53l1Multi::new(i2c, delay, [0,1,2,3], 0x70);
             rprintln!("tof::new {}");
@@ -308,7 +308,7 @@ pub fn init(
     }
     use dw1000::hl::{TxPowerControl, ManualPowerGain, PowerGain, CoarsePowerGain, FinePowerGain};
     let dw1000_power_gain = PowerGain {
-        coarse: CoarsePowerGain::_12dB5,
+        coarse: CoarsePowerGain::_15dB,
         fine: FinePowerGain::_15dB
     };
     let dw1000_tx_power = TxPowerControl::Manual(ManualPowerGain {
@@ -398,7 +398,7 @@ pub fn init(
         }
     }
     dw1000.set_address(config::PAN_ID, config::UWB_ADDR).unwrap();
-    dw1000.configure_leds(false, false, true, true, 1, true, false, true).unwrap();
+    dw1000.configure_leds(true, false, true, true, 1, false, false, false).unwrap();
     //dw1000.set_antenna_delay(16456, 16300).expect("Failed to set antenna delay");
     //dw1000.set_antenna_delay(16147, 16166).expect("Failed to set antenna delay");
     dw1000.set_antenna_delay(16128, 16145).expect("Failed to set antenna delay");
@@ -435,18 +435,80 @@ pub fn init(
         }
     }
 
-    let imx_terminal_tx = gpioc.pc4;
-    let imx_terminal_rx = gpioc.pc5;
+    let imx_terminal_tx = gpiob.pb3;
+    let imx_terminal_rx = gpioa.pa15;
     use hal::time::Bps;
-    let imx_terminal_config = hal::serial::Config::default().baudrate(115_200.bps());
+    let mut imx_terminal_config = hal::serial::FullConfig::default().baudrate(256_000.bps());
     use hal::serial::SerialExt;
-    let imx_serial = hal::serial::Serial::usart1(
-        device.USART1,
-        imx_terminal_tx,
-        imx_terminal_rx,
-        imx_terminal_config,
-        &mut rcc
-    ).unwrap();
+    let mut imx_serial = device.USART2.usart(imx_terminal_tx,
+                                         imx_terminal_rx,
+                                         imx_terminal_config,
+                                         &mut rcc).unwrap();
+    let (mut usart2_dma_rx_buffer_p, usart2_dma_rx_buffer_c) = usart2_dma_rx_buffer.try_split().unwrap();
+    let (mut usart2_dma_rcx, usart2_dma_mem_addr) =
+        crate::tasks::dma::DmaRxContext::new(
+            usart2_dma_rx_buffer_p,
+            unsafe { hal::stm32::USART2::ptr() as *const _ as *mut hal::stm32::usart1::RegisterBlock },
+            unsafe { hal::stm32::DMA1::ptr() as *const _ as *mut hal::stm32::dma1::RegisterBlock },
+            //5
+        );
+    unsafe {
+        // Enable clocks for DMA1 & DMAMUX
+        let rcc = &(*hal::stm32::RCC::ptr());
+        rcc.ahb1enr.modify(|_, w| w.dma1en().set_bit().dmamuxen().set_bit());
+        rcc.ahb1rstr.modify(|_, w| w.dma1rst().set_bit().dmamux1rst().set_bit());
+        rcc.ahb1rstr.modify(|_, w| w.dma1rst().clear_bit().dmamux1rst().clear_bit());
+        let dma1 = &(*hal::stm32::DMA1::ptr());
+        let dmamux = &(*hal::stm32::DMAMUX::ptr());
+        let usart2 = &(*hal::stm32::USART2::ptr());
+        // Configure DMA1 Stream 1
+        dma1.ccr1.modify(|_, w| w.en().clear_bit());
+        compiler_fence(Ordering::Acquire);
+        dma1.ccr1.write(|w| w.bits(0));
+        dma1.cndtr1.write(|w| w.bits(0));
+        dma1.cpar1.write(|w| w.bits(0));
+        dma1.cmar1.write(|w| w.bits(0));
+        // Clear transfer complete flag & enable DMA receive request
+        usart2.icr.write(|w| w.tccf().set_bit());
+        usart2.cr3.modify(|_, w| w.dmar().set_bit());
+        // Configure addresses and transfer size
+        dma1.cndtr1.write(|w| w.bits(usart2_dma_rcx.buf_size() as u32)); // number of data items (bytes in this case) (bip buffer is power of 2 + 1)
+        let usart2_rdr_addr: u32 = usart2 as *const _ as u32 + 0x24;
+        dma1.cpar1.write(|w| w.bits(usart2_rdr_addr));
+        dma1.cmar1.write(|w| w.bits(usart2_dma_mem_addr)); // memory address
+        // Configure DMA1 Stream 1
+        dma1.ccr1.modify(|_, w| w
+            .teie().clear_bit()// 0: disabled, 1: enabled - transfer error interrupt enable
+            .htie().set_bit() // half transfer interrupt enable
+            .tcie().set_bit() // transfer complete interrupt enable
+            .dir().clear_bit()      // 0: read from peripheral, 1: read from memory
+            .circ().set_bit() // circular mode, 0: disabled, 1: enabled
+            .pinc().clear_bit() // peripheral increment mode, 0: disabled, 1: enabled
+            .psize().bits(0b00) // peripheral size, 00: 8 bits, 01: 16 bits, 10: 32 bits, 11: reserved
+            .minc().set_bit()  // memory increment mode
+            .msize().bits(0b00) // memory size
+            .pl().bits(0b00) // priority
+            .mem2mem().clear_bit() // 0: disabled, 1: enabled
+        );
+        // Configure DMAMUX
+        dmamux.c0cr.modify(|_, w| w
+            .spol().bits(0b00)
+            .se().clear_bit()
+            .ege().clear_bit()
+            .soie().clear_bit()
+            .dmareq_id().bits(26) // USART1_RX: 24, USART1_TX: 25, USART2_RX: 26, USART2_TX: 27, USART3_RX: 28, USART3_TX: 29, UART4_RX: 30, UART4_TX: 31, UART5_RX: 32, UART5_TX: 33, LPUART1_RX: 34, LPUART1_TX: 35
+        );
+        dmamux.rg0cr.modify(|_, w| w.gpol().bits(0b00).ge().set_bit());
+        // Enable DMA1 Stream 1
+        dma1.ccr1.modify(|_, w| w.en().set_bit());
+        compiler_fence(Ordering::Release);
+    }
+    // Enable Idle IRQ
+    imx_serial.listen(hal::serial::Event::Idle);
+    let (lidar_frame_p, lidar_frame_c) = lidar_bbuffer.try_split_framed().unwrap();
+    let lidar = crate::rplidar::RpLidar::new(lidar_frame_p);
+    #[cfg(feature = "br")]
+    cx.spawn.lidar(crate::rplidar::TaskEvent::PeriodicCheck).ok();
 
     cfg_if::cfg_if! {
             if #[cfg(feature = "master")] {
@@ -476,6 +538,8 @@ pub fn init(
                     can0_analyzer,
 
                     imx_serial,
+                    usart2_dma_rcx,
+                    usart2_c: usart2_dma_rx_buffer_c,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
 
@@ -509,6 +573,12 @@ pub fn init(
                     can0_analyzer,
 
                     imx_serial,
+                    usart2_dma_rcx,
+                    usart2_c: usart2_dma_rx_buffer_c,
+                    #[cfg(feature = "br")]
+                    lidar,
+                    #[cfg(feature = "br")]
+                    lidar_frame_c,
 
                     counter_deltas: crate::tasks::blinker::CounterDeltas::default(),
                     #[cfg(feature = "tof")]

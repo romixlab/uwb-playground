@@ -15,3 +15,5 @@ pub use tr::*;
 pub use bl::*;
 #[cfg(feature = "br")]
 pub use br::*;
+
+pub const SOFTOFF_EXT_ID: u32 = 350;

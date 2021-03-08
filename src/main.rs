@@ -12,7 +12,7 @@ mod config;
 mod units;
 mod tasks;
 //mod motion;
-//mod rplidar;
+mod rplidar;
 mod color;
 #[cfg(feature = "tof")]
 mod vl53l1x_multi;
@@ -52,6 +52,13 @@ const APP: () = {
         can0_analyzer: tasks::canbus::CanAnalyzer,
 
         imx_serial: config::ImxSerial,
+        usart2_c: config::Usart2DmaRxBufferC,
+        usart2_dma_rcx: config::Usart2DmaRxContext,
+        // usart2_p: config::Usart2DmaTxBufferP
+        #[cfg(feature = "br")]
+        lidar: rplidar::RpLidar,
+        #[cfg(feature = "br")]
+        lidar_frame_c: rplidar::LidarBBufferC,
 
         counter_deltas: tasks::blinker::CounterDeltas,
 
@@ -64,13 +71,20 @@ const APP: () = {
         spawn = [
             radio_event,
             blinker,
+            lidar,
         ]
     )]
     fn init(cx: init::Context) -> init::LateResources {
         static mut RADIO_COMMANDS_QUEUE: radio::types::CommandQueue = heapless::spsc::Queue(heapless::i::Queue::new());
+        static mut USART2_DMA_RX_BUFFER: config::Usart2DmaRxBuffer = BBBuffer(ConstBBBuffer::new());
+        static mut LIDAR_BBUFFER: rplidar::LidarBBuffer = BBBuffer(ConstBBBuffer::new());
+        // static mut USART2_DMA_TX_BUFFER: config::Usart2DmaTxBuffer = BBBuffer(ConstBBBuffer::new());
+
         tasks::init::init(
             cx,
             RADIO_COMMANDS_QUEUE,
+            USART2_DMA_RX_BUFFER,
+            LIDAR_BBUFFER
         )
     }
 
@@ -79,7 +93,6 @@ const APP: () = {
             idle_counter,
             rtt_down_channel,
             radio_commands,
-            imx_serial,
             vl53l1_multi,
             channels,
         ],
@@ -96,6 +109,7 @@ const APP: () = {
             &clocks,
             led_blinky,
             channels,
+            event_state_data, // for nodes stats print
         ],
         schedule = [
             blinker,
@@ -152,6 +166,7 @@ const APP: () = {
             radio,
             radio_commands,
             event_state_data,
+            channels, // to send estop
         ],
         spawn = [
         ],
@@ -186,6 +201,47 @@ const APP: () = {
     // fn can_irq1(cx: can_irq1::Context) {
     //     rprintln!("can_irq1");
     // }
+
+    #[task(
+        binds = DMA1_CH1,
+        priority = 5,
+        spawn = [lidar],
+        resources = [usart2_dma_rcx]
+    )]
+    fn dma1_stream1(cx: dma1_stream1::Context) {
+        let spawn = cx.spawn;
+        cx.resources.usart2_dma_rcx.handle_dma_rx_irq(|bytes| {
+            spawn.lidar(rplidar::TaskEvent::DataReceived(bytes));
+        });
+
+    }
+
+    #[task(
+        binds = USART2,
+        priority = 5,
+        spawn = [lidar],
+        resources = [usart2_dma_rcx]
+    )]
+    fn usart2_irq(cx: usart2_irq::Context) {
+        let spawn = cx.spawn;
+        cx.resources.usart2_dma_rcx.handle_usart_irq(|bytes| {
+            spawn.lidar(rplidar::TaskEvent::DataReceived(bytes));
+        });
+    }
+
+    #[task(
+        priority = 2,
+        capacity = 4,
+        spawn = [],
+        schedule = [lidar],
+        resources = [&clocks, usart2_c, imx_serial, lidar, lidar_frame_c, channels]
+    )]
+    fn lidar(cx: lidar::Context, e: rplidar::TaskEvent) {
+        static mut UAVCAN_TRANSFER_ID: u8 = 0;
+        static mut FRAME_COUNT: usize = 0;
+        #[cfg(feature = "br")]
+        rplidar::lidar_task(cx, e, UAVCAN_TRANSFER_ID, FRAME_COUNT);
+    }
 
     #[task(
         priority = 2,

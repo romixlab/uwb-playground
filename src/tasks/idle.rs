@@ -62,23 +62,25 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
             rprint!(=>0, "{}> {}", color::GREEN, color::DEFAULT);
         }
 
-        match cx.resources.imx_serial.read() {
-            Ok(c) => {
-                rprint!(=>3, "imx: {}", c as char);
-            },
-            _ => {}
-        }
-        cx.resources.imx_serial.write(0xaa);
-        cx.resources.imx_serial.flush();
+        // match cx.resources.imx_serial.read() {
+        //     Ok(c) => {
+        //         rprint!(=>3, "imx: {}", c as char);
+        //         cx.resources.imx_serial.write(c);
+        //         cx.resources.imx_serial.flush();
+        //     },
+        //     _ => {}
+        // }
+
 
         cfg_if! {
             if #[cfg(feature = "tof")] {
                 let tof_mes = cx.resources.vl53l1_multi.read_all();
                 rprintln!(=>4, "{:#?} mm\n\n", tof_mes);
                 let mut tof_data = [0u8; 8];
-                for i in 0..=1 {
-                    tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes.to_be_bytes());
-                }
+                // for i in 0..=1 {
+                let i = 0;
+                tof_data[i*2..=(i*2+1)].copy_from_slice(&tof_mes.to_be_bytes());
+                // }
 
                 let r = cx.resources.channels.lock(|channels| {
                     let forward_heap: &mut ForwardHeap = &mut channels.can0_forward_heap;
@@ -98,7 +100,7 @@ pub fn idle(mut cx: crate::idle::Context) -> ! {
 
 
         cx.resources.idle_counter.lock(|counter| *counter += Wrapping(1u32));
-        //cortex_m::asm::delay(1_000_000);
+        cortex_m::asm::delay(1_000_000);
         //atomic::compiler_fence(Ordering::SeqCst);
     }
 }

@@ -6,5 +6,5 @@ pub mod canbus;
 //pub mod usart;
 //pub mod motion;
 //pub mod channel_event;
-//pub mod dma;
+pub mod dma;
 //pub mod lift;

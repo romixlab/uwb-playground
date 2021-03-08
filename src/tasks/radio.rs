@@ -1,7 +1,7 @@
 use crate::config;
 use crate::radio;
 use crate::board::hal;
-use crate::radio::types::{Command, Event, RadioConfig, SlotType};
+use crate::radio::types::{Command, Event, RadioConfig, SlotType, Slot};
 use rtic::Mutex;
 use rtt_target::{ rprint, rprintln };
 use rtic::cyccnt::U32Ext;
@@ -18,6 +18,7 @@ use crate::units::{MicroSeconds, U32UnitsExt, us, MilliSeconds};
 use crate::color;
 use crate::radio::scheduler::Scheduler;
 use rtic::cyccnt::Instant as CycntInstant;
+use core::fmt;
 
 pub struct RttTracer {
     pub prev: u32,
@@ -84,6 +85,8 @@ impl Tracer for NoOpTracer {
 
 #[cfg(feature = "gcarrier-board")]
 static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 160_000_000 };
+#[cfg(feature = "gcharger-board")]
+static mut TRACER: RttTracer = RttTracer { prev: 0, prev_gts: 0, sysclk: 160_000_000 };
 
 pub fn radio_irq(mut cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // let now = DWT::get_cycle_count() as i32;
@@ -122,6 +125,34 @@ pub fn radio_irq(mut cx: crate::radio_irq::Context, buffer: &mut[u8], ) {
     // cx.resources.trace_pin.set_low().ok();
 }
 
+#[derive(Debug)]
+pub enum NodeStatus {
+    Online,
+    Offline(MilliSeconds)
+}
+impl Default for NodeStatus {
+    fn default() -> Self {
+        NodeStatus::Offline(MilliSeconds(0))
+    }
+}
+
+#[derive(Default)]
+pub struct NodeInfo {
+    last_seen: Option<CycntInstant>,
+    status: NodeStatus,
+    gts_answered: usize,
+    gts_missed: usize,
+    bytes_received: usize,
+    gts_seen: bool
+}
+impl fmt::Debug for NodeInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} A:{} M:{} b:{}", self.status, self.gts_answered, self.gts_missed, self.bytes_received)
+    }
+}
+
+pub type NodesMap = heapless::FnvIndexMap<dw1000::mac::Address, NodeInfo, heapless::consts::U8>;
+
 #[derive(Default)]
 pub struct EventStateData {
     time_mark: Option<CycntInstant>,
@@ -135,6 +166,8 @@ pub struct EventStateData {
     dyn_duration: MicroSeconds,
     dyn_started: Option<CycntInstant>,
     dyn_elapsed: MicroSeconds,
+
+    pub nodes: NodesMap,
 }
 
 impl EventStateData {
@@ -188,6 +221,11 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             ).ok(); // TODO: count
             cx.resources.event_state_data.clear_flags();
             cx.resources.event_state_data.gts_duration = gt_phase_duration;
+
+            let nodes: &mut NodesMap = &mut cx.resources.event_state_data.nodes;
+            for (_, node) in nodes {
+                node.gts_seen = false;
+            }
         },
         #[cfg(feature = "master")]
         TimeMark(instant) => {
@@ -218,6 +256,32 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
                 elapsed,
                 "GTS"
             );
+
+            let nodes: &mut NodesMap = &mut cx.resources.event_state_data.nodes;
+            let mut at_least_one_offline = false;
+            for (address, node) in nodes {
+                if !node.gts_seen {
+                    at_least_one_offline = true;
+                    node.gts_missed += 1;
+                    match node.last_seen {
+                        Some(last_seen) => {
+                            let now = rtic::cyccnt::Instant::now();
+                            let dt = now.duration_since(last_seen);
+                            let dt = cycles2ms!(cx.resources.clocks, dt.as_cycles());
+                            node.status = NodeStatus::Offline(MilliSeconds(dt as u32));
+                        },
+                        None => {}
+                    }
+                }
+            }
+            if at_least_one_offline {
+                //cx.spawn.efault();
+                cx.resources.channels.lock(|channels| {
+                    let h = &mut channels.can0_send_heap;
+                    let _ = h.heap.push(h.pool.new_frame(vhrdcan::FrameId::new_extended(10).unwrap(), &[0xaa, 0xbb, 0xcc]).unwrap());
+                });
+                rtic::pend(config::CAN0_SEND_IRQ);
+            }
         },
         #[cfg(any(feature = "slave", feature = "anchor"))]
         GTSStartReceived(time_mark) => {
@@ -232,34 +296,62 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             // Remove the time passed since actual message reception.
             // processing_delay is time passed since dw1000 timestamp and message actually pulled from it,
             // in cpu clock cycles.
-            let gt_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::GtsUplink));
-            match gt_slot {
-                Some(s) => {
-                    let duration: MicroSeconds = s.duration;
-                    let duration = us2cycles!(cx.resources.clocks, duration.0);
-                    if s.shift == MicroSeconds(0) {
-                        cx.resources.event_state_data.gts_started = Some(CycntInstant::now());
-                        radio_command!(cx, Command::SendGTSAnswer(s.duration, s.radio_config));
-
-                        cx.schedule.radio_event(
-                            time_mark + duration + half_guard,
-                            Event::GTSShouldHaveEnded
-                        ).ok(); // TODO: count
-                    } else {
-                        let shift: MicroSeconds = s.shift;
-                        let shift = us2cycles!(cx.resources.clocks, shift.0);
-                        cx.schedule.radio_event(
-                            time_mark + shift,
-                            Event::GTSAboutToStart(s.duration, s.radio_config)
-                        ).ok(); // TODO: count
-
-                        cx.schedule.radio_event(
-                            time_mark + shift + duration + half_guard,
-                            Event::GTSShouldHaveEnded
-                        ).ok(); // TODO: count
+            // let gt_slot = cx.resources.radio.lock(|radio| radio.master.find_slot(SlotType::GtsUplink));
+            // match gt_slot {
+            //     Some(s) => {
+            //
+            //     },
+            //     None => {}
+            // }
+            // rprintln!(=>13, "slots:");
+            let mut gts_slots: [Option<Slot>; 3] = [None, None, None];
+            cx.resources.radio.lock(|radio: &mut crate::radio::Radio| {
+                if let NodeState::Active(node) = radio.master {
+                    let mut i = 0;
+                    for s in node.slots.iter() {
+                        match s {
+                            Some(s) => {
+                                if s.slot_type == SlotType::GtsUplink {
+                                    gts_slots[i] = Some(*s);
+                                    i += 1;
+                                }
+                            },
+                            None => {}
+                        }
                     }
-                },
-                None => {}
+                }
+            });
+
+            for s in gts_slots.iter() {
+                match s {
+                    Some(s) => {
+                        let duration: MicroSeconds = s.duration;
+                        let duration = us2cycles!(cx.resources.clocks, duration.0);
+                        if s.shift == MicroSeconds(0) {
+                            cx.resources.event_state_data.gts_started = Some(CycntInstant::now());
+                            radio_command!(cx, Command::SendGTSAnswer(s.duration, s.radio_config));
+
+                            cx.schedule.radio_event(
+                                time_mark + duration + half_guard,
+                                Event::GTSShouldHaveEnded
+                            ).ok(); // TODO: count
+                        } else {
+                            let shift: MicroSeconds = s.shift;
+                            let shift = us2cycles!(cx.resources.clocks, shift.0);
+                            cx.schedule.radio_event(
+                                time_mark + shift,
+                                Event::GTSAboutToStart(s.duration, s.radio_config)
+                            ).ok(); // TODO: count
+
+                            cx.schedule.radio_event(
+                                time_mark + shift + duration + half_guard,
+                                Event::GTSShouldHaveEnded
+                            ).ok(); // TODO: count
+                        }
+                        // rprintln!(=>13, "{:?}", s.shift);
+                    },
+                    None => {}
+                }
             }
 
             // Schedule the start of Aloha slot, if any.
@@ -324,7 +416,7 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
             // }
 
             // Schedule the listen command just before the next GTSStart is about to be sent from master
-            let dt: MilliSeconds = config::GTS_PERIOD - MilliSeconds(2); // TODO: improve
+            let dt: MilliSeconds = config::GTS_PERIOD - MilliSeconds(4); // TODO: improve
             cx.schedule.radio_event(
                 cx.scheduled + ms2cycles!(cx.resources.clocks, dt.0),
                 Event::GTSStartAboutToBeBroadcasted
@@ -389,6 +481,35 @@ pub fn radio_event(mut cx: crate::radio_event::Context, e: Event) {
         },
         RangingSlotEnded => {
             radio_command!(cx, Command::ForceReady);
+        },
+        #[cfg(feature = "master")]
+        MessageReceived(from, size) => {
+            let nodes: &mut NodesMap = &mut cx.resources.event_state_data.nodes;
+            let mut created_entry = false;
+            if !nodes.contains_key(&from) {
+                match nodes.insert(from, NodeInfo::default()) {
+                    Ok(_) => {
+                        created_entry = true;
+                    },
+                    Err(_) => {
+                        //self.overflow = true;
+                        return;
+                    }
+                }
+            }
+            match nodes.get_mut(&from) {
+                Some(node) => {
+                    let now = rtic::cyccnt::Instant::now();
+                    node.last_seen = Some(now);
+                    node.bytes_received += size;
+                    node.gts_answered += 1;
+                    node.status = NodeStatus::Online;
+                    node.gts_seen = true;
+                },
+                None => {
+                    unreachable!();
+                }
+            }
         }
     }
 }
