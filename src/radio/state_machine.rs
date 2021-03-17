@@ -161,7 +161,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
     let commands = &mut radio.commands;
     let mut commands_processed = 0;
 
-    // rprint!(=>13, "I-{:?} -> ", radio.state);
+    rprint!(=>13, "I-{:?} -> ", radio.state);
     while commands.ready() {
         match commands.dequeue() {
             Some(command) => {
@@ -248,7 +248,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
         return;
     }
 
-    // rprint!(=>13, "C-{:?} -> ", radio.state);
+    rprint!(=>13, "C-{:?} -> ", radio.state);
     radio.state = match &mut radio.state {
         Ready(sd) => {
             let ready_radio = sd.take().expect(SM_FAIL_MESSAGE);
@@ -315,7 +315,7 @@ pub fn advance<'a, 'b, 'c, T: Tracer>(
             advance_listening_to_listening(receiving_radio, &mut cx, buffer)
         }
     };
-    // rprintln!(=>13, "E-{:?}", radio.state);
+    rprintln!(=>13, "E-{:?}", radio.state);
 }
 
 fn get_txconfig(radio_config: RadioConfig) -> TxConfig {

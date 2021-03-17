@@ -138,8 +138,8 @@ const APP: () = {
     }
 
     #[task(
-        // binds = EXTI15_10,
-        binds = EXTI9_5,
+        binds = EXTI15_10,
+        // binds = EXTI9_5,
         priority = 4,
         resources = [
             &clocks,

@@ -419,103 +419,14 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
     cfg_if! {
         if #[cfg(feature = "master")] {
             failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D22A).unwrap()), // Radar 1
-                action: RoutingAction::Drop,
-                comment: "Radar1"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D32A).unwrap()), // Radar 2
-                action: RoutingAction::Drop,
-                comment: "Radar2"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D42A).unwrap()), // Radar 3
-                action: RoutingAction::Drop,
-                comment: "Radar3"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003840A).unwrap()), // Motor TL Rpm
-                action: RoutingAction::Drop,
-                comment: "Rpm_TL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1023290A).unwrap()), // Motor TL EN
-                action: RoutingAction::Drop,
-                comment: "EN_TL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D80A).unwrap()), // Tacho TL
-                action: RoutingAction::Drop,
-                comment: "Tacho_TL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(101).unwrap()), // LED TL
-                action: RoutingAction::Drop,
-                comment: "LED_TL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(200).unwrap()), // ToF TL
-                action: RoutingAction::Drop,
-                comment: "ToF_TL"
-            }).is_err() as u32;
-
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003850A).unwrap()), // Motor TR Rpm
-                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
-                comment: "Rpm_TR"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x10238D0A).unwrap()), // Motor TR EN
-                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
-                comment: "EN_TR"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(102).unwrap()), // LED TR
-                action: RoutingAction::Forward(Destination::Unicast(config::TR_UWB_ADDR)),
-                comment: "LED_TR"
-            }).is_err() as u32;
-
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003860A).unwrap()), // Motor BL Rpm
-                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
-                comment: "Rpm_BL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1023F10A).unwrap()), // Motor BL EN
-                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
-                comment: "EN_BL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(103).unwrap()), // LED BL
-                action: RoutingAction::Forward(Destination::Unicast(config::BL_UWB_ADDR)),
-                comment: "LED_BL"
-            }).is_err() as u32;
-
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1003870A).unwrap()), // Motor BR Rpm
-                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
-                comment: "Rpm_BR"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1024550A).unwrap()), // Motor BR EN
-                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
-                comment: "EN_BR"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(104).unwrap()), // LED BR
-                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
-                comment: "LED_BR"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::ExtendedRange(ExtendedId::new(1237).unwrap(), ExtendedId::new(1239).unwrap()), // Radars config
-                action: RoutingAction::Forward(Destination::Unicast(config::BR_UWB_ADDR)),
-                comment: "RadarsConf_BR"
-            }).is_err() as u32;
-
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(newconfig::SOFTOFF_EXT_ID).unwrap()), // Turn off command
+                scope: Scope::ExtendedRange(ExtendedId::new(0x00000300).unwrap(), ExtendedId::new(0x00000321).unwrap()),
                 action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "Off"
+                comment: "VESCsRPM"
+            }).is_err() as u32;
+            failed += table.push(RoutingEntry{
+                scope: Scope::ExtendedRange(ExtendedId::new(0x0000001E).unwrap(), ExtendedId::new(0x00000021).unwrap()),
+                action: RoutingAction::Forward(Destination::Broadcast),
+                comment: "VESCsDUTY"
             }).is_err() as u32;
         } else if #[cfg(feature = "tr")] {
             failed += table.push(RoutingEntry{
@@ -529,42 +440,9 @@ pub fn load_rx_routing_table(table: &mut RxRoutingTable) {
                 comment: "ToF_TR"
             }).is_err() as u32;
         } else if #[cfg(feature = "bl")] {
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004DA0A).unwrap()), // Tacho BL
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "Tacho_BL"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(202).unwrap()), // ToF from Arduino
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "ToF_BL"
-            }).is_err() as u32;
+
         } else if #[cfg(feature = "br")] {
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D52A).unwrap()), // Radar 4
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "Radar4"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D62A).unwrap()), // Radar 5
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "Radar5"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004D72A).unwrap()), // Radar 6
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "Radar6"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(0x1004DB0A).unwrap()), // Tacho BR
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "Tacho_BR"
-            }).is_err() as u32;
-            failed += table.push(RoutingEntry{
-                scope: Scope::Single(FrameId::new_extended(203).unwrap()), // ToF from Arduino
-                action: RoutingAction::Forward(Destination::Broadcast),
-                comment: "ToF_BR"
-            }).is_err() as u32;
+
         }
     }
     if failed > 0 {

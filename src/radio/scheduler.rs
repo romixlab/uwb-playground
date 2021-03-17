@@ -112,7 +112,7 @@ impl Scheduler {
 
         Scheduler {
             slots,
-            active: 4
+            active: 0
         }
     }
 
